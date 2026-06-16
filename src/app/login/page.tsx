@@ -1,15 +1,33 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { signIn } from "next-auth/react";
 import { useRouter } from "next/navigation";
+
+const REMEMBER_KEY = "crm_remember_account";
 
 export default function LoginPage() {
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [remember, setRemember] = useState(true);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+
+  // 进入登录页时，自动填入上次记住的账号
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(REMEMBER_KEY);
+      if (saved) {
+        setEmail(saved);
+        setRemember(true);
+      } else {
+        setRemember(false);
+      }
+    } catch {
+      // localStorage 不可用时静默忽略
+    }
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -26,6 +44,16 @@ export default function LoginPage() {
       if (result?.error) {
         setError("账号或密码错误");
       } else {
+        // 登录成功：按勾选状态记住或清除账号
+        try {
+          if (remember) {
+            localStorage.setItem(REMEMBER_KEY, email);
+          } else {
+            localStorage.removeItem(REMEMBER_KEY);
+          }
+        } catch {
+          // 忽略
+        }
         router.push("/dashboard");
         router.refresh();
       }
@@ -58,6 +86,8 @@ export default function LoginPage() {
               </label>
               <input
                 type="text"
+                name="username"
+                autoComplete="username"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent"
@@ -72,6 +102,8 @@ export default function LoginPage() {
               </label>
               <input
                 type="password"
+                name="password"
+                autoComplete="current-password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent"
@@ -79,6 +111,16 @@ export default function LoginPage() {
                 required
               />
             </div>
+
+            <label className="flex items-center gap-2 text-sm text-gray-600 select-none cursor-pointer">
+              <input
+                type="checkbox"
+                checked={remember}
+                onChange={(e) => setRemember(e.target.checked)}
+                className="h-4 w-4 rounded border-gray-300 text-gray-900 focus:ring-gray-900"
+              />
+              记住账号
+            </label>
 
             {error && (
               <p className="text-sm text-red-600 bg-red-50 px-3 py-2 rounded-lg">
