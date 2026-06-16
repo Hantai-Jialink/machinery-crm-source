@@ -86,6 +86,7 @@ jobs:
             fi
           fi
           if [[ -d node_modules/@prisma ]]; then
+            rm -rf "$PKG_DIR/node_modules/@prisma"
             mkdir -p "$PKG_DIR/node_modules/@prisma"
             cp -aL node_modules/@prisma/. "$PKG_DIR/node_modules/@prisma/"
           fi
