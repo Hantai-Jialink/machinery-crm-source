@@ -8,17 +8,25 @@ import {
   type ShipmentMapGeocodeResponse,
 } from "@/lib/maps/types";
 
-type GeocodeInput = {
-  id: string;
-  address: string;
-};
+// 大川机床 CRM —— 发货地址解析接口（天地图版，带内存缓存 + 并发限流）
+// 天地图返回 CGCS2000(≈WGS84) 坐标，与天地图底图一致，无坐标偏移。
+// 缓存：同一地址在服务器进程存活期间只解析一次，之后秒返回、不再消耗天地图配额。
 
-type GeocodeResult = {
-  point: MapPoint | null;
-  error?: string;
-  amapInfo?: string;
-  amapInfocode?: string;
-};
+type GeocodeInput = { id: string; address: string };
+type GeocodeResult = { point: MapPoint | null; error?: string };
+
+const geoCache = new Map<string, MapPoint>();
+const MAX_DESTINATIONS = 80;
+const CONCURRENCY = 6;
+
+function getTiandituKey() {
+  return (
+    process.env.TIANDITU_KEY ||
+    process.env.TIANDITU_WEB_KEY ||
+    process.env.NEXT_PUBLIC_TIANDITU_KEY ||
+    ""
+  ).trim();
+}
 
 function json(payload: ShipmentMapGeocodeResponse, init?: ResponseInit) {
   return NextResponse.json(payload, init);
@@ -28,82 +36,48 @@ function normalizeAddress(value: unknown) {
   return String(value ?? "").replace(/\s+/g, " ").trim();
 }
 
-async function geocode(address: string): Promise<GeocodeResult> {
-  const key = process.env.AMAP_WEB_SERVICE_KEY?.trim();
+async function geocode(address: string, key: string): Promise<GeocodeResult> {
   const normalizedAddress = normalizeAddress(address);
 
   if (!key) {
-    return {
-      point: null,
-      error: "AMAP_WEB_SERVICE_KEY 未配置，请先在 .env 中配置高德 Web服务 Key",
-    };
+    return { point: null, error: "TIANDITU_KEY 未配置，请先在 .env 中配置天地图密钥(tk)" };
   }
-
   if (!normalizedAddress) {
-    return {
-      point: null,
-      error: "地址为空，无法解析",
-    };
+    return { point: null, error: "地址为空，无法解析" };
   }
 
-  const params = new URLSearchParams({
-    key,
-    address: normalizedAddress,
-    output: "json",
-  });
+  const cached = geoCache.get(normalizedAddress);
+  if (cached) {
+    return { point: { ...cached, address: normalizedAddress } };
+  }
+
+  const ds = JSON.stringify({ keyWord: normalizedAddress });
+  const url = `https://api.tianditu.gov.cn/geocoder?ds=${encodeURIComponent(ds)}&tk=${encodeURIComponent(key)}`;
 
   try {
-    const response = await fetch(`https://restapi.amap.com/v3/geocode/geo?${params.toString()}`, {
-      cache: "no-store",
-    });
-
+    const response = await fetch(url, { cache: "no-store" });
     if (!response.ok) {
-      return {
-        point: null,
-        error: `高德地理编码接口请求失败（HTTP ${response.status}）`,
-      };
+      return { point: null, error: `天地图地理编码接口请求失败（HTTP ${response.status}）` };
     }
 
     const data = await response.json();
-    const first = data?.geocodes?.[0];
-    const location = first?.location;
+    const status = String(data?.status ?? "");
+    const location = data?.location;
 
-    if (data?.status !== "1") {
-      return {
-        point: null,
-        error: data?.info ? `高德地理编码失败：${data.info}` : "高德地理编码失败",
-        amapInfo: data?.info,
-        amapInfocode: data?.infocode,
-      };
+    if (status !== "0" || !location) {
+      const msg = data?.msg || "未返回有效坐标";
+      return { point: null, error: `天地图地理编码失败：${msg}` };
     }
 
-    if (!location) {
-      return {
-        point: null,
-        error: "高德未返回有效坐标",
-        amapInfo: data?.info,
-        amapInfocode: data?.infocode,
-      };
-    }
-
-    const [lng, lat] = String(location).split(",").map(Number);
+    const lng = Number(location.lon);
+    const lat = Number(location.lat);
     if (!Number.isFinite(lng) || !Number.isFinite(lat)) {
-      return {
-        point: null,
-        error: "高德返回的坐标格式无效",
-        amapInfo: data?.info,
-        amapInfocode: data?.infocode,
-      };
+      return { point: null, error: "天地图返回的坐标格式无效" };
     }
 
-    return {
-      point: {
-        lng,
-        lat,
-        address: normalizedAddress,
-        name: first?.formatted_address || normalizedAddress,
-      },
-    };
+    const point: MapPoint = { lng, lat, address: normalizedAddress, name: normalizedAddress };
+    geoCache.set(normalizedAddress, point);
+    return { point };
   } catch (error) {
     return {
       point: null,
@@ -112,23 +86,47 @@ async function geocode(address: string): Promise<GeocodeResult> {
   }
 }
 
+async function geocodeAll(items: GeocodeInput[], key: string): Promise<ShipmentMapDestination[]> {
+  const results: ShipmentMapDestination[] = new Array(items.length);
+  let cursor = 0;
+
+  async function worker() {
+    while (cursor < items.length) {
+      const index = cursor++;
+      const item = items[index];
+      const address = normalizeAddress(item?.address);
+      const id = String(item?.id || "");
+
+      if (!id || !address) {
+        results[index] = { id, address, error: "缺少收货地址" };
+        continue;
+      }
+      const r = await geocode(address, key);
+      results[index] = r.point
+        ? { id, address, location: r.point }
+        : { id, address, error: r.error || "地址解析失败" };
+    }
+  }
+
+  const workers = Array.from({ length: Math.min(CONCURRENCY, items.length || 1) }, () => worker());
+  await Promise.all(workers);
+  return results;
+}
+
 export async function POST(request: NextRequest) {
   const user = await getSessionUser();
   if (!user) {
     return NextResponse.json({ error: "未登录" }, { status: 401 });
   }
 
+  const key = getTiandituKey();
+
   let body: unknown;
   try {
     body = await request.json();
   } catch {
     return json(
-      {
-        ok: false,
-        error: "请求体不是有效 JSON",
-        origin: null,
-        destinations: [],
-      },
+      { ok: false, error: "请求体不是有效 JSON", origin: null, destinations: [] },
       { status: 400 }
     );
   }
@@ -137,7 +135,7 @@ export async function POST(request: NextRequest) {
     ? ((body as any).destinations as GeocodeInput[])
     : [];
 
-  const originResult = await geocode(FACTORY_ADDRESS);
+  const originResult = await geocode(FACTORY_ADDRESS, key);
   const origin = originResult.point;
   if (origin) {
     origin.name = FACTORY_NAME;
@@ -150,36 +148,13 @@ export async function POST(request: NextRequest) {
       failedAddress: FACTORY_ADDRESS,
       origin: null,
       destinations: [],
+      mapKey: key,
     });
   }
 
-  const resolved: ShipmentMapDestination[] = await Promise.all(
-    destinations.slice(0, 30).map(async (item) => {
-      const address = normalizeAddress(item?.address);
-      const id = String(item?.id || "");
+  const resolved = await geocodeAll(destinations.slice(0, MAX_DESTINATIONS), key);
 
-      if (!id || !address) {
-        return {
-          id,
-          address,
-          error: "缺少收货地址",
-        };
-      }
-
-      const result = await geocode(address);
-      return result.point
-        ? { id, address, location: result.point }
-        : {
-            id,
-            address,
-            error: result.error || "地址解析失败",
-            amapInfo: result.amapInfo,
-            amapInfocode: result.amapInfocode,
-          };
-    })
-  );
-
-  const resolvedCount = resolved.filter((destination) => Boolean(destination.location)).length;
+  const resolvedCount = resolved.filter((d) => Boolean(d.location)).length;
   const skippedCount = resolved.length - resolvedCount;
 
   return json({
@@ -188,5 +163,6 @@ export async function POST(request: NextRequest) {
     destinations: resolved,
     resolvedCount,
     skippedCount,
+    mapKey: key,
   });
 }

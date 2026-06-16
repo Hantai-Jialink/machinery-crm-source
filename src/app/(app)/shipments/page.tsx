@@ -3,9 +3,10 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useSession } from "next-auth/react";
-import { Edit2, FileText, Image, Plus, Search, Truck, X } from "lucide-react";
+import { Edit2, FileText, Image, Plus, Search, Trash2, Truck, X } from "lucide-react";
 import { REGIONS } from "@/lib/constants";
 import { toProtectedUploadUrl } from "@/lib/upload-urls";
+import { ContractCombobox } from "@/components/contracts/contract-combobox";
 
 const SHIPMENT_STATUS_LABELS: Record<string, { label: string; color: string }> = {
   NOT_SHIPPED: { label: "未发货", color: "bg-gray-100 text-gray-700" },
@@ -169,6 +170,27 @@ export default function ShipmentsPage() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
+  const handleDelete = async (shipment: any) => {
+    if (!confirm(`确认删除这条发货记录？\n合同：${shipment.contract?.contractNo || "-"}\n设备：${shipment.equipmentName || "-"} ×${shipment.quantity}\n删除后该记录将从列表移除（完整内容会留存在「操作日志」中可追溯）。`)) return;
+    clearMessages();
+    setSaving(true);
+    try {
+      const res = await fetch(`/api/shipments/${shipment.id}`, { method: "DELETE" });
+      const data = await readJson(res);
+      if (!res.ok) {
+        setError(data.error || "删除发货记录失败");
+        return;
+      }
+      if (editingShipment?.id === shipment.id) resetForm();
+      setNotice("发货记录已删除");
+      fetchShipments();
+    } catch {
+      setError("网络错误，请稍后重试");
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const uploadFile = async (file: File, type: "docs" | "photos") => {
     const formData = new FormData();
     formData.append("file", file);
@@ -251,11 +273,12 @@ export default function ShipmentsPage() {
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             <div>
               <label className="block text-xs font-medium text-gray-600 mb-1">关联合同 *</label>
-              <select value={form.contractId} disabled={!!editingShipment} onChange={(event) => handleContractChange(event.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 disabled:bg-gray-50">
-                <option value="">请选择合同</option>
-                {contracts.map((contract) => <option key={contract.id} value={contract.id}>{contract.contractNo} - {contract.customer?.companyName}</option>)}
-              </select>
+              <ContractCombobox
+                contracts={contracts}
+                value={form.contractId}
+                onChange={handleContractChange}
+                disabled={!!editingShipment}
+              />
               {editingShipment && <p className="text-xs text-gray-400 mt-1">修改发货记录时不允许更换合同</p>}
             </div>
             <FormInput label="发货日期 *" type="date" value={form.shipmentDate} onChange={(value) => setForm({ ...form, shipmentDate: value })} />
@@ -365,9 +388,14 @@ export default function ShipmentsPage() {
                   </div>
                 </td>
                 <td className="px-4 py-3">
-                  <button onClick={() => startEdit(shipment)} disabled={saving} className="inline-flex items-center gap-1 text-xs text-gray-600 hover:text-gray-900 disabled:opacity-50">
-                    <Edit2 className="w-3.5 h-3.5" />修改
-                  </button>
+                  <div className="flex items-center gap-3">
+                    <button onClick={() => startEdit(shipment)} disabled={saving} className="inline-flex items-center gap-1 text-xs text-gray-600 hover:text-gray-900 disabled:opacity-50">
+                      <Edit2 className="w-3.5 h-3.5" />修改
+                    </button>
+                    <button onClick={() => handleDelete(shipment)} disabled={saving} className="inline-flex items-center gap-1 text-xs text-red-600 hover:text-red-700 disabled:opacity-50">
+                      <Trash2 className="w-3.5 h-3.5" />删除
+                    </button>
+                  </div>
                 </td>
               </tr>
             ))}

@@ -1,120 +1,107 @@
+// 大川机床 CRM —— 地图引擎加载器
+// 说明：本文件原为高德(AMap)加载器，现已改为加载 Leaflet + 天地图底图。
+// 为了不改动其它引用此文件的代码，文件名与导出名保持不变（loadLeaflet 为新增）。
+// Leaflet 的 js/css 已放在 public/vendor/leaflet/ 下，由本站同源加载，
+// 不依赖任何外部 CDN，国内服务器访问最稳定。
+
 declare global {
   interface Window {
-    AMap?: any;
-    _AMapSecurityConfig?: {
-      securityJsCode?: string;
-    };
-    __dachuanAmapLoader?: Promise<any>;
-    __dachuanAmapReady?: (AMap: any) => void;
-    __dachuanAmapError?: (error: unknown) => void;
+    L?: any;
+    __dachuanLeafletLoader?: Promise<any>;
   }
 }
 
-export function getAmapClientConfig() {
-  return {
-    key: process.env.NEXT_PUBLIC_AMAP_JS_KEY || "",
-    securityCode: process.env.NEXT_PUBLIC_AMAP_SECURITY_CODE || "",
-  };
+const LEAFLET_JS = "/vendor/leaflet/leaflet.js";
+const LEAFLET_CSS = "/vendor/leaflet/leaflet.css";
+
+function ensureStylesheet() {
+  if (document.querySelector('link[data-dachuan-leaflet="true"]')) return;
+  const link = document.createElement("link");
+  link.rel = "stylesheet";
+  link.href = LEAFLET_CSS;
+  link.dataset.dachuanLeaflet = "true";
+  document.head.appendChild(link);
 }
 
-function waitForAmapReady(timeoutMs = 15000) {
+function waitForLeafletReady(timeoutMs = 15000) {
   return new Promise<any>((resolve, reject) => {
     const startedAt = Date.now();
-
     const check = () => {
-      if (window.AMap?.Map) {
-        resolve(window.AMap);
+      if (window.L?.map) {
+        resolve(window.L);
         return;
       }
-
       if (Date.now() - startedAt > timeoutMs) {
-        reject(new Error("高德地图脚本已加载，但 AMap.Map 未就绪，请检查 JS API Key、白名单或浏览器网络。"));
+        reject(new Error("Leaflet 脚本已加载，但未就绪，请检查 /vendor/leaflet/leaflet.js 是否能正常访问。"));
         return;
       }
-
-      window.setTimeout(check, 80);
+      window.setTimeout(check, 60);
     };
-
     check();
   });
 }
 
-export function loadAmap() {
-  const { key, securityCode } = getAmapClientConfig();
-
-  if (!key) {
-    return Promise.reject(new Error("高德 Web端 JS API Key 未配置"));
-  }
-
-  if (!securityCode) {
-    return Promise.reject(new Error("高德 Web端 JS 安全密钥未配置"));
-  }
-
+export function loadLeaflet() {
   if (typeof window === "undefined") {
-    return Promise.reject(new Error("高德地图只能在浏览器中加载"));
+    return Promise.reject(new Error("地图只能在浏览器中加载"));
   }
 
-  window._AMapSecurityConfig = {
-    securityJsCode: securityCode,
-  };
-
-  if (window.AMap?.Map) {
-    return Promise.resolve(window.AMap);
+  if (window.L?.map) {
+    ensureStylesheet();
+    return Promise.resolve(window.L);
   }
 
-  if (window.__dachuanAmapLoader) {
-    return window.__dachuanAmapLoader;
+  if (window.__dachuanLeafletLoader) {
+    return window.__dachuanLeafletLoader;
   }
 
-  window.__dachuanAmapLoader = new Promise((resolve, reject) => {
-    const existedScript = document.querySelector<HTMLScriptElement>("script[data-dachuan-amap='true']");
+  window.__dachuanLeafletLoader = new Promise((resolve, reject) => {
+    ensureStylesheet();
 
+    const existed = document.querySelector<HTMLScriptElement>('script[data-dachuan-leaflet="true"]');
     const finish = () => {
-      waitForAmapReady()
-        .then((AMap) => {
-          console.info("[Dachuan CRM AMap] JS API ready");
-          resolve(AMap);
+      waitForLeafletReady()
+        .then((L) => {
+          console.info("[Dachuan CRM] Leaflet ready");
+          resolve(L);
         })
         .catch((error) => {
-          window.__dachuanAmapLoader = undefined;
+          window.__dachuanLeafletLoader = undefined;
           reject(error);
         });
     };
 
-    if (existedScript) {
-      existedScript.addEventListener("load", finish, { once: true });
-      existedScript.addEventListener(
-        "error",
-        () => {
-          window.__dachuanAmapLoader = undefined;
-          reject(new Error("高德地图脚本加载失败，请检查 Web端 JS API Key、域名白名单和网络连接"));
-        },
-        { once: true }
-      );
-      finish();
+    if (existed) {
+      if (window.L?.map) {
+        finish();
+      } else {
+        existed.addEventListener("load", finish, { once: true });
+        existed.addEventListener(
+          "error",
+          () => {
+            window.__dachuanLeafletLoader = undefined;
+            reject(new Error("Leaflet 脚本加载失败，请检查 public/vendor/leaflet/leaflet.js 是否随包部署。"));
+          },
+          { once: true }
+        );
+      }
       return;
     }
 
-    window.__dachuanAmapReady = () => finish();
-    window.__dachuanAmapError = (error) => {
-      window.__dachuanAmapLoader = undefined;
-      reject(error instanceof Error ? error : new Error("高德地图脚本加载失败"));
-    };
-
     const script = document.createElement("script");
-    script.src = `https://webapi.amap.com/maps?v=2.0&key=${encodeURIComponent(
-      key
-    )}&plugin=AMap.Scale,AMap.ToolBar&callback=__dachuanAmapReady`;
+    script.src = LEAFLET_JS;
     script.async = true;
-    script.dataset.dachuanAmap = "true";
-
+    script.dataset.dachuanLeaflet = "true";
+    script.onload = finish;
     script.onerror = () => {
-      window.__dachuanAmapLoader = undefined;
-      reject(new Error("高德地图脚本加载失败，请检查 Web端 JS API Key、域名白名单和网络连接"));
+      window.__dachuanLeafletLoader = undefined;
+      reject(new Error("Leaflet 脚本加载失败，请检查 public/vendor/leaflet/leaflet.js 是否随包部署。"));
     };
-
     document.head.appendChild(script);
   });
 
-  return window.__dachuanAmapLoader;
+  return window.__dachuanLeafletLoader;
 }
+
+// 兼容旧引用名（如有），统一指向 loadLeaflet
+export const loadAmap = loadLeaflet;

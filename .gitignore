@@ -23,14 +23,6 @@
 # misc
 .DS_Store
 *.pem
-*.key
-*.p12
-*.crt
-*.zip
-*.tar
-*.tar.gz
-*.tmp
-*.bak*
 
 # debug
 npm-debug.log*
@@ -40,11 +32,7 @@ yarn-error.log*
 
 # env files
 .env
-.env.*
-.evn
-.evn.*
-*.env
-*.env.*
+.env.local
 !.env.example
 
 # vercel

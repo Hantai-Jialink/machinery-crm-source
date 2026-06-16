@@ -68,6 +68,46 @@ export default function ContractsPage() {
   const [signedEnd, setSignedEnd] = useState("");
 
   const userRole = (session?.user as any)?.role;
+  const [refreshTick, setRefreshTick] = useState(0);
+  const [actionMsg, setActionMsg] = useState("");
+
+  // 超级管理员：直接软删除（走系统已有的删除接口，不真删数据）
+  const handleDelete = async (contract: any) => {
+    if (!confirm(`确认删除合同「${contract.contractNo}」？\n该合同将被标记删除（数据仍保留，可后续恢复）。`)) return;
+    setActionMsg("");
+    setError("");
+    const res = await fetch(`/api/contracts/${contract.id}`, { method: "DELETE" });
+    const data = await readJson(res);
+    if (!res.ok) {
+      setError(data.error || "删除失败");
+      return;
+    }
+    setActionMsg(`合同「${contract.contractNo}」已删除。`);
+    setRefreshTick((tick) => tick + 1);
+  };
+
+  // 普通业务员/外贸：提交删除申请，等待超级管理员审批
+  const handleRequestDelete = async (contract: any) => {
+    const reason = window.prompt(`申请删除合同「${contract.contractNo}」。\n请填写删除原因（必填，提交后需超级管理员审批）：`);
+    if (reason === null) return;
+    if (!reason.trim()) {
+      setError("删除原因为必填项");
+      return;
+    }
+    setActionMsg("");
+    setError("");
+    const res = await fetch(`/api/contract-delete-requests`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ contractId: contract.id, reason: reason.trim() }),
+    });
+    const data = await readJson(res);
+    if (!res.ok) {
+      setError(data.error || "提交申请失败");
+      return;
+    }
+    setActionMsg(`已提交「${contract.contractNo}」的删除申请，等待超级管理员审批。`);
+  };
 
   const query = useMemo(() => {
     const params = new URLSearchParams();
@@ -99,7 +139,7 @@ export default function ContractsPage() {
     return () => {
       active = false;
     };
-  }, [query]);
+  }, [query, refreshTick]);
 
   useEffect(() => {
     fetch("/api/users/active")
@@ -131,6 +171,7 @@ export default function ContractsPage() {
       </div>
 
       {error && <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
+      {actionMsg && <div className="rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">{actionMsg}</div>}
 
       <div className="bg-white rounded-xl border border-gray-200 p-4 space-y-3">
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
@@ -191,13 +232,14 @@ export default function ContractsPage() {
                 <th className="text-left px-4 py-3 text-xs font-medium text-gray-500">回款状态</th>
                 <th className="text-left px-4 py-3 text-xs font-medium text-gray-500">合同状态</th>
                 <th className="text-left px-4 py-3 text-xs font-medium text-gray-500">签订日期</th>
+                <th className="text-right px-4 py-3 text-xs font-medium text-gray-500">操作</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
               {loading ? (
-                <tr><td colSpan={10} className="text-center py-8 text-sm text-gray-500">加载中...</td></tr>
+                <tr><td colSpan={11} className="text-center py-8 text-sm text-gray-500">加载中...</td></tr>
               ) : contracts.length === 0 ? (
-                <tr><td colSpan={10} className="text-center py-8 text-sm text-gray-500">暂无合同</td></tr>
+                <tr><td colSpan={11} className="text-center py-8 text-sm text-gray-500">暂无合同</td></tr>
               ) : (
                 contracts.map((contract) => {
                   const status = contractStatusBadge(contract);
@@ -217,6 +259,23 @@ export default function ContractsPage() {
                       <td className="px-4 py-3"><span className={`text-xs px-2 py-0.5 rounded-full ${PAYMENT_STATUS_LABELS[contract.paymentStatus]?.color}`}>{PAYMENT_STATUS_LABELS[contract.paymentStatus]?.label}</span></td>
                       <td className="px-4 py-3"><span className={`text-xs px-2 py-0.5 rounded-full ${status.color}`}>{status.label}</span></td>
                       <td className="px-4 py-3 text-xs text-gray-500">{new Date(contract.signedDate).toLocaleDateString("zh-CN")}</td>
+                      <td className="px-4 py-3 text-right">
+                        {userRole === "SUPER_ADMIN" ? (
+                          <button
+                            onClick={() => handleDelete(contract)}
+                            className="text-xs px-2.5 py-1 rounded-lg border border-red-200 text-red-600 hover:bg-red-50"
+                          >
+                            删除
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => handleRequestDelete(contract)}
+                            className="text-xs px-2.5 py-1 rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-50"
+                          >
+                            申请删除
+                          </button>
+                        )}
+                      </td>
                     </tr>
                   );
                 })
@@ -235,19 +294,32 @@ export default function ContractsPage() {
           contracts.map((contract) => {
             const status = contractStatusBadge(contract);
             return (
-              <Link key={contract.id} href={`/contracts/${contract.id}`} className="block bg-white rounded-xl border border-gray-200 p-4">
-                <div className="flex items-start justify-between">
-                  <div>
-                    <p className="text-sm font-medium text-gray-900">{contract.contractNo}</p>
-                    <p className="text-xs text-gray-500 mt-0.5">{contract.customer?.companyName} · {contractEquipmentLabel(contract)}</p>
+              <div key={contract.id} className="bg-white rounded-xl border border-gray-200 p-4">
+                <Link href={`/contracts/${contract.id}`} className="block">
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <p className="text-sm font-medium text-gray-900">{contract.contractNo}</p>
+                      <p className="text-xs text-gray-500 mt-0.5">{contract.customer?.companyName} · {contractEquipmentLabel(contract)}</p>
+                    </div>
+                    <span className={`text-xs px-2 py-0.5 rounded-full ${PAYMENT_STATUS_LABELS[contract.paymentStatus]?.color}`}>{PAYMENT_STATUS_LABELS[contract.paymentStatus]?.label}</span>
                   </div>
-                  <span className={`text-xs px-2 py-0.5 rounded-full ${PAYMENT_STATUS_LABELS[contract.paymentStatus]?.color}`}>{PAYMENT_STATUS_LABELS[contract.paymentStatus]?.label}</span>
+                  <div className="flex items-center justify-between mt-3 text-xs">
+                    <span className="text-gray-500">合同金额：{formatMoney(contract.amount)}</span>
+                    <span className={`px-2 py-0.5 rounded-full ${status.color}`}>{status.label}</span>
+                  </div>
+                </Link>
+                <div className="mt-3 pt-3 border-t border-gray-100 flex justify-end">
+                  {userRole === "SUPER_ADMIN" ? (
+                    <button onClick={() => handleDelete(contract)} className="text-xs px-2.5 py-1 rounded-lg border border-red-200 text-red-600 hover:bg-red-50">
+                      删除
+                    </button>
+                  ) : (
+                    <button onClick={() => handleRequestDelete(contract)} className="text-xs px-2.5 py-1 rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-50">
+                      申请删除
+                    </button>
+                  )}
                 </div>
-                <div className="flex items-center justify-between mt-3 text-xs">
-                  <span className="text-gray-500">合同金额：{formatMoney(contract.amount)}</span>
-                  <span className={`px-2 py-0.5 rounded-full ${status.color}`}>{status.label}</span>
-                </div>
-              </Link>
+              </div>
             );
           })
         )}

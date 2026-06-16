@@ -1,10 +1,14 @@
 "use client";
 
+import { useState } from "react";
 import { useSession } from "next-auth/react";
 import { ROLE_LABELS } from "@/lib/constants";
+import { APP_NAME, APP_VERSION, CURRENT_RELEASE, CHANGELOG } from "@/lib/changelog";
 
 export default function SettingsPage() {
   const { data: session } = useSession();
+  const [showHistory, setShowHistory] = useState(false);
+  const history = CHANGELOG.slice(1);
 
   return (
     <div className="space-y-6">
@@ -34,17 +38,44 @@ export default function SettingsPage() {
 
       <div className="bg-white rounded-xl border border-gray-200 p-6">
         <h2 className="text-sm font-semibold text-gray-700 mb-2">系统版本</h2>
-        <p className="text-sm font-medium text-gray-900">DachuanPro v1.1.0</p>
+        <p className="text-sm font-medium text-gray-900">{APP_NAME} {APP_VERSION}</p>
         <div className="mt-4 space-y-2">
-          <p className="text-xs font-medium text-gray-500">当前版本更新内容</p>
+          <p className="text-xs font-medium text-gray-500">当前版本更新内容（{CURRENT_RELEASE.date}）</p>
           <ol className="space-y-1 text-sm text-gray-600 list-decimal list-inside">
-            <li>第二阶段完善合同与回款管理，支持回款记录修改与金额联动校验。</li>
-            <li>增加合同锁定规则，已发货、已完成、已归档合同默认禁止普通用户修改。</li>
-            <li>增加超级管理员审批机制，锁定合同需审批后方可修改。</li>
-            <li>新增操作日志后台，记录回款、合同、审批等关键操作。</li>
-            <li>优化一键转合同规则，避免重复生成合同和金额覆盖风险。</li>
+            {CURRENT_RELEASE.notes.map((note, index) => (
+              <li key={index}>{note}</li>
+            ))}
           </ol>
         </div>
+
+        {history.length > 0 && (
+          <div className="mt-6 border-t border-gray-100 pt-4">
+            <button
+              type="button"
+              onClick={() => setShowHistory((value) => !value)}
+              className="text-xs font-medium text-gray-500 hover:text-gray-900"
+            >
+              {showHistory ? "收起历史更新记录" : `查看历史更新记录（${history.length} 个版本）`}
+            </button>
+            {showHistory && (
+              <div className="mt-3 space-y-4">
+                {history.map((release) => (
+                  <div key={release.version}>
+                    <p className="text-sm font-medium text-gray-800">
+                      {APP_NAME} {release.version}
+                      <span className="text-xs font-normal text-gray-400"> · {release.date}</span>
+                    </p>
+                    <ol className="mt-1 space-y-1 text-sm text-gray-500 list-decimal list-inside">
+                      {release.notes.map((note, index) => (
+                        <li key={index}>{note}</li>
+                      ))}
+                    </ol>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

@@ -1,0 +1,120 @@
+name: 构建预构建独立包 (standalone)
+
+# 触发方式：
+# 1) 手动：在 GitHub 仓库 Actions 页面点 "Run workflow"
+# 2) 自动：每次 push 到 main 分支
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+jobs:
+  build:
+    # GitHub 云端的 Linux x64 glibc 机器，与你服务器目标平台一致，内存充足
+    runs-on: ubuntu-latest
+
+    env:
+      # 构建期占位用（运行时仍以服务器上的真实 .env 为准；这里只是让 build 顺利通过）
+      DATABASE_URL: "mysql://user:pass@localhost:3306/db"
+
+    steps:
+      - name: 拉取源码
+        uses: actions/checkout@v4
+
+      - name: 安装 Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: 安装 pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          # 如首次构建报 lockfile 不匹配，把这里换成你们本地实际使用的 pnpm 大版本
+          version: 9
+
+      # ---------- 构建阶段（等价于 Codex 脚本的 1/2/3 步）----------
+      - name: 安装依赖
+        run: pnpm install --frozen-lockfile
+
+      - name: 生成 Prisma client（含多平台引擎）
+        run: pnpm exec prisma generate
+
+      - name: Next standalone 构建
+        run: pnpm build
+
+      # ---------- 打包阶段（原样照搬 Codex 脚本的 4~9 步）----------
+      - name: 组装并打包独立包
+        run: |
+          set -Eeuo pipefail
+
+          APP_NAME="machinery-crm"
+          VERSION="${VERSION:-v108-step1}"
+          STAMP="$(date +%Y-%m-%d-%H%M)"
+          OUT_DIR="$PWD/dist"
+          PKG_DIR="$OUT_DIR/${APP_NAME}-${VERSION}-prebuilt-standalone-linux-x64"
+          PKG_FILE="$OUT_DIR/${APP_NAME}-${VERSION}-prebuilt-standalone-linux-x64-${STAMP}.tar.gz"
+
+          rm -rf "$PKG_DIR"
+          mkdir -p "$OUT_DIR"
+
+          # 4. 准备独立包目录
+          mkdir -p "$PKG_DIR"
+          cp -a .next/standalone/. "$PKG_DIR/"
+
+          # 5. 补齐 Next standalone 不会自动复制的静态资源
+          mkdir -p "$PKG_DIR/.next"
+          cp -a .next/static "$PKG_DIR/.next/static"
+          if [[ -d public ]]; then
+            cp -a public "$PKG_DIR/public"
+          fi
+
+          # 6. 补齐 Prisma schema、migrations、运行时引擎
+          mkdir -p "$PKG_DIR/prisma"
+          cp -a prisma/schema.prisma "$PKG_DIR/prisma/schema.prisma"
+          if [[ -d prisma/migrations ]]; then
+            cp -a prisma/migrations "$PKG_DIR/prisma/migrations"
+          fi
+
+          mkdir -p "$PKG_DIR/node_modules"
+          if [[ -d node_modules/.prisma ]]; then
+            cp -a node_modules/.prisma "$PKG_DIR/node_modules/.prisma"
+          fi
+          if [[ -d node_modules/@prisma ]]; then
+            mkdir -p "$PKG_DIR/node_modules/@prisma"
+            cp -a node_modules/@prisma/. "$PKG_DIR/node_modules/@prisma/"
+          fi
+          # 可选但推荐：保留 Prisma CLI 包，方便 fallback / 排查
+          if [[ -d node_modules/prisma ]]; then
+            cp -a node_modules/prisma "$PKG_DIR/node_modules/prisma"
+          fi
+
+          # 7. 放入启动脚本和部署说明
+          cp -a start-standalone.cjs "$PKG_DIR/start-standalone.cjs"
+          cp -a package.json "$PKG_DIR/package.json"
+          cp -a pnpm-lock.yaml "$PKG_DIR/pnpm-lock.yaml"
+          if [[ -f STANDALONE_DEPLOY.md ]]; then
+            cp -a STANDALONE_DEPLOY.md "$PKG_DIR/STANDALONE_DEPLOY.md"
+          fi
+          if [[ -f deploy_standalone_low_memory.sh ]]; then
+            cp -a deploy_standalone_low_memory.sh "$PKG_DIR/deploy_standalone_low_memory.sh"
+            chmod +x "$PKG_DIR/deploy_standalone_low_memory.sh"
+          fi
+
+          # 8. 校验关键文件
+          test -f "$PKG_DIR/.next/standalone/server.js" || test -f "$PKG_DIR/server.js"
+          test -d "$PKG_DIR/.next/static"
+          test -f "$PKG_DIR/prisma/schema.prisma"
+          find "$PKG_DIR/node_modules/.prisma/client" -name 'libquery_engine-*' -print -quit >/dev/null
+
+          # 9. 打 tar.gz，归档内保留一个顶层目录
+          tar -C "$OUT_DIR" -czf "$PKG_FILE" "$(basename "$PKG_DIR")"
+
+          echo "OK: $PKG_FILE"
+          ls -lh "$PKG_FILE"
+
+      - name: 上传成品包（可在本次运行页面底部下载）
+        uses: actions/upload-artifact@v4
+        with:
+          name: machinery-crm-prebuilt-standalone
+          path: dist/*.tar.gz
+          retention-days: 30

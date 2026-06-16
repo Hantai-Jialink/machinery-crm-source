@@ -2,6 +2,7 @@ import NextAuth from "next-auth";
 import Credentials from "next-auth/providers/credentials";
 import { prisma } from "@/lib/db";
 import bcryptjs from "bcryptjs";
+import { checkLoginRateLimit, recordLoginFailure, resetLoginRateLimit } from "@/lib/rate-limit";
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
   trustHost: true,
@@ -17,22 +18,35 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           return null;
         }
 
+        const email = String(credentials.email).trim();
+        const password = String(credentials.password);
+        const rateLimitKey = email.toLowerCase();
+        const rateLimit = checkLoginRateLimit(rateLimitKey);
+
+        if (!rateLimit.allowed) {
+          return null;
+        }
+
         const user = await prisma.user.findUnique({
-          where: { email: credentials.email as string },
+          where: { email },
         });
 
         if (!user || !user.isActive) {
+          recordLoginFailure(rateLimitKey);
           return null;
         }
 
         const isPasswordValid = await bcryptjs.compare(
-          credentials.password as string,
+          password,
           user.password
         );
 
         if (!isPasswordValid) {
+          recordLoginFailure(rateLimitKey);
           return null;
         }
+
+        resetLoginRateLimit(rateLimitKey);
 
         return {
           id: user.id,

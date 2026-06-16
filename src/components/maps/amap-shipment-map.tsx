@@ -1,8 +1,13 @@
 "use client";
 
+// 大川机床 CRM —— 全国发货路径图（天地图版）
+// 本组件原使用高德(AMap)，现已改为 Leaflet + 天地图 WMTS 底图。
+// 文件名与导出名 AmapShipmentMap 保持不变，避免改动 dashboard 引用。
+// 视觉上：底图为天地图矢量图经深色滤镜处理，航线更细、光标更小，贴近航旅纵横风格。
+
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AlertCircle, Loader2, MapPin } from "lucide-react";
-import { loadAmap } from "@/lib/maps/amap";
+import { loadLeaflet } from "@/lib/maps/amap";
 import {
   FACTORY_ADDRESS,
   FACTORY_NAME,
@@ -17,11 +22,17 @@ type AmapShipmentMapProps = {
 type RenderState = "idle" | "geocoding" | "loading-map" | "rendering" | "ready" | "error";
 
 type FlowRoute = {
-  path: number[][];
+  path: number[][]; // [lat, lng] 数组
   marker: any;
   duration: number;
   offset: number;
 };
+
+// 瓦片改为经本站服务器中转（/api/map/tile），浏览器不再直连天地图、也不暴露密钥。
+// 这样所有天地图请求都从服务器发出，配合“服务器端密钥 + IP白名单”即可正常授权。
+function tileProxyUrl(layer: "vec" | "cva") {
+  return `/api/map/tile?layer=${layer}&z={z}&x={x}&y={y}`;
+}
 
 function statusColor(status: string) {
   if (status === "SHIPPED") return "#67e8f9";
@@ -40,8 +51,8 @@ function escapeHtml(value: unknown) {
 
 function routeTitle(shipment: any, address: string) {
   return `
-    <div style="min-width:220px;font-size:12px;line-height:1.65;color:#111827">
-      <div style="font-weight:600;margin-bottom:4px">${escapeHtml(
+    <div style="min-width:200px;font-size:12px;line-height:1.6;color:#e0f2fe">
+      <div style="font-weight:600;margin-bottom:4px;color:#a5f3fc">${escapeHtml(
         shipment.contract?.customer?.companyName || "客户"
       )}</div>
       <div>设备：${escapeHtml(
@@ -56,21 +67,22 @@ function routeTitle(shipment: any, address: string) {
   `;
 }
 
+function factoryTitle() {
+  return `<div style="font-size:12px;line-height:1.6;color:#e0f2fe"><b style="color:#a5f3fc">${escapeHtml(
+    FACTORY_NAME
+  )}</b><br/>${escapeHtml(FACTORY_ADDRESS)}</div>`;
+}
+
 function formatMapError(error: string) {
   if (!error) return "";
-  if (error.includes("INVALID_USER_KEY")) return "高德 Web端 JS API Key 无效，请检查 NEXT_PUBLIC_AMAP_JS_KEY。";
-  if (error.includes("INVALID_SECURITY_CODE")) return "高德安全密钥无效，请检查 NEXT_PUBLIC_AMAP_SECURITY_CODE。";
-  if (error.includes("USERKEY_PLAT_NOMATCH")) return "高德 Key 类型不匹配，请确认前端使用的是 Web端 JS API Key。";
-  if (error.includes("INVALID_REFERER") || error.includes("INVALID_USER_DOMAIN")) {
-    return "高德域名白名单不匹配，请在高德控制台加入当前访问域名/IP。";
+  if (error.includes("TIANDITU_KEY")) return "天地图密钥(tk)未配置，请在 .env 中设置 TIANDITU_KEY。";
+  if (error.includes("权限") || error.includes("403") || error.includes("授权")) {
+    return "天地图密钥被拒绝。请确认天地图控制台该应用的“IP白名单”包含服务器的出口IP（或暂时清空IP白名单），保存后等待 1-2 分钟再刷新。";
   }
   return error;
 }
 
-function getLocationPair(point: { lng: number; lat: number }) {
-  return [Number(point.lng), Number(point.lat)];
-}
-
+// createArcPath 在 [经度, 纬度] 空间内计算二次贝塞尔弧线
 function createArcPath(start: number[], end: number[], bend = 0.22) {
   const dx = end[0] - start[0];
   const dy = end[1] - start[1];
@@ -108,28 +120,31 @@ function positionOnPath(path: number[][], progress: number) {
   ];
 }
 
+// 起点（工厂）光标：小巧的脉冲圆环 + 核心点 + 文字标签
 function factoryMarkerContent(label: string) {
   return `
-    <div style="transform:translate(-50%,-50%);position:relative;width:34px;height:34px;">
-      <div style="position:absolute;inset:-12px;border-radius:999px;background:rgba(103,232,249,.14);box-shadow:0 0 34px rgba(103,232,249,.95);animation:dachuan-map-pulse 1.8s ease-in-out infinite;"></div>
-      <div style="position:absolute;inset:6px;border-radius:999px;background:#e0ffff;border:3px solid #22d3ee;box-shadow:0 0 18px #67e8f9;"></div>
-      <div style="position:absolute;left:24px;top:-7px;padding:5px 9px;border-radius:999px;background:rgba(2,8,23,.76);border:1px solid rgba(103,232,249,.55);box-shadow:0 0 18px rgba(103,232,249,.35);font-size:12px;color:#ecfeff;white-space:nowrap;">${escapeHtml(label)}</div>
+    <div style="transform:translate(-50%,-50%);position:relative;width:22px;height:22px;">
+      <div style="position:absolute;inset:-7px;border-radius:999px;background:rgba(103,232,249,.12);box-shadow:0 0 18px rgba(103,232,249,.8);animation:dachuan-map-pulse 1.9s ease-in-out infinite;"></div>
+      <div style="position:absolute;inset:6px;border-radius:999px;background:#e0ffff;border:2px solid #22d3ee;box-shadow:0 0 10px #67e8f9;"></div>
+      <div style="position:absolute;left:16px;top:-5px;padding:3px 7px;border-radius:999px;background:rgba(2,8,23,.72);border:1px solid rgba(103,232,249,.5);font-size:11px;color:#ecfeff;white-space:nowrap;">${escapeHtml(label)}</div>
     </div>
   `;
 }
 
+// 终点（客户）光标：更小的发光点 + 文字标签
 function customerMarkerContent(label: string, color: string) {
   return `
     <div style="transform:translate(-50%,-50%);position:relative;">
-      <div style="width:13px;height:13px;border-radius:999px;background:#fff;border:3px solid ${color};box-shadow:0 0 14px ${color},0 0 28px ${color};"></div>
-      <div style="position:absolute;left:16px;top:-11px;padding:4px 8px;border-radius:999px;background:rgba(2,8,23,.72);border:1px solid rgba(148,163,184,.38);font-size:12px;color:#e0f2fe;white-space:nowrap;">${escapeHtml(label)}</div>
+      <div style="width:8px;height:8px;border-radius:999px;background:#fff;border:2px solid ${color};box-shadow:0 0 8px ${color},0 0 16px ${color};"></div>
+      <div style="position:absolute;left:11px;top:-9px;padding:2px 6px;border-radius:999px;background:rgba(2,8,23,.68);border:1px solid rgba(148,163,184,.35);font-size:11px;color:#e0f2fe;white-space:nowrap;">${escapeHtml(label)}</div>
     </div>
   `;
 }
 
+// 流光点：沿航线移动的小光点
 function flowMarkerContent(color: string) {
   return `
-    <div style="width:22px;height:22px;transform:translate(-50%,-50%);border-radius:999px;background:radial-gradient(circle,#ffffff 0 15%,${color} 24% 42%,rgba(255,255,255,0) 52%);box-shadow:0 0 10px ${color},0 0 24px ${color},0 0 42px ${color};pointer-events:none;"></div>
+    <div style="width:14px;height:14px;transform:translate(-50%,-50%);border-radius:999px;background:radial-gradient(circle,#ffffff 0 18%,${color} 28% 46%,rgba(255,255,255,0) 56%);box-shadow:0 0 7px ${color},0 0 16px ${color};pointer-events:none;"></div>
   `;
 }
 
@@ -183,17 +198,14 @@ export function AmapShipmentMap({ shipments }: AmapShipmentMapProps) {
         if (!response.ok) {
           throw new Error(data?.error || `发货地址解析接口异常（${response.status}）`);
         }
-
         if (!data) {
           throw new Error("发货地址解析接口未返回有效数据");
         }
-
         if (data.ok === false) {
           throw new Error(data.error || "发货地址解析失败");
         }
-
         if (!data.origin) {
-          throw new Error("起点地址解析失败，请检查工厂地址或高德 Web服务 Key。");
+          throw new Error("起点地址解析失败，请检查工厂地址或天地图密钥。");
         }
 
         if (active) setGeocodeData(data);
@@ -225,7 +237,8 @@ export function AmapShipmentMap({ shipments }: AmapShipmentMapProps) {
     async function renderMap() {
       if (!mapRef.current || !geocodeData?.origin) return;
 
-      const validDestinations = geocodeData.destinations.filter((destination: ShipmentMapDestination) => Boolean(destination.location));
+      // 瓦片已改为服务器中转，浏览器端不再需要密钥；密钥是否有效由地址解析阶段保证。
+      const validDestinations = geocodeData.destinations.filter((d: ShipmentMapDestination) => Boolean(d.location));
       if (validDestinations.length === 0) {
         setMapError("当前发货记录没有可显示的有效收货坐标，请检查收货地址是否完整。");
         setRenderState("error");
@@ -239,58 +252,62 @@ export function AmapShipmentMap({ shipments }: AmapShipmentMapProps) {
         const container = mapRef.current;
         container.style.width = "100%";
         container.style.height = "100%";
-        container.innerHTML = "";
 
         await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
 
-        const AMap = await loadAmap();
+        const L = await loadLeaflet();
         if (!active || !mapRef.current || token !== renderTokenRef.current) return;
 
         setRenderState("rendering");
 
         if (mapInstance.current) {
-          mapInstance.current.destroy();
+          mapInstance.current.remove();
           mapInstance.current = null;
         }
 
         const origin = geocodeData.origin;
-        const originPosition = getLocationPair(origin);
-        const map = new AMap.Map(mapRef.current, {
+        const originLngLat = [Number(origin.lng), Number(origin.lat)];
+        const originLatLng = [originLngLat[1], originLngLat[0]];
+
+        const map = L.map(mapRef.current, {
+          center: originLatLng,
           zoom: 5,
-          center: originPosition,
-          resizeEnable: true,
-          viewMode: "2D",
-          mapStyle: "amap://styles/darkblue",
-          showLabel: true,
-          features: ["bg", "road", "point"],
-          layers: [new AMap.TileLayer()],
+          minZoom: 4,
+          maxZoom: 12,
+          zoomControl: false,
+          attributionControl: true,
+          zoomSnap: 0.25,
+          worldCopyJump: false,
         });
+        map.attributionControl.setPrefix(false);
+        L.control.zoom({ position: "bottomright" }).addTo(map);
+
+        L.tileLayer(tileProxyUrl("vec"), {
+          minZoom: 1,
+          maxZoom: 18,
+          attribution: "© 天地图",
+        }).addTo(map);
+        L.tileLayer(tileProxyUrl("cva"), {
+          minZoom: 1,
+          maxZoom: 18,
+        }).addTo(map);
 
         mapInstance.current = map;
 
-        const overlays: any[] = [];
+        const allLatLngs: number[][] = [originLatLng];
         const flowRoutes: FlowRoute[] = [];
-        const infoWindow = new AMap.InfoWindow({ offset: new AMap.Pixel(0, -30) });
+        const popup = L.popup({ closeButton: false, className: "dc-popup", offset: [0, -4], autoPan: false });
 
-        try {
-          map.addControl(new AMap.Scale());
-          map.addControl(new AMap.ToolBar({ position: "RB" }));
-        } catch (controlError) {
-          console.warn("[Dachuan CRM AMap] add control failed", controlError);
-        }
-
-        const factoryMarker = new AMap.Marker({
-          position: originPosition,
-          title: FACTORY_NAME,
-          content: factoryMarkerContent(FACTORY_NAME),
-          zIndex: 160,
+        // 起点光标
+        const factoryIcon = L.divIcon({
+          html: factoryMarkerContent(FACTORY_NAME),
+          className: "dc-divicon",
+          iconSize: [0, 0],
+          iconAnchor: [0, 0],
         });
-        factoryMarker.on("click", () => {
-          infoWindow.setContent(`<div style="font-size:12px;line-height:1.6"><b>${escapeHtml(FACTORY_NAME)}</b><br/>${escapeHtml(FACTORY_ADDRESS)}</div>`);
-          infoWindow.open(map, originPosition);
-        });
-        map.add(factoryMarker);
-        overlays.push(factoryMarker);
+        const factoryMarker = L.marker(originLatLng, { icon: factoryIcon, zIndexOffset: 600 }).addTo(map);
+        factoryMarker.on("mouseover", () => popup.setLatLng(originLatLng).setContent(factoryTitle()).openOn(map));
+        factoryMarker.on("mouseout", () => map.closePopup(popup));
 
         geocodeData.destinations.forEach((destination: ShipmentMapDestination, destinationIndex: number) => {
           if (!destination.location) return;
@@ -299,63 +316,73 @@ export function AmapShipmentMap({ shipments }: AmapShipmentMapProps) {
           const shipment = shipments[shipmentIndex >= 0 ? shipmentIndex : destinationIndex];
           if (!shipment) return;
 
-          const position = getLocationPair(destination.location);
+          const destLngLat = [Number(destination.location.lng), Number(destination.location.lat)];
+          const destLatLng = [destLngLat[1], destLngLat[0]];
           const color = statusColor(shipment.shipmentStatus);
           const customerName = shipment.contract?.customer?.companyName || destination.address || "客户";
-          const arcPath = createArcPath(originPosition, position, destinationIndex % 2 === 0 ? 0.24 : -0.2);
 
-          const baseLine = new AMap.Polyline({
-            path: arcPath,
-            strokeColor: "#7dd3fc",
-            strokeWeight: 2,
-            strokeOpacity: 0.2,
-            strokeStyle: "solid",
+          // 在 [经度,纬度] 空间算弧线，再转成 Leaflet 的 [纬度,经度]
+          const arcLngLat = createArcPath(originLngLat, destLngLat, destinationIndex % 2 === 0 ? 0.24 : -0.2);
+          const arcLatLng = arcLngLat.map(([lng, lat]) => [lat, lng]);
+          allLatLngs.push(destLatLng);
+
+          // 柔和的底层光晕（细）
+          const glowLine = L.polyline(arcLatLng, {
+            color,
+            weight: 4,
+            opacity: 0.16,
             lineJoin: "round",
-            zIndex: 70,
-          });
+            className: "dc-arc-glow",
+            interactive: false,
+          }).addTo(map);
 
-          const glowLine = new AMap.Polyline({
-            path: arcPath,
-            strokeColor: color,
-            strokeWeight: 5,
-            strokeOpacity: 0.18,
-            strokeStyle: "solid",
+          // 明亮的主航线（很细）
+          const brightLine = L.polyline(arcLatLng, {
+            color,
+            weight: 1.3,
+            opacity: 0.92,
             lineJoin: "round",
-            zIndex: 80,
-          });
+            className: "dc-arc-line",
+            interactive: false,
+          }).addTo(map);
 
-          const brightLine = new AMap.Polyline({
-            path: arcPath,
-            strokeColor: color,
-            strokeWeight: 2,
-            strokeOpacity: 0.92,
-            strokeStyle: "solid",
-            lineJoin: "round",
-            zIndex: 95,
-          });
+          // 透明的“热区”线，加宽便于鼠标悬停
+          const hitLine = L.polyline(arcLatLng, {
+            color: "#000",
+            weight: 14,
+            opacity: 0,
+            interactive: true,
+          }).addTo(map);
+          const html = routeTitle(shipment, destination.address);
+          hitLine.on("mouseover", (e: any) => popup.setLatLng(e.latlng).setContent(html).openOn(map));
+          hitLine.on("mousemove", (e: any) => popup.setLatLng(e.latlng));
+          hitLine.on("mouseout", () => map.closePopup(popup));
 
-          const customerMarker = new AMap.Marker({
-            position,
-            title: customerName,
-            content: customerMarkerContent(customerName, color),
-            zIndex: 150,
+          // 终点光标
+          const customerIcon = L.divIcon({
+            html: customerMarkerContent(customerName, color),
+            className: "dc-divicon",
+            iconSize: [0, 0],
+            iconAnchor: [0, 0],
           });
-          customerMarker.on("click", () => {
-            infoWindow.setContent(routeTitle(shipment, destination.address));
-            infoWindow.open(map, position);
-          });
+          const customerMarker = L.marker(destLatLng, { icon: customerIcon, zIndexOffset: 500 }).addTo(map);
+          customerMarker.on("mouseover", () => popup.setLatLng(destLatLng).setContent(html).openOn(map));
+          customerMarker.on("mouseout", () => map.closePopup(popup));
 
-          const flowMarker = new AMap.Marker({
-            position: originPosition,
-            content: flowMarkerContent(color),
-            zIndex: 210,
-            clickable: false,
+          // 流光点
+          const flowIcon = L.divIcon({
+            html: flowMarkerContent(color),
+            className: "dc-divicon",
+            iconSize: [0, 0],
+            iconAnchor: [0, 0],
           });
+          const flowMarker = L.marker(originLatLng, { icon: flowIcon, zIndexOffset: 700, interactive: false }).addTo(map);
 
-          map.add([baseLine, glowLine, brightLine, customerMarker, flowMarker]);
-          overlays.push(baseLine, glowLine, brightLine, customerMarker, flowMarker);
+          void glowLine;
+          void brightLine;
+
           flowRoutes.push({
-            path: arcPath,
+            path: arcLatLng,
             marker: flowMarker,
             duration: 3200 + destinationIndex * 360,
             offset: destinationIndex * 680,
@@ -364,43 +391,42 @@ export function AmapShipmentMap({ shipments }: AmapShipmentMapProps) {
 
         const animateFlow = (time: number) => {
           if (!active || token !== renderTokenRef.current) return;
-
           flowRoutes.forEach((route) => {
             const progress = ((time + route.offset) % route.duration) / route.duration;
-            route.marker.setPosition(positionOnPath(route.path, progress));
+            const p = positionOnPath(route.path, progress);
+            route.marker.setLatLng(p as any);
           });
-
           animationFrameRef.current = requestAnimationFrame(animateFlow);
         };
-
         if (flowRoutes.length > 0) {
           animationFrameRef.current = requestAnimationFrame(animateFlow);
         }
 
-        const fitMap = () => {
+        const fit = () => {
           if (!active || token !== renderTokenRef.current) return;
           try {
-            map.resize();
-            map.setFitView(overlays, false, [72, 72, 72, 72]);
+            map.invalidateSize();
+            if (allLatLngs.length > 1) {
+              map.fitBounds(L.latLngBounds(allLatLngs as any), { padding: [56, 56], maxZoom: 9 });
+            }
           } catch (fitError) {
-            console.warn("[Dachuan CRM AMap] fit view failed", fitError);
+            console.warn("[Dachuan CRM Map] fit view failed", fitError);
           }
         };
 
-        map.on("complete", () => {
-          fitMap();
+        map.whenReady(() => {
+          fit();
           setRenderState("ready");
         });
-
-        window.setTimeout(fitMap, 250);
+        window.setTimeout(fit, 250);
         window.setTimeout(() => {
-          fitMap();
+          fit();
           if (active && token === renderTokenRef.current) setRenderState("ready");
         }, 1000);
       } catch (error) {
         if (active) {
-          console.error("[Dachuan CRM AMap] render failed", error);
-          setMapError(error instanceof Error ? error.message : "高德地图加载失败");
+          console.error("[Dachuan CRM Map] render failed", error);
+          setMapError(error instanceof Error ? error.message : "天地图加载失败");
           setRenderState("error");
         }
       }
@@ -415,14 +441,14 @@ export function AmapShipmentMap({ shipments }: AmapShipmentMapProps) {
         animationFrameRef.current = null;
       }
       if (mapInstance.current) {
-        mapInstance.current.destroy();
+        mapInstance.current.remove();
         mapInstance.current = null;
       }
     };
   }, [geocodeData, shipments]);
 
   const resolvedCount =
-    geocodeData?.destinations.filter((destination: ShipmentMapDestination) => Boolean(destination.location)).length || 0;
+    geocodeData?.destinations.filter((d: ShipmentMapDestination) => Boolean(d.location)).length || 0;
   const skippedCount = geocodeData?.skippedCount ?? Math.max((geocodeData?.destinations.length || 0) - resolvedCount, 0);
   const uniqueRegions = new Set(shipments.map((shipment) => shipment.contract?.customer?.region).filter(Boolean)).size;
   const displayError = formatMapError(mapError);
@@ -476,31 +502,42 @@ export function AmapShipmentMap({ shipments }: AmapShipmentMapProps) {
             0%, 100% { transform: scale(.72); opacity: .46; }
             50% { transform: scale(1.18); opacity: .92; }
           }
-          .dachuan-space-map .amap-layer img,
-          .dachuan-space-map .amap-tile,
-          .dachuan-space-map canvas {
-            filter: invert(1) hue-rotate(165deg) saturate(1.55) brightness(.58) contrast(1.18);
+          /* 天地图底图深色化滤镜（仅作用于瓦片，不影响航线/光标） */
+          .dachuan-space-map .leaflet-tile-pane {
+            filter: invert(1) hue-rotate(192deg) brightness(.62) contrast(1.18) saturate(.82);
           }
-          .dachuan-space-map .amap-logo,
-          .dachuan-space-map .amap-copyright {
-            filter: none;
-            opacity: .72;
+          .dachuan-space-map { background: #03060f; }
+          .dachuan-space-map .leaflet-container { background: #03060f; }
+          /* 航线发光 */
+          .dachuan-space-map .dc-arc-line { filter: drop-shadow(0 0 3px currentColor); }
+          .dachuan-space-map .dc-arc-glow { filter: blur(1.5px); }
+          /* divIcon 透明容器 */
+          .dachuan-space-map .dc-divicon { background: transparent; border: 0; }
+          /* 悬停信息弹窗：深色 */
+          .dc-popup .leaflet-popup-content-wrapper {
+            background: rgba(2,8,23,.92);
+            border: 1px solid rgba(103,232,249,.4);
+            box-shadow: 0 0 24px rgba(34,211,238,.22);
+            border-radius: 10px;
+            color: #e0f2fe;
           }
-          .dachuan-space-map .amap-controls {
-            filter: invert(1) hue-rotate(165deg) saturate(1.2) brightness(.82);
+          .dc-popup .leaflet-popup-content { margin: 10px 12px; }
+          .dc-popup .leaflet-popup-tip {
+            background: rgba(2,8,23,.92);
+            border: 1px solid rgba(103,232,249,.4);
           }
-          .dachuan-space-map::after {
-            content: "";
-            position: absolute;
-            inset: 0;
-            pointer-events: none;
-            background:
-              radial-gradient(circle at 58% 46%, rgba(34, 211, 238, .18), transparent 18%),
-              linear-gradient(90deg, rgba(2, 6, 23, .38), transparent 28%, transparent 72%, rgba(2, 6, 23, .42)),
-              linear-gradient(180deg, rgba(2, 6, 23, .24), transparent 42%, rgba(2, 6, 23, .34));
-            mix-blend-mode: screen;
-            z-index: 2;
+          /* 缩放控件深色化 */
+          .dachuan-space-map .leaflet-control-zoom a {
+            background: rgba(2,8,23,.82);
+            color: #a5f3fc;
+            border-color: rgba(103,232,249,.3);
           }
+          .dachuan-space-map .leaflet-control-zoom a:hover { background: rgba(8,47,73,.9); }
+          .dachuan-space-map .leaflet-control-attribution {
+            background: rgba(2,8,23,.6);
+            color: rgba(186,230,253,.7);
+          }
+          .dachuan-space-map .leaflet-control-attribution a { color: rgba(186,230,253,.9); }
         `}</style>
         <div
           ref={mapRef}
@@ -508,12 +545,12 @@ export function AmapShipmentMap({ shipments }: AmapShipmentMapProps) {
           style={{ width: "100%", height: "100%", minHeight: 520 }}
         />
 
-        <div className="pointer-events-none absolute left-4 top-4 z-10 rounded-lg border border-cyan-300/25 bg-slate-950/72 px-4 py-3 text-cyan-50 shadow-[0_0_32px_rgba(34,211,238,.18)] backdrop-blur">
+        <div className="pointer-events-none absolute left-4 top-4 z-[500] rounded-lg border border-cyan-300/25 bg-slate-950/72 px-4 py-3 text-cyan-50 shadow-[0_0_32px_rgba(34,211,238,.18)] backdrop-blur">
           <p className="text-xs text-cyan-100/70">大川机床发货网络</p>
           <p className="text-sm font-semibold text-cyan-50">滕州工厂实时路径</p>
         </div>
 
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 flex items-end justify-between gap-3 bg-gradient-to-t from-slate-950/78 to-transparent p-4">
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[500] flex items-end justify-between gap-3 bg-gradient-to-t from-slate-950/78 to-transparent p-4">
           <div className="rounded-full border border-cyan-300/20 bg-slate-950/70 px-4 py-2 text-xs text-cyan-100/75 backdrop-blur">
             流光航线按当前筛选范围内发货记录生成
           </div>
@@ -523,7 +560,7 @@ export function AmapShipmentMap({ shipments }: AmapShipmentMapProps) {
         </div>
 
         {(isBusy || displayError || shipments.length === 0) && (
-          <div className="absolute inset-0 z-20 flex items-center justify-center bg-slate-950/80 px-6 text-center text-sm text-cyan-50 backdrop-blur-sm">
+          <div className="absolute inset-0 z-[1000] flex items-center justify-center bg-slate-950/80 px-6 text-center text-sm text-cyan-50 backdrop-blur-sm">
             {isBusy ? (
               <div className="flex flex-col items-center gap-2">
                 <Loader2 className="h-5 w-5 animate-spin text-cyan-200" />

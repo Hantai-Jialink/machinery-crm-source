@@ -106,6 +106,12 @@ enum ContractUnlockStatus {
   USED
 }
 
+enum ContractDeleteStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
 // ==================== 用户模型 ====================
 
 model User {
@@ -130,6 +136,8 @@ model User {
   operationLogs    OperationLog[]
   requestedUnlocks ContractUnlockRequest[] @relation("ContractUnlockRequester")
   approvedUnlocks  ContractUnlockRequest[] @relation("ContractUnlockApprover")
+  requestedDeletes ContractDeleteRequest[] @relation("ContractDeleteRequester")
+  approvedDeletes  ContractDeleteRequest[] @relation("ContractDeleteApprover")
 
   @@map("users")
 }
@@ -322,6 +330,7 @@ model Contract {
   shipments Shipment[]
   items     ContractItem[]
   unlockRequests ContractUnlockRequest[]
+  deleteRequests ContractDeleteRequest[]
 
   @@index([customerId])
   @@index([salesUserId])
@@ -421,6 +430,29 @@ model ContractUnlockRequest {
   @@index([approverId])
   @@index([status])
   @@map("contract_unlock_requests")
+}
+
+model ContractDeleteRequest {
+  id               String               @id @default(uuid())
+  contractId       String
+  contract         Contract             @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  requesterId      String
+  requester        User                 @relation("ContractDeleteRequester", fields: [requesterId], references: [id])
+  approverId       String?
+  approver         User?                @relation("ContractDeleteApprover", fields: [approverId], references: [id])
+  status           ContractDeleteStatus @default(PENDING)
+  reason           String               @db.Text
+  approvalRemark   String?              @db.Text
+  createdAt        DateTime             @default(now())
+  approvedAt       DateTime?
+  rejectedAt       DateTime?
+  updatedAt        DateTime             @updatedAt
+
+  @@index([contractId])
+  @@index([requesterId])
+  @@index([approverId])
+  @@index([status])
+  @@map("contract_delete_requests")
 }
 
 model OperationLog {

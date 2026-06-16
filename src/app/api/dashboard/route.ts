@@ -115,6 +115,18 @@ export async function GET(request: NextRequest) {
       shipmentWhere.shipmentStatus = { not: "SHIPPED" };
     }
 
+    // 发货路径图专用：显示全部"已发货/部分发货"记录，不受上方日期范围限制，
+    // 但仍尊重区域/业务员/客户/合同等筛选；这样地图能展示完整的发货网络。
+    const shipmentPathWhere: any = {
+      contract: {
+        ...contractWhere,
+        customer: { ...(contractWhere.customer || {}) },
+      },
+      shipmentStatus: { in: ["SHIPPED", "PARTIAL_SHIPPED"] },
+    };
+    if (shipmentStatus === "SHIPPED") shipmentPathWhere.shipmentStatus = "SHIPPED";
+    if (shipmentStatus === "NOT_SHIPPED") shipmentPathWhere.shipmentStatus = "NOT_SHIPPED";
+
     const estimatedShipmentWhere: any = {
       ...contractWhere,
       estimatedShipmentDate: { not: null },
@@ -187,8 +199,8 @@ export async function GET(request: NextRequest) {
         select: { id: true, companyName: true, contactName: true, nextFollowDate: true, assignedUser: { select: { name: true } } },
       }),
       prisma.shipment.findMany({
-        where: shipmentWhere,
-        take: 12,
+        where: shipmentPathWhere,
+        take: 80,
         orderBy: { shipmentDate: "desc" },
         include: {
           contract: {

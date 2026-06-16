@@ -100,3 +100,45 @@ export async function PUT(
     return NextResponse.json({ error: error.message || "修改发货记录失败" }, { status: 400 });
   }
 }
+
+export async function DELETE(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const user = await getSessionUser();
+    if (!user) return NextResponse.json({ error: "未登录" }, { status: 401 });
+
+    const { id } = await params;
+    const shipment = await prisma.shipment.findUnique({
+      where: { id },
+      include: {
+        contract: {
+          include: { customer: { select: { region: true } } },
+        },
+      },
+    });
+    if (!shipment) return NextResponse.json({ error: "发货记录不存在" }, { status: 404 });
+    // 权限与“修改”一致：超级管理员，或与该合同同区域的人
+    if (!isSuperAdmin(user) && shipment.contract.customer.region !== user.region) {
+      return NextResponse.json({ error: "无权限删除该发货记录" }, { status: 403 });
+    }
+
+    await prisma.$transaction(async (tx) => {
+      // 删除前先把整条记录快照写入操作日志，便于追溯/还原
+      await writeOperationLog(tx, {
+        userId: user.id,
+        action: "DELETE_SHIPMENT",
+        entityType: "Shipment",
+        entityId: id,
+        beforeData: shipment,
+      });
+      await tx.shipment.delete({ where: { id } });
+    });
+
+    return NextResponse.json({ success: true });
+  } catch (error: any) {
+    console.error("[shipments.id.DELETE]", error);
+    return NextResponse.json({ error: error.message || "删除发货记录失败" }, { status: 400 });
+  }
+}
