@@ -77,15 +77,21 @@ jobs:
 
           mkdir -p "$PKG_DIR/node_modules"
           if [[ -d node_modules/.prisma ]]; then
-            cp -a node_modules/.prisma "$PKG_DIR/node_modules/.prisma"
+            cp -aL node_modules/.prisma "$PKG_DIR/node_modules/.prisma"
+          else
+            PRISMA_CLIENT_DIR="$(find node_modules -path '*/.prisma/client' -type d -print -quit)"
+            if [[ -n "$PRISMA_CLIENT_DIR" ]]; then
+              mkdir -p "$PKG_DIR/node_modules/.prisma"
+              cp -aL "$(dirname "$PRISMA_CLIENT_DIR")/." "$PKG_DIR/node_modules/.prisma/"
+            fi
           fi
           if [[ -d node_modules/@prisma ]]; then
             mkdir -p "$PKG_DIR/node_modules/@prisma"
-            cp -a node_modules/@prisma/. "$PKG_DIR/node_modules/@prisma/"
+            cp -aL node_modules/@prisma/. "$PKG_DIR/node_modules/@prisma/"
           fi
           # 可选但推荐：保留 Prisma CLI 包，方便 fallback / 排查
           if [[ -d node_modules/prisma ]]; then
-            cp -a node_modules/prisma "$PKG_DIR/node_modules/prisma"
+            cp -aL node_modules/prisma "$PKG_DIR/node_modules/prisma"
           fi
 
           # 7. 放入启动脚本和部署说明
