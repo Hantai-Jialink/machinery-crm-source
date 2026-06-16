@@ -1,0 +1,461 @@
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "debian-openssl-1.1.x", "debian-openssl-3.0.x", "rhel-openssl-1.0.x", "rhel-openssl-1.1.x", "rhel-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+// ==================== 枚举定义 ====================
+
+enum Role {
+  SUPER_ADMIN
+  SALES
+  FOREIGN_TRADE
+}
+
+enum CustomerStatus {
+  NEW_LEAD
+  CONTACTED
+  QUOTED
+  NEGOTIATING
+  WON
+  LOST
+  INACTIVE
+}
+
+enum CustomerType {
+  NEW
+  OLD
+  AGENT
+  END_USER
+  DISTRIBUTOR
+}
+
+enum CustomerLevel {
+  A
+  B
+  C
+  D
+}
+
+enum FollowType {
+  PHONE
+  WECHAT
+  EMAIL
+  WHATSAPP
+  VIDEO
+  VISIT
+  EXHIBITION
+  OTHER
+}
+
+enum Language {
+  ZH
+  EN
+  ES
+  RU
+}
+
+enum ProductType {
+  MAIN
+  OPTIONAL
+}
+
+enum QuoteItemType {
+  MAIN
+  OPTIONAL
+}
+
+enum ContractItemType {
+  MAIN
+  OPTIONAL
+}
+
+enum PaymentStatus {
+  UNPAID
+  PARTIAL_PAID
+  PAID
+}
+
+enum ContractStatus {
+  DRAFT
+  SIGNED
+  CANCELLED
+  COMPLETED
+  ARCHIVED
+}
+
+enum ShipmentStatus {
+  NOT_SHIPPED
+  PARTIAL_SHIPPED
+  SHIPPED
+}
+
+enum PaymentRecordStatus {
+  ACTIVE
+  VOIDED
+}
+
+enum ContractUnlockStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  USED
+}
+
+// ==================== 用户模型 ====================
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  password  String
+  name      String
+  role      Role
+  region    String   @default("其他")
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  customers        Customer[]
+  followRecords    FollowRecord[]
+  auditLogs        AuditLog[]
+  contracts        Contract[]       @relation("SalesUser")
+  createdContracts Contract[]       @relation("ContractCreator")
+  customerQuotes   CustomerQuote[]
+  contractPayments ContractPayment[]
+  shipments        Shipment[]
+  operationLogs    OperationLog[]
+  requestedUnlocks ContractUnlockRequest[] @relation("ContractUnlockRequester")
+  approvedUnlocks  ContractUnlockRequest[] @relation("ContractUnlockApprover")
+
+  @@map("users")
+}
+
+// ==================== 客户模型 ====================
+
+model Customer {
+  id             String         @id @default(uuid())
+  companyName    String
+  contactName    String
+  phone          String?
+  wechat         String?
+  whatsapp       String?
+  email          String?
+  country        String?        @default("中国")
+  province       String?
+  city           String?
+  region         String
+  address        String?        @db.Text
+  customerSource String
+  customerType   CustomerType
+  customerLevel  CustomerLevel
+  status         CustomerStatus @default(NEW_LEAD)
+  interestTags   Json           @default("[]")
+  assignedUserId String?
+  assignedUser   User?          @relation(fields: [assignedUserId], references: [id])
+  remark         String?        @db.Text
+  lastFollowDate DateTime?
+  nextFollowDate DateTime?      @db.Date
+  duplicateKey   String?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  deletedAt      DateTime?
+
+  followRecords  FollowRecord[]
+  contracts      Contract[]
+  customerQuotes CustomerQuote[]
+
+  @@index([region])
+  @@index([status])
+  @@index([assignedUserId])
+  @@index([nextFollowDate])
+  @@index([deletedAt])
+  @@map("customers")
+}
+
+// ==================== 跟进记录模型 ====================
+
+model FollowRecord {
+  id             String          @id @default(uuid())
+  customerId     String
+  customer       Customer        @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  userId         String
+  user           User            @relation(fields: [userId], references: [id])
+  followType     FollowType
+  content        String          @db.Text
+  result         String?         @db.Text
+  nextFollowDate DateTime?       @db.Date
+  newStatus      CustomerStatus?
+  createdAt      DateTime        @default(now())
+
+  @@index([customerId])
+  @@index([userId])
+  @@map("follow_records")
+}
+
+// ==================== 产品模型（主表） ====================
+
+model Product {
+  id           String   @id @default(uuid())
+  model        String   @unique
+  category     String
+  productType  ProductType @default(MAIN)
+  imageUrl     String?
+  videoUrl     String?
+  factoryPrice Decimal? @db.Decimal(12, 2)
+  currency     String   @default("CNY")
+  remark       String?  @db.Text
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  translations   ProductTranslation[]
+  contracts      Contract[]
+  customerQuotes CustomerQuote[]
+  quoteItems     CustomerQuoteItem[]
+  contractItems  ContractItem[]
+
+  @@map("products")
+}
+
+// ==================== 产品多语言资料模型 ====================
+
+model ProductTranslation {
+  id          String   @id @default(uuid())
+  productId   String
+  product     Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  language    Language
+  name        String
+  description String?  @db.Text
+  specs       Json?
+  pdfUrl      String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([productId, language])
+  @@map("product_translations")
+}
+
+// ==================== 客户报价模型 ====================
+
+model CustomerQuote {
+  id                   String   @id @default(uuid())
+  customerId           String
+  customer             Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  productId            String
+  product              Product  @relation(fields: [productId], references: [id])
+  quotedPrice          Decimal  @db.Decimal(12, 2)
+  factoryPriceSnapshot Decimal? @db.Decimal(12, 2)
+  currency             String   @default("CNY")
+  remark               String?  @db.Text
+  createdById          String
+  createdBy            User     @relation(fields: [createdById], references: [id])
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  items                CustomerQuoteItem[]
+  sourceContract       Contract? @relation("QuoteSourceContract")
+
+  @@index([customerId])
+  @@index([productId])
+  @@map("customer_quotes")
+}
+
+model CustomerQuoteItem {
+  id                   String        @id @default(uuid())
+  quoteId              String
+  quote                CustomerQuote @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  productId            String
+  product              Product       @relation(fields: [productId], references: [id])
+  itemType             QuoteItemType
+  productNameSnapshot  String
+  productModelSnapshot String
+  factoryPriceSnapshot Decimal?      @db.Decimal(12, 2)
+  quotedPrice          Decimal?      @db.Decimal(12, 2)
+  quantity             Int           @default(1)
+  sortOrder            Int           @default(0)
+  createdAt            DateTime      @default(now())
+  updatedAt            DateTime      @updatedAt
+
+  @@index([quoteId])
+  @@index([productId])
+  @@map("customer_quote_items")
+}
+
+// ==================== 合同模型 ====================
+
+model Contract {
+  id             String         @id @default(uuid())
+  contractNo     String         @unique
+  signedDate     DateTime       @db.Date
+  estimatedShipmentDate DateTime? @db.Date
+  customerId     String
+  customer       Customer       @relation(fields: [customerId], references: [id])
+  salesUserId    String
+  salesUser      User           @relation("SalesUser", fields: [salesUserId], references: [id])
+  productId      String?
+  product        Product?       @relation(fields: [productId], references: [id])
+  sourceQuoteId  String?        @unique
+  sourceQuote    CustomerQuote? @relation("QuoteSourceContract", fields: [sourceQuoteId], references: [id])
+  equipmentName  String
+  equipmentModel String
+  amount         Decimal        @db.Decimal(12, 2)
+  paidAmount     Decimal        @default(0) @db.Decimal(12, 2)
+  unpaidAmount   Decimal?       @db.Decimal(12, 2)
+  currency       String         @default("CNY")
+  attachmentUrl  String?
+  remark         String?        @db.Text
+  paymentStatus  PaymentStatus  @default(UNPAID)
+  contractStatus ContractStatus @default(SIGNED)
+  editUnlockedUntil DateTime?
+  editUnlockRequestId String?
+  createdById    String
+  createdBy      User           @relation("ContractCreator", fields: [createdById], references: [id])
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  deletedAt      DateTime?
+
+  payments ContractPayment[]
+  shipments Shipment[]
+  items     ContractItem[]
+  unlockRequests ContractUnlockRequest[]
+
+  @@index([customerId])
+  @@index([salesUserId])
+  @@index([paymentStatus])
+  @@index([contractStatus])
+  @@index([estimatedShipmentDate])
+  @@index([deletedAt])
+  @@map("contracts")
+}
+
+model ContractItem {
+  id                   String           @id @default(uuid())
+  contractId           String
+  contract             Contract         @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  productId            String
+  product              Product          @relation(fields: [productId], references: [id])
+  itemType             ContractItemType
+  productNameSnapshot  String
+  productModelSnapshot String
+  factoryPriceSnapshot Decimal?         @db.Decimal(12, 2)
+  contractPrice        Decimal?         @db.Decimal(12, 2)
+  quantity             Int              @default(1)
+  sortOrder            Int              @default(0)
+  createdAt            DateTime         @default(now())
+  updatedAt            DateTime         @updatedAt
+
+  @@index([contractId])
+  @@index([productId])
+  @@map("contract_items")
+}
+
+// ==================== 发货记录模型 ====================
+
+model Shipment {
+  id              String         @id @default(uuid())
+  contractId      String
+  contract        Contract       @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  shipmentDate    DateTime       @db.Date
+  receivingAddress String        @db.Text
+  driverPhone     String
+  equipmentName   String
+  quantity        Int
+  shipmentStatus  ShipmentStatus @default(NOT_SHIPPED)
+  deliveryNoteUrl String?
+  shipmentPhotoUrl String?
+  remark          String?        @db.Text
+  createdById     String
+  createdBy       User           @relation(fields: [createdById], references: [id])
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  @@index([contractId])
+  @@index([shipmentStatus])
+  @@index([shipmentDate])
+  @@map("shipments")
+}
+
+// ==================== 合同回款记录模型 ====================
+
+model ContractPayment {
+  id            String   @id @default(uuid())
+  contractId    String
+  contract      Contract @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  amount        Decimal  @db.Decimal(12, 2)
+  paymentDate   DateTime @db.Date
+  paymentMethod String?
+  remark        String?  @db.Text
+  status        PaymentRecordStatus @default(ACTIVE)
+  createdById   String
+  createdBy     User     @relation(fields: [createdById], references: [id])
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([contractId])
+  @@map("contract_payments")
+}
+
+model ContractUnlockRequest {
+  id               String               @id @default(uuid())
+  contractId       String
+  contract         Contract             @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  requesterId      String
+  requester        User                 @relation("ContractUnlockRequester", fields: [requesterId], references: [id])
+  approverId       String?
+  approver         User?                @relation("ContractUnlockApprover", fields: [approverId], references: [id])
+  status           ContractUnlockStatus @default(PENDING)
+  reason           String               @db.Text
+  approvalRemark   String?              @db.Text
+  createdAt        DateTime             @default(now())
+  approvedAt       DateTime?
+  rejectedAt       DateTime?
+  usedAt           DateTime?
+  updatedAt        DateTime             @updatedAt
+
+  @@index([contractId])
+  @@index([requesterId])
+  @@index([approverId])
+  @@index([status])
+  @@map("contract_unlock_requests")
+}
+
+model OperationLog {
+  id           String   @id @default(uuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id])
+  action       String
+  entityType   String
+  entityId     String
+  beforeData   Json?
+  afterData    Json?
+  createdAt    DateTime @default(now())
+
+  @@index([userId])
+  @@index([action])
+  @@index([entityType])
+  @@index([entityId])
+  @@index([createdAt])
+  @@map("operation_logs")
+}
+
+// ==================== 操作审计日志 ====================
+
+model AuditLog {
+  id         String   @id @default(uuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id])
+  action     String
+  entityName String
+  entityId   String?
+  details    String?  @db.Text
+  ipAddress  String?
+  createdAt  DateTime @default(now())
+
+  @@index([userId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
