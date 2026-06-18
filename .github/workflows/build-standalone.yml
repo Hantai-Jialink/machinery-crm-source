@@ -59,9 +59,40 @@ jobs:
 
           # 4. 准备独立包目录
           mkdir -p "$PKG_DIR"
-          # Dereference pnpm symlinks so control panels or ZIP tools cannot
-          # turn them into plain text files during deployment.
-          cp -aL .next/standalone/. "$PKG_DIR/"
+          cp -a .next/standalone/. "$PKG_DIR/"
+
+          # Materialize pnpm symlinks so control panels or ZIP tools cannot
+          # turn them into plain text files during deployment. Broken links
+          # left by optional packages are removed.
+          PKG_DIR="$PKG_DIR" python3 <<'PY'
+          import os
+          import shutil
+          from pathlib import Path
+
+          root = Path(os.environ["PKG_DIR"])
+
+          for _ in range(20):
+              links = [path for path in root.rglob("*") if path.is_symlink()]
+              if not links:
+                  break
+
+              for link in sorted(links, key=lambda path: len(path.parts), reverse=True):
+                  if not link.is_symlink():
+                      continue
+
+                  target = link.resolve(strict=False)
+                  link.unlink()
+
+                  if not target.exists():
+                      continue
+
+                  if target.is_dir():
+                      shutil.copytree(target, link, symlinks=True)
+                  else:
+                      shutil.copy2(target, link)
+          else:
+              raise RuntimeError("Too many symlink expansion passes")
+          PY
 
           # 5. 补齐 Next standalone 不会自动复制的静态资源
           mkdir -p "$PKG_DIR/.next"
@@ -114,6 +145,7 @@ jobs:
           test -d "$PKG_DIR/.next/static"
           test -f "$PKG_DIR/prisma/schema.prisma"
           find "$PKG_DIR/node_modules/.prisma/client" -name 'libquery_engine-*' -print -quit >/dev/null
+          test -z "$(find "$PKG_DIR" -type l -print -quit)"
 
           # 9. 打 tar.gz，归档内保留一个顶层目录
           tar -C "$OUT_DIR" -czf "$PKG_FILE" "$(basename "$PKG_DIR")"
