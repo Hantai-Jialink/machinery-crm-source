@@ -7,20 +7,178 @@ import { useRouter } from "next/navigation";
 
 const REMEMBER_KEY = "crm_remember_account";
 
-type FocusedField = "email" | "password" | null;
+// ---------------------------------------------------------------------------
+// 眼球追踪小组件（来自原始素材，逻辑保持不变）
+// Pupil: 只有瞳孔（用于黄色 / 白色小人）
+// EyeBall: 带白色眼白 + 瞳孔（用于深灰 / 灰色小人）
+// ---------------------------------------------------------------------------
+
+interface PupilProps {
+  size?: number;
+  maxDistance?: number;
+  pupilColor?: string;
+  forceLookX?: number;
+  forceLookY?: number;
+}
+
+const Pupil = ({
+  size = 12,
+  maxDistance = 5,
+  pupilColor = "#1f2937",
+  forceLookX,
+  forceLookY,
+}: PupilProps) => {
+  const [mouseX, setMouseX] = useState<number>(0);
+  const [mouseY, setMouseY] = useState<number>(0);
+  const pupilRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      setMouseX(e.clientX);
+      setMouseY(e.clientY);
+    };
+    window.addEventListener("mousemove", handleMouseMove);
+    return () => window.removeEventListener("mousemove", handleMouseMove);
+  }, []);
+
+  const calculatePupilPosition = () => {
+    if (!pupilRef.current) return { x: 0, y: 0 };
+    if (forceLookX !== undefined && forceLookY !== undefined) {
+      return { x: forceLookX, y: forceLookY };
+    }
+    const pupil = pupilRef.current.getBoundingClientRect();
+    const pupilCenterX = pupil.left + pupil.width / 2;
+    const pupilCenterY = pupil.top + pupil.height / 2;
+    const deltaX = mouseX - pupilCenterX;
+    const deltaY = mouseY - pupilCenterY;
+    const distance = Math.min(Math.sqrt(deltaX ** 2 + deltaY ** 2), maxDistance);
+    const angle = Math.atan2(deltaY, deltaX);
+    return { x: Math.cos(angle) * distance, y: Math.sin(angle) * distance };
+  };
+
+  const pupilPosition = calculatePupilPosition();
+
+  return (
+    <div
+      ref={pupilRef}
+      className="rounded-full"
+      style={{
+        width: `${size}px`,
+        height: `${size}px`,
+        backgroundColor: pupilColor,
+        transform: `translate(${pupilPosition.x}px, ${pupilPosition.y}px)`,
+        transition: "transform 0.1s ease-out",
+      }}
+    />
+  );
+};
+
+interface EyeBallProps {
+  size?: number;
+  pupilSize?: number;
+  maxDistance?: number;
+  eyeColor?: string;
+  pupilColor?: string;
+  isBlinking?: boolean;
+  forceLookX?: number;
+  forceLookY?: number;
+}
+
+const EyeBall = ({
+  size = 18,
+  pupilSize = 7,
+  maxDistance = 5,
+  eyeColor = "#ffffff",
+  pupilColor = "#1f2937",
+  isBlinking = false,
+  forceLookX,
+  forceLookY,
+}: EyeBallProps) => {
+  const [mouseX, setMouseX] = useState<number>(0);
+  const [mouseY, setMouseY] = useState<number>(0);
+  const eyeRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      setMouseX(e.clientX);
+      setMouseY(e.clientY);
+    };
+    window.addEventListener("mousemove", handleMouseMove);
+    return () => window.removeEventListener("mousemove", handleMouseMove);
+  }, []);
+
+  const calculatePupilPosition = () => {
+    if (!eyeRef.current) return { x: 0, y: 0 };
+    if (forceLookX !== undefined && forceLookY !== undefined) {
+      return { x: forceLookX, y: forceLookY };
+    }
+    const eye = eyeRef.current.getBoundingClientRect();
+    const eyeCenterX = eye.left + eye.width / 2;
+    const eyeCenterY = eye.top + eye.height / 2;
+    const deltaX = mouseX - eyeCenterX;
+    const deltaY = mouseY - eyeCenterY;
+    const distance = Math.min(Math.sqrt(deltaX ** 2 + deltaY ** 2), maxDistance);
+    const angle = Math.atan2(deltaY, deltaX);
+    return { x: Math.cos(angle) * distance, y: Math.sin(angle) * distance };
+  };
+
+  const pupilPosition = calculatePupilPosition();
+
+  return (
+    <div
+      ref={eyeRef}
+      className="flex items-center justify-center rounded-full transition-all duration-150"
+      style={{
+        width: `${size}px`,
+        height: isBlinking ? "2px" : `${size}px`,
+        backgroundColor: eyeColor,
+        overflow: "hidden",
+      }}
+    >
+      {!isBlinking && (
+        <div
+          className="rounded-full"
+          style={{
+            width: `${pupilSize}px`,
+            height: `${pupilSize}px`,
+            backgroundColor: pupilColor,
+            transform: `translate(${pupilPosition.x}px, ${pupilPosition.y}px)`,
+            transition: "transform 0.1s ease-out",
+          }}
+        />
+      )}
+    </div>
+  );
+};
+
+// ---------------------------------------------------------------------------
+// 登录页
+// ---------------------------------------------------------------------------
 
 export default function LoginPage() {
   const router = useRouter();
-  const characterStageRef = useRef<HTMLDivElement>(null);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [remember, setRemember] = useState(true);
   const [showPassword, setShowPassword] = useState(false);
-  const [focusedField, setFocusedField] = useState<FocusedField>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const [reducedMotion, setReducedMotion] = useState(false);
 
+  // 小人动画相关状态
+  const [mouseX, setMouseX] = useState<number>(0);
+  const [mouseY, setMouseY] = useState<number>(0);
+  const [isDarkBlinking, setIsDarkBlinking] = useState(false);
+  const [isGreyBlinking, setIsGreyBlinking] = useState(false);
+  const [isTyping, setIsTyping] = useState(false);
+  const [isLookingAtEachOther, setIsLookingAtEachOther] = useState(false);
+  const [isPeeking, setIsPeeking] = useState(false);
+
+  const darkRef = useRef<HTMLDivElement>(null);
+  const greyRef = useRef<HTMLDivElement>(null);
+  const yellowRef = useRef<HTMLDivElement>(null);
+  const whiteRef = useRef<HTMLDivElement>(null);
+
+  // 记住账号
   useEffect(() => {
     try {
       const saved = localStorage.getItem(REMEMBER_KEY);
@@ -31,93 +189,102 @@ export default function LoginPage() {
         setRemember(false);
       }
     } catch {
-      // localStorage may be unavailable in restricted browser modes.
+      // 受限浏览器模式下 localStorage 可能不可用
     }
   }, []);
 
+  // 鼠标位置（用于小人身体倾斜）
   useEffect(() => {
-    const mediaQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
-    const updatePreference = () => setReducedMotion(mediaQuery.matches);
-    updatePreference();
-    mediaQuery.addEventListener("change", updatePreference);
-    return () => mediaQuery.removeEventListener("change", updatePreference);
+    const handleMouseMove = (e: MouseEvent) => {
+      setMouseX(e.clientX);
+      setMouseY(e.clientY);
+    };
+    window.addEventListener("mousemove", handleMouseMove);
+    return () => window.removeEventListener("mousemove", handleMouseMove);
   }, []);
 
+  // 深灰小人随机眨眼
   useEffect(() => {
-    if (reducedMotion) return;
+    const getRandomBlinkInterval = () => Math.random() * 4000 + 3000;
+    const scheduleBlink = (): ReturnType<typeof setTimeout> =>
+      setTimeout(() => {
+        setIsDarkBlinking(true);
+        setTimeout(() => {
+          setIsDarkBlinking(false);
+          timeout = scheduleBlink();
+        }, 150);
+      }, getRandomBlinkInterval());
+    let timeout = scheduleBlink();
+    return () => clearTimeout(timeout);
+  }, []);
 
-    let animationFrame = 0;
-    let pointerX = 0;
-    let pointerY = 0;
-
-    const updateCharacters = () => {
-      animationFrame = 0;
-      const stage = characterStageRef.current;
-      if (!stage) return;
-
-      const rect = stage.getBoundingClientRect();
-      const normalizedX = Math.max(-1, Math.min(1, (pointerX - (rect.left + rect.width / 2)) / (rect.width / 2)));
-      const normalizedY = Math.max(-1, Math.min(1, (pointerY - (rect.top + rect.height / 2)) / (rect.height / 2)));
-
-      stage.style.setProperty("--look-x", `${normalizedX * 5}px`);
-      stage.style.setProperty("--look-y", `${normalizedY * 4}px`);
-      stage.style.setProperty("--lean", `${normalizedX * -5}deg`);
-      stage.style.setProperty("--lean-soft", `${normalizedX * -3.5}deg`);
-      stage.style.setProperty("--lean-softer", `${normalizedX * -2.5}deg`);
-    };
-
-    const handleMouseMove = (event: MouseEvent) => {
-      pointerX = event.clientX;
-      pointerY = event.clientY;
-      if (!animationFrame) {
-        animationFrame = window.requestAnimationFrame(updateCharacters);
-      }
-    };
-
-    window.addEventListener("mousemove", handleMouseMove, { passive: true });
-    return () => {
-      window.removeEventListener("mousemove", handleMouseMove);
-      if (animationFrame) window.cancelAnimationFrame(animationFrame);
-    };
-  }, [reducedMotion]);
-
+  // 灰色小人随机眨眼
   useEffect(() => {
-    if (reducedMotion) return;
+    const getRandomBlinkInterval = () => Math.random() * 4000 + 3000;
+    const scheduleBlink = (): ReturnType<typeof setTimeout> =>
+      setTimeout(() => {
+        setIsGreyBlinking(true);
+        setTimeout(() => {
+          setIsGreyBlinking(false);
+          timeout = scheduleBlink();
+        }, 150);
+      }, getRandomBlinkInterval());
+    let timeout = scheduleBlink();
+    return () => clearTimeout(timeout);
+  }, []);
 
-    let blinkTimer = 0;
-    let closeTimer = 0;
+  // 开始输入时小人互相对视一下，然后恢复跟随鼠标
+  useEffect(() => {
+    if (isTyping) {
+      setIsLookingAtEachOther(true);
+      const timer = setTimeout(() => setIsLookingAtEachOther(false), 800);
+      return () => clearTimeout(timer);
+    }
+    setIsLookingAtEachOther(false);
+  }, [isTyping]);
 
-    const scheduleBlink = () => {
-      blinkTimer = window.setTimeout(() => {
-        const characters = characterStageRef.current?.querySelectorAll<HTMLElement>("[data-character]");
-        if (characters?.length) {
-          const character = characters[Math.floor(Math.random() * characters.length)];
-          character.classList.add("is-blinking");
-          closeTimer = window.setTimeout(() => character.classList.remove("is-blinking"), 150);
-        }
-        scheduleBlink();
-      }, 2500 + Math.random() * 3500);
-    };
+  // 显示密码时小人扭头不看，深灰偶尔偷瞄
+  useEffect(() => {
+    if (password.length > 0 && showPassword) {
+      const peek = setTimeout(() => {
+        setIsPeeking(true);
+        setTimeout(() => setIsPeeking(false), 800);
+      }, Math.random() * 3000 + 2000);
+      return () => clearTimeout(peek);
+    }
+    setIsPeeking(false);
+  }, [password, showPassword, isPeeking]);
 
-    scheduleBlink();
-    return () => {
-      window.clearTimeout(blinkTimer);
-      window.clearTimeout(closeTimer);
-    };
-  }, [reducedMotion]);
+  const calculatePosition = (ref: React.RefObject<HTMLDivElement | null>) => {
+    if (!ref.current) return { faceX: 0, faceY: 0, bodySkew: 0 };
+    const rect = ref.current.getBoundingClientRect();
+    const centerX = rect.left + rect.width / 2;
+    const centerY = rect.top + rect.height / 3;
+    const deltaX = mouseX - centerX;
+    const deltaY = mouseY - centerY;
+    const faceX = Math.max(-15, Math.min(15, deltaX / 20));
+    const faceY = Math.max(-10, Math.min(10, deltaY / 30));
+    const bodySkew = Math.max(-6, Math.min(6, -deltaX / 120));
+    return { faceX, faceY, bodySkew };
+  };
+
+  const darkPos = calculatePosition(darkRef);
+  const greyPos = calculatePosition(greyRef);
+  const yellowPos = calculatePosition(yellowRef);
+  const whitePos = calculatePosition(whiteRef);
+
+  const passwordVisible = password.length > 0 && showPassword;
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
     setError("");
     setLoading(true);
-
     try {
       const result = await signIn("credentials", {
         email,
         password,
         redirect: false,
       });
-
       if (result?.error) {
         setError("账号或密码错误");
       } else {
@@ -128,7 +295,7 @@ export default function LoginPage() {
             localStorage.removeItem(REMEMBER_KEY);
           }
         } catch {
-          // Ignore storage failures; authentication has already succeeded.
+          // 登录已成功，忽略存储失败
         }
         router.push("/dashboard");
         router.refresh();
@@ -140,58 +307,50 @@ export default function LoginPage() {
     }
   };
 
-  const isFocused = focusedField !== null;
-
   return (
     <main className="min-h-screen bg-gray-50">
-      <section className="min-h-screen lg:hidden flex items-center justify-center px-4">
+      {/* 移动端 / 小屏：简洁表单 */}
+      <section className="flex min-h-screen items-center justify-center px-4 lg:hidden">
         <div className="w-full max-w-sm">
-          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-8">
-            <div className="text-center mb-8">
+          <div className="rounded-xl border border-gray-200 bg-white p-8 shadow-sm">
+            <div className="mb-8 text-center">
               <img
                 src="/logo.png"
                 alt="大川机床"
                 className="mx-auto h-14 w-auto object-contain"
               />
-              <p className="text-sm font-medium text-gray-600 mt-4">
-                DachuanPro-CRM
-              </p>
             </div>
 
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  账号
-                </label>
+                <label className="mb-1 block text-sm font-medium text-gray-700">账号</label>
                 <input
                   type="text"
                   name="username"
                   autoComplete="username"
                   value={email}
                   onChange={(event) => setEmail(event.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent"
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-transparent focus:outline-none focus:ring-2 focus:ring-gray-900"
                   placeholder="请输入账号"
                   required
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  密码
-                </label>
+                <label className="mb-1 block text-sm font-medium text-gray-700">密码</label>
                 <input
                   type="password"
                   name="password"
                   autoComplete="current-password"
                   value={password}
                   onChange={(event) => setPassword(event.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent"
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-transparent focus:outline-none focus:ring-2 focus:ring-gray-900"
                   placeholder="请输入密码"
                   required
                 />
               </div>
 
-              <label className="flex items-center gap-2 text-sm text-gray-600 select-none cursor-pointer">
+              <label className="flex cursor-pointer select-none items-center gap-2 text-sm text-gray-600">
                 <input
                   type="checkbox"
                   checked={remember}
@@ -202,15 +361,13 @@ export default function LoginPage() {
               </label>
 
               {error && (
-                <p className="text-sm text-red-600 bg-red-50 px-3 py-2 rounded-lg">
-                  {error}
-                </p>
+                <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">{error}</p>
               )}
 
               <button
                 type="submit"
                 disabled={loading}
-                className="w-full py-2.5 bg-gray-900 text-white text-sm font-medium rounded-lg hover:bg-gray-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                className="w-full rounded-lg bg-gray-900 py-2.5 text-sm font-medium text-white transition-colors hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {loading ? "登录中..." : "登录"}
               </button>
@@ -219,11 +376,14 @@ export default function LoginPage() {
         </div>
       </section>
 
+      {/* 桌面端：左侧插画 + 右侧表单 */}
       <section className="hidden min-h-screen lg:grid lg:grid-cols-[minmax(560px,1.08fr)_minmax(440px,0.92fr)]">
+        {/* 左侧橙色插画区 */}
         <div
           className="relative flex min-h-screen flex-col overflow-hidden px-10 py-9 xl:px-14 xl:py-11"
           style={{ background: "linear-gradient(135deg,#a8531a,#ee7d2c)" }}
         >
+          {/* 左上角 Dachuan.Pro 标记 */}
           <div className="relative z-10">
             <div className="inline-flex flex-col">
               <div className="flex items-center text-2xl font-extrabold italic text-white">
@@ -236,142 +396,228 @@ export default function LoginPage() {
             </div>
           </div>
 
+          {/* 小人插画 */}
           <div className="relative z-10 flex flex-1 items-end justify-center">
-            <div
-              ref={characterStageRef}
-              className="character-stage relative h-[460px] w-full max-w-[660px]"
-              data-focused={isFocused ? "true" : "false"}
-              data-password-visible={showPassword ? "true" : "false"}
-            >
+            <div className="relative" style={{ width: "550px", height: "400px" }}>
+              {/* 深灰高个 —— 后排 */}
               <div
-                data-character
-                className="character character-tall absolute bottom-0 left-[20%] z-10 h-[390px] w-[178px] origin-bottom rounded-t-[12px] bg-[#1f2937] shadow-[0_24px_50px_rgba(80,35,8,0.24)]"
+                ref={darkRef}
+                className="absolute bottom-0 transition-all duration-700 ease-in-out"
                 style={{
-                  height: isFocused ? "430px" : "390px",
-                  transform: showPassword
-                    ? "translateX(18px) skewX(0deg)"
-                    : isFocused
-                      ? "translateX(32px) skewX(calc(var(--lean, 0deg) - 7deg))"
-                      : "skewX(var(--lean, 0deg))",
+                  left: "70px",
+                  width: "180px",
+                  height: isTyping || (password.length > 0 && !showPassword) ? "440px" : "400px",
+                  backgroundColor: "#1f2937",
+                  borderRadius: "10px 10px 0 0",
+                  zIndex: 1,
+                  transform: passwordVisible
+                    ? "skewX(0deg)"
+                    : isTyping || (password.length > 0 && !showPassword)
+                      ? `skewX(${(darkPos.bodySkew || 0) - 12}deg) translateX(40px)`
+                      : `skewX(${darkPos.bodySkew || 0}deg)`,
+                  transformOrigin: "bottom center",
                 }}
               >
                 <div
-                  className={`character-eyes absolute left-1/2 top-12 flex -translate-x-1/2 gap-8 ${showPassword ? "eyes-closed" : ""}`}
+                  className="absolute flex gap-8 transition-all duration-700 ease-in-out"
                   style={{
-                    transform: showPassword
-                      ? "translateX(-50%)"
-                      : "translate(calc(-50% + var(--look-x, 0px)), var(--look-y, 0px))",
+                    left: passwordVisible
+                      ? "20px"
+                      : isLookingAtEachOther
+                        ? "55px"
+                        : `${45 + darkPos.faceX}px`,
+                    top: passwordVisible
+                      ? "35px"
+                      : isLookingAtEachOther
+                        ? "65px"
+                        : `${40 + darkPos.faceY}px`,
                   }}
                 >
-                  <span className="eye eye-white"><i className={isFocused ? "look-toward-right" : ""} /></span>
-                  <span className="eye eye-white"><i className={isFocused ? "look-toward-right" : ""} /></span>
+                  <EyeBall
+                    size={18}
+                    pupilSize={7}
+                    maxDistance={5}
+                    eyeColor="#ffffff"
+                    pupilColor="#1f2937"
+                    isBlinking={isDarkBlinking}
+                    forceLookX={passwordVisible ? (isPeeking ? 4 : -4) : isLookingAtEachOther ? 3 : undefined}
+                    forceLookY={passwordVisible ? (isPeeking ? 5 : -4) : isLookingAtEachOther ? 4 : undefined}
+                  />
+                  <EyeBall
+                    size={18}
+                    pupilSize={7}
+                    maxDistance={5}
+                    eyeColor="#ffffff"
+                    pupilColor="#1f2937"
+                    isBlinking={isDarkBlinking}
+                    forceLookX={passwordVisible ? (isPeeking ? 4 : -4) : isLookingAtEachOther ? 3 : undefined}
+                    forceLookY={passwordVisible ? (isPeeking ? 5 : -4) : isLookingAtEachOther ? 4 : undefined}
+                  />
                 </div>
               </div>
 
+              {/* 灰色中个 —— 中排 */}
               <div
-                data-character
-                className="character absolute bottom-0 left-[45%] z-20 h-[304px] w-[128px] origin-bottom rounded-t-[10px] bg-[#5B5C60] shadow-[0_20px_40px_rgba(80,35,8,0.2)]"
+                ref={greyRef}
+                className="absolute bottom-0 transition-all duration-700 ease-in-out"
                 style={{
-                  transform: showPassword
-                    ? "translateX(16px) skewX(7deg)"
-                    : isFocused
-                      ? "translateX(20px) skewX(calc(var(--lean, 0deg) + 6deg))"
-                      : "skewX(var(--lean-soft, 0deg))",
+                  left: "240px",
+                  width: "120px",
+                  height: "310px",
+                  backgroundColor: "#5B5C60",
+                  borderRadius: "8px 8px 0 0",
+                  zIndex: 2,
+                  transform: passwordVisible
+                    ? "skewX(0deg)"
+                    : isLookingAtEachOther
+                      ? `skewX(${(greyPos.bodySkew || 0) * 1.5 + 10}deg) translateX(20px)`
+                      : isTyping || (password.length > 0 && !showPassword)
+                        ? `skewX(${(greyPos.bodySkew || 0) * 1.5}deg)`
+                        : `skewX(${greyPos.bodySkew || 0}deg)`,
+                  transformOrigin: "bottom center",
                 }}
               >
                 <div
-                  className="character-eyes absolute left-1/2 top-10 flex -translate-x-1/2 gap-6"
+                  className="absolute flex gap-6 transition-all duration-700 ease-in-out"
                   style={{
-                    transform: showPassword
-                      ? "translateX(calc(-50% + 14px))"
-                      : "translate(calc(-50% + var(--look-x, 0px)), var(--look-y, 0px))",
+                    left: passwordVisible
+                      ? "10px"
+                      : isLookingAtEachOther
+                        ? "32px"
+                        : `${26 + greyPos.faceX}px`,
+                    top: passwordVisible
+                      ? "28px"
+                      : isLookingAtEachOther
+                        ? "12px"
+                        : `${32 + greyPos.faceY}px`,
                   }}
                 >
-                  <span className="eye eye-white">
-                    <i className={showPassword ? "look-away-right" : isFocused ? "look-toward-left" : ""} />
-                  </span>
-                  <span className="eye eye-white">
-                    <i className={showPassword ? "look-away-right" : isFocused ? "look-toward-left" : ""} />
-                  </span>
+                  <EyeBall
+                    size={16}
+                    pupilSize={6}
+                    maxDistance={4}
+                    eyeColor="#ffffff"
+                    pupilColor="#1f2937"
+                    isBlinking={isGreyBlinking}
+                    forceLookX={passwordVisible ? -4 : isLookingAtEachOther ? 0 : undefined}
+                    forceLookY={passwordVisible ? -4 : isLookingAtEachOther ? -4 : undefined}
+                  />
+                  <EyeBall
+                    size={16}
+                    pupilSize={6}
+                    maxDistance={4}
+                    eyeColor="#ffffff"
+                    pupilColor="#1f2937"
+                    isBlinking={isGreyBlinking}
+                    forceLookX={passwordVisible ? -4 : isLookingAtEachOther ? 0 : undefined}
+                    forceLookY={passwordVisible ? -4 : isLookingAtEachOther ? -4 : undefined}
+                  />
                 </div>
               </div>
 
+              {/* 黄色半圆 —— 前排左 */}
               <div
-                data-character
-                className="character absolute bottom-0 left-[5%] z-30 h-[190px] w-[246px] origin-bottom rounded-t-[125px] bg-[#fbbf24] shadow-[0_18px_36px_rgba(80,35,8,0.2)]"
+                ref={yellowRef}
+                className="absolute bottom-0 transition-all duration-700 ease-in-out"
                 style={{
-                  transform: showPassword
-                    ? "translateX(-12px) skewX(-5deg)"
-                    : isFocused
-                      ? "translateX(12px) skewX(var(--lean-soft, 0deg))"
-                      : "skewX(var(--lean-softer, 0deg))",
+                  left: "0px",
+                  width: "240px",
+                  height: "200px",
+                  zIndex: 3,
+                  backgroundColor: "#fbbf24",
+                  borderRadius: "120px 120px 0 0",
+                  transform: passwordVisible
+                    ? "skewX(0deg)"
+                    : `skewX(${yellowPos.bodySkew || 0}deg)`,
+                  transformOrigin: "bottom center",
                 }}
               >
                 <div
-                  className="character-eyes absolute left-1/2 top-[84px] flex -translate-x-1/2 gap-9"
+                  className="absolute flex gap-8 transition-all duration-200 ease-out"
                   style={{
-                    transform: showPassword
-                      ? "translateX(calc(-50% - 18px))"
-                      : "translate(calc(-50% + var(--look-x, 0px)), var(--look-y, 0px))",
+                    left: passwordVisible ? "50px" : `${82 + (yellowPos.faceX || 0)}px`,
+                    top: passwordVisible ? "85px" : `${90 + (yellowPos.faceY || 0)}px`,
                   }}
                 >
-                  <span className="eye-dot">
-                    <i className={showPassword ? "look-away-left" : isFocused ? "look-toward-right" : ""} />
-                  </span>
-                  <span className="eye-dot">
-                    <i className={showPassword ? "look-away-left" : isFocused ? "look-toward-right" : ""} />
-                  </span>
+                  <Pupil
+                    size={12}
+                    maxDistance={5}
+                    pupilColor="#1f2937"
+                    forceLookX={passwordVisible ? -5 : undefined}
+                    forceLookY={passwordVisible ? -4 : undefined}
+                  />
+                  <Pupil
+                    size={12}
+                    maxDistance={5}
+                    pupilColor="#1f2937"
+                    forceLookX={passwordVisible ? -5 : undefined}
+                    forceLookY={passwordVisible ? -4 : undefined}
+                  />
                 </div>
               </div>
 
+              {/* 白色 —— 前排右（带嘴巴） */}
               <div
-                data-character
-                className="character absolute bottom-0 right-[5%] z-40 h-[235px] w-[150px] origin-bottom rounded-t-[78px] border border-white/70 bg-[#f8fafc] shadow-[0_20px_42px_rgba(80,35,8,0.22)]"
+                ref={whiteRef}
+                className="absolute bottom-0 transition-all duration-700 ease-in-out"
                 style={{
-                  transform: showPassword
-                    ? "translateX(12px) skewX(6deg)"
-                    : isFocused
-                      ? "translateX(-15px) skewX(var(--lean-soft, 0deg))"
-                      : "skewX(var(--lean-soft, 0deg))",
+                  left: "310px",
+                  width: "140px",
+                  height: "230px",
+                  backgroundColor: "#f8fafc",
+                  border: "1px solid rgba(255,255,255,0.7)",
+                  borderRadius: "70px 70px 0 0",
+                  zIndex: 4,
+                  transform: passwordVisible
+                    ? "skewX(0deg)"
+                    : `skewX(${whitePos.bodySkew || 0}deg)`,
+                  transformOrigin: "bottom center",
                 }}
               >
                 <div
-                  className="character-eyes absolute left-1/2 top-12 flex -translate-x-1/2 gap-7"
+                  className="absolute flex gap-6 transition-all duration-200 ease-out"
                   style={{
-                    transform: showPassword
-                      ? "translateX(calc(-50% + 18px))"
-                      : "translate(calc(-50% + var(--look-x, 0px)), var(--look-y, 0px))",
+                    left: passwordVisible ? "20px" : `${52 + (whitePos.faceX || 0)}px`,
+                    top: passwordVisible ? "35px" : `${40 + (whitePos.faceY || 0)}px`,
                   }}
                 >
-                  <span className="eye-dot">
-                    <i className={showPassword ? "look-away-right" : isFocused ? "look-toward-left" : ""} />
-                  </span>
-                  <span className="eye-dot">
-                    <i className={showPassword ? "look-away-right" : isFocused ? "look-toward-left" : ""} />
-                  </span>
+                  <Pupil
+                    size={12}
+                    maxDistance={5}
+                    pupilColor="#1f2937"
+                    forceLookX={passwordVisible ? -5 : undefined}
+                    forceLookY={passwordVisible ? -4 : undefined}
+                  />
+                  <Pupil
+                    size={12}
+                    maxDistance={5}
+                    pupilColor="#1f2937"
+                    forceLookX={passwordVisible ? -5 : undefined}
+                    forceLookY={passwordVisible ? -4 : undefined}
+                  />
                 </div>
-                <span className="absolute left-1/2 top-[104px] h-1 w-16 -translate-x-1/2 rounded-full bg-[#5B5C60]" />
+                <div
+                  className="absolute h-[4px] w-20 rounded-full bg-[#1f2937] transition-all duration-200 ease-out"
+                  style={{
+                    left: passwordVisible ? "10px" : `${40 + (whitePos.faceX || 0)}px`,
+                    top: passwordVisible ? "88px" : `${88 + (whitePos.faceY || 0)}px`,
+                  }}
+                />
               </div>
             </div>
           </div>
-
-          <p className="relative z-10 mt-6 max-w-md text-sm leading-6 text-white/75">
-            大川机床客户关系管理系统
-          </p>
         </div>
 
+        {/* 右侧表单区 */}
         <div className="flex min-h-screen items-center justify-center bg-white px-10 py-12 xl:px-16">
           <div className="w-full max-w-[430px]">
-            <div className="mb-10 flex items-center gap-4">
+            {/* logo 居中，无文字 */}
+            <div className="mb-10 flex items-center justify-center">
               <img
                 src="/logo.png"
                 alt="大川机床"
                 className="h-14 w-auto max-w-[170px] object-contain"
               />
-              <div className="border-l border-gray-200 pl-4">
-                <h1 className="text-2xl font-bold text-[#1f2937]">大川机床</h1>
-                <p className="mt-1 text-sm font-medium text-[#5B5C60]">Dachuan.Pro</p>
-              </div>
             </div>
 
             <div className="mb-8">
@@ -391,8 +637,8 @@ export default function LoginPage() {
                   autoComplete="username"
                   value={email}
                   onChange={(event) => setEmail(event.target.value)}
-                  onFocus={() => setFocusedField("email")}
-                  onBlur={() => setFocusedField(null)}
+                  onFocus={() => setIsTyping(true)}
+                  onBlur={() => setIsTyping(false)}
                   className="h-12 w-full rounded-md border border-gray-300 bg-white px-3.5 text-sm text-gray-900 outline-none transition focus:border-[#EE7D2C] focus:ring-2 focus:ring-[#EE7D2C]/20"
                   placeholder="请输入账号"
                   required
@@ -411,8 +657,8 @@ export default function LoginPage() {
                     autoComplete="current-password"
                     value={password}
                     onChange={(event) => setPassword(event.target.value)}
-                    onFocus={() => setFocusedField("password")}
-                    onBlur={() => setFocusedField(null)}
+                    onFocus={() => setIsTyping(true)}
+                    onBlur={() => setIsTyping(false)}
                     className="h-12 w-full rounded-md border border-gray-300 bg-white px-3.5 pr-12 text-sm text-gray-900 outline-none transition focus:border-[#EE7D2C] focus:ring-2 focus:ring-[#EE7D2C]/20"
                     placeholder="请输入密码"
                     required
@@ -456,99 +702,6 @@ export default function LoginPage() {
           </div>
         </div>
       </section>
-
-      <style jsx>{`
-        .character,
-        .character-eyes {
-          transition:
-            transform 520ms cubic-bezier(0.22, 1, 0.36, 1),
-            height 520ms cubic-bezier(0.22, 1, 0.36, 1);
-        }
-
-        .eye {
-          display: flex;
-          width: 22px;
-          height: 22px;
-          align-items: center;
-          justify-content: center;
-          overflow: hidden;
-          border-radius: 999px;
-          transition: height 120ms ease;
-        }
-
-        .eye-white {
-          background: #ffffff;
-        }
-
-        .eye i,
-        .eye-dot i {
-          display: block;
-          width: 8px;
-          height: 8px;
-          border-radius: 999px;
-          background: #111827;
-          transition: transform 240ms ease;
-        }
-
-        .eye-dot {
-          display: flex;
-          width: 14px;
-          height: 14px;
-          align-items: center;
-          justify-content: center;
-        }
-
-        .eye-dot i {
-          width: 12px;
-          height: 12px;
-          background: #1f2937;
-        }
-
-        .is-blinking .eye,
-        .is-blinking .eye-dot {
-          height: 2px;
-          margin-top: 10px;
-          background: #111827;
-        }
-
-        .is-blinking .eye i,
-        .is-blinking .eye-dot i,
-        .eyes-closed .eye i {
-          opacity: 0;
-        }
-
-        .eyes-closed .eye {
-          height: 2px;
-          margin-top: 10px;
-          background: #ffffff;
-        }
-
-        .look-away-left {
-          transform: translateX(-5px);
-        }
-
-        .look-away-right {
-          transform: translateX(5px);
-        }
-
-        .look-toward-left {
-          transform: translate(-3px, 2px);
-        }
-
-        .look-toward-right {
-          transform: translate(3px, 2px);
-        }
-
-        @media (prefers-reduced-motion: reduce) {
-          .character,
-          .character-eyes,
-          .eye,
-          .eye i,
-          .eye-dot i {
-            transition: none;
-          }
-        }
-      `}</style>
     </main>
   );
 }
