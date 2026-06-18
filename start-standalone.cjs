@@ -23,5 +23,15 @@ if (process.env.START_MODE === "next") {
   process.argv = [process.execPath, "next", "start"];
   require("next/dist/bin/next");
 } else {
-  require("./.next/standalone/server.js");
+  const rootServer = path.join(__dirname, "server.js");
+  const nestedServer = path.join(__dirname, ".next", "standalone", "server.js");
+  const serverPath = fs.existsSync(rootServer) ? rootServer : nestedServer;
+
+  if (!fs.existsSync(serverPath)) {
+    throw new Error(
+      "Standalone server entry not found. Expected server.js or .next/standalone/server.js."
+    );
+  }
+
+  require(serverPath);
 }
