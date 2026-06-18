@@ -59,7 +59,9 @@ jobs:
 
           # 4. 准备独立包目录
           mkdir -p "$PKG_DIR"
-          cp -a .next/standalone/. "$PKG_DIR/"
+          # Dereference pnpm symlinks so control panels or ZIP tools cannot
+          # turn them into plain text files during deployment.
+          cp -aL .next/standalone/. "$PKG_DIR/"
 
           # 5. 补齐 Next standalone 不会自动复制的静态资源
           mkdir -p "$PKG_DIR/.next"
