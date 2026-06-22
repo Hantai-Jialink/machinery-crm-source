@@ -92,7 +92,7 @@ export default function ContractUnlockRequestsPage() {
                 <Link href={`/contracts/${item.contractId}`} className="text-sm font-semibold text-gray-900 hover:underline">
                   {item.contract?.contractNo}
                 </Link>
-                <p className="text-xs text-gray-500">{item.contract?.customer?.companyName} · {item.contract?.customer?.region}</p>
+                <p className="text-xs text-gray-500">{item.contract?.customer?.companyName} · {item.contract?.customer?.province || item.contract?.customer?.businessLine}</p>
               </div>
               <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-700">{STATUS_LABELS[item.status] || item.status}</span>
             </div>

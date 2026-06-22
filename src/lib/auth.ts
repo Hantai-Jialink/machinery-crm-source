@@ -54,6 +54,8 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           name: user.name,
           role: user.role,
           region: user.region,
+          territories: (user as any).territories ?? [],
+          viewScope: (user as any).viewScope ?? "TERRITORY",
         };
       },
     }),
@@ -64,6 +66,8 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         token.id = user.id;
         token.role = (user as any).role;
         token.region = (user as any).region;
+        token.territories = (user as any).territories ?? [];
+        token.viewScope = (user as any).viewScope ?? "TERRITORY";
       }
       return token;
     },
@@ -72,6 +76,8 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         session.user.id = token.id as string;
         (session.user as any).role = token.role;
         (session.user as any).region = token.region;
+        (session.user as any).territories = (token as any).territories ?? [];
+        (session.user as any).viewScope = (token as any).viewScope ?? "TERRITORY";
       }
       return session;
     },

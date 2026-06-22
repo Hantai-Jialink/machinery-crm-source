@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
-import { getSessionUser, isSuperAdmin } from "@/lib/permissions";
+import { getSessionUser, isSuperAdmin, canAccessCustomer, canSeeAllData, customerIsolationWhere } from "@/lib/permissions";
 import { buildItemsFromInputs, sumItems, writeOperationLog } from "@/lib/sales-items";
 
 function endExclusive(value: string) {
@@ -60,11 +60,15 @@ export async function GET(request: NextRequest) {
     const where: any = { deletedAt: null };
     where.customer = {};
 
-    if (!isSuperAdmin(user)) {
-      where.customer.region = user.region;
+    if (!canSeeAllData(user)) {
+      Object.assign(where.customer, customerIsolationWhere(user));
     } else if (region) {
       where.customer.region = region;
     }
+    const province = searchParams.get("province") || "";
+    const businessLine = searchParams.get("businessLine") || "";
+    if (province) where.customer.province = province;
+    if (businessLine && canSeeAllData(user)) where.customer.businessLine = businessLine;
     if (Object.keys(where.customer).length === 0) {
       delete where.customer;
     }
@@ -99,7 +103,7 @@ export async function GET(request: NextRequest) {
     const contracts = await prisma.contract.findMany({
       where,
       include: {
-        customer: { select: { id: true, companyName: true, contactName: true, region: true, deletedAt: true } },
+        customer: { select: { id: true, companyName: true, contactName: true, region: true, businessLine: true, province: true, city: true, deletedAt: true } },
         salesUser: { select: { id: true, name: true, isActive: true } },
         payments: { orderBy: { paymentDate: "desc" }, take: 1 },
         shipments: { select: { id: true, shipmentStatus: true, shipmentDate: true } },
@@ -135,7 +139,7 @@ export async function POST(request: NextRequest) {
       where: { id: body.customerId, deletedAt: null },
     });
     if (!customer) return NextResponse.json({ error: "客户不存在" }, { status: 404 });
-    if (!isSuperAdmin(user) && customer.region !== user.region) {
+    if (!canAccessCustomer(user, customer)) {
       return NextResponse.json({ error: "无权为该客户创建合同" }, { status: 403 });
     }
 

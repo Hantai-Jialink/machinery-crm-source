@@ -68,7 +68,7 @@ export default function CustomerDetailPage() {
   const [error, setError] = useState("");
   const [activeTab, setActiveTab] = useState("follow");
 
-  const [followForm, setFollowForm] = useState({ followType: "PHONE", content: "", result: "", nextFollowDate: "", newStatus: "" });
+  const [followForm, setFollowForm] = useState({ followType: "PHONE", content: "", result: "", address: "", nextFollowDate: "", newStatus: "" });
   const [followLoading, setFollowLoading] = useState(false);
 
   const [showQuoteForm, setShowQuoteForm] = useState(false);
@@ -124,7 +124,7 @@ export default function CustomerDetailPage() {
         body: JSON.stringify({ customerId: params.id, ...followForm, newStatus: followForm.newStatus || undefined }),
       });
       if (res.ok) {
-        setFollowForm({ followType: "PHONE", content: "", result: "", nextFollowDate: "", newStatus: "" });
+        setFollowForm({ followType: "PHONE", content: "", result: "", address: "", nextFollowDate: "", newStatus: "" });
         fetchAll();
       }
     } finally {
@@ -217,7 +217,7 @@ export default function CustomerDetailPage() {
             <h1 className="text-xl font-semibold text-gray-900">{customer.companyName}</h1>
             <span className={`text-xs px-2 py-0.5 rounded-full ${isWon ? "bg-green-50 text-green-700" : "bg-gray-100 text-gray-600"}`}>{isWon ? "已成交" : "未成交"}</span>
           </div>
-          <p className="text-sm text-gray-500">{customer.contactName} · {customer.region}</p>
+          <p className="text-sm text-gray-500">{customer.contactName} · {customer.province || customer.businessLine}</p>
         </div>
         <div className="flex gap-2">
           <button onClick={() => setShowQuoteForm(true)} className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium border border-gray-300 rounded-lg hover:bg-gray-50"><Plus className="w-3 h-3" />新增报价</button>
@@ -345,6 +345,8 @@ export default function CustomerDetailPage() {
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 resize-none" />
                 <textarea value={followForm.result} onChange={(event) => setFollowForm({ ...followForm, result: event.target.value })} rows={2} placeholder="跟进结果"
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 resize-none" />
+                <input type="text" value={followForm.address} onChange={(event) => setFollowForm({ ...followForm, address: event.target.value })} placeholder="地址(选填)"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-900" />
                 <button type="submit" disabled={followLoading} className="px-4 py-2 bg-gray-900 text-white text-sm rounded-lg hover:bg-gray-800 disabled:opacity-50">{followLoading ? "保存中..." : "保存跟进"}</button>
               </form>
               <div className="bg-white rounded-xl border border-gray-200 p-5 space-y-3">
@@ -354,6 +356,7 @@ export default function CustomerDetailPage() {
                   <div key={record.id} className="border border-gray-100 rounded-lg p-3">
                     <p className="text-sm text-gray-900">{record.content}</p>
                     {record.result && <p className="text-xs text-gray-500 mt-1">{record.result}</p>}
+                    {record.address && <p className="text-xs text-gray-400 mt-1">📍 {record.address}</p>}
                     <p className="text-xs text-gray-400 mt-2">{new Date(record.createdAt).toLocaleString("zh-CN")} · {record.user?.name || ""}</p>
                   </div>
                 ))}

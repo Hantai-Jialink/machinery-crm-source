@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { getSessionUser, isSuperAdmin } from "@/lib/permissions";
+import { getSessionUser, isSuperAdmin, canAccessCustomer } from "@/lib/permissions";
 import { canEditContract, lockedContractMessage, recalculateContractPayments, writeOperationLog } from "@/lib/sales-items";
 
 async function getContractForPayment(contractId: string) {
   return prisma.contract.findFirst({
     where: { id: contractId, deletedAt: null },
     include: {
-      customer: { select: { region: true } },
+      customer: { select: { region: true, businessLine: true, province: true, city: true } },
       shipments: { select: { shipmentStatus: true } },
     },
   });
@@ -23,7 +23,7 @@ export async function GET(
   const { id } = await params;
   const contract = await getContractForPayment(id);
   if (!contract) return NextResponse.json({ error: "合同不存在" }, { status: 404 });
-  if (!isSuperAdmin(user) && contract.customer.region !== user.region) {
+  if (!canAccessCustomer(user, contract.customer)) {
     return NextResponse.json({ error: "无权访问" }, { status: 403 });
   }
 
@@ -54,7 +54,7 @@ export async function POST(
 
   const contract = await getContractForPayment(id);
   if (!contract) return NextResponse.json({ error: "合同不存在" }, { status: 404 });
-  if (!isSuperAdmin(user) && contract.customer.region !== user.region) {
+  if (!canAccessCustomer(user, contract.customer)) {
     return NextResponse.json({ error: "无权访问" }, { status: 403 });
   }
   if (!canEditContract(user, contract)) {

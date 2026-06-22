@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { getSessionUser, isSuperAdmin } from "@/lib/permissions";
+import { getSessionUser, isSuperAdmin, canAccessCustomer } from "@/lib/permissions";
 import { writeOperationLog } from "@/lib/sales-items";
 
 const SHIPMENT_STATUS = ["NOT_SHIPPED", "PARTIAL_SHIPPED", "SHIPPED"];
@@ -29,12 +29,12 @@ export async function PUT(
       where: { id },
       include: {
         contract: {
-          include: { customer: { select: { region: true } } },
+          include: { customer: { select: { businessLine: true, province: true, city: true } } },
         },
       },
     });
     if (!shipment) return NextResponse.json({ error: "发货记录不存在" }, { status: 404 });
-    if (!isSuperAdmin(user) && shipment.contract.customer.region !== user.region) {
+    if (!canAccessCustomer(user, shipment.contract.customer)) {
       return NextResponse.json({ error: "无权限编辑该发货记录" }, { status: 403 });
     }
 
@@ -114,13 +114,13 @@ export async function DELETE(
       where: { id },
       include: {
         contract: {
-          include: { customer: { select: { region: true } } },
+          include: { customer: { select: { businessLine: true, province: true, city: true } } },
         },
       },
     });
     if (!shipment) return NextResponse.json({ error: "发货记录不存在" }, { status: 404 });
     // 权限与“修改”一致：超级管理员，或与该合同同区域的人
-    if (!isSuperAdmin(user) && shipment.contract.customer.region !== user.region) {
+    if (!canAccessCustomer(user, shipment.contract.customer)) {
       return NextResponse.json({ error: "无权限删除该发货记录" }, { status: 403 });
     }
 

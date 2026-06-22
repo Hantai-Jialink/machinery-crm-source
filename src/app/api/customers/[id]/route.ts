@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
-import { getSessionUser, canAccessRegion, isSuperAdmin } from "@/lib/permissions";
+import { getSessionUser, canAccessCustomer, isSuperAdmin, canSeeAllData, matchesTerritory } from "@/lib/permissions";
 import { writeOperationLog } from "@/lib/sales-items";
 
 function cleanText(value: unknown) {
@@ -27,14 +27,13 @@ async function getBusinessCounts(customerId: string) {
   };
 }
 
-async function ensureActiveAssignee(assignedUserId: string | null | undefined, region: string) {
+async function ensureActiveAssignee(assignedUserId: string | null | undefined) {
   if (!assignedUserId) return null;
   const assignee = await prisma.user.findFirst({
     where: { id: assignedUserId, isActive: true },
-    select: { id: true, region: true },
+    select: { id: true },
   });
   if (!assignee) throw new Error("归属业务员不存在或已禁用");
-  if (assignee.region !== region) throw new Error("归属业务员区域与客户区域不一致");
   return assignee.id;
 }
 
@@ -64,7 +63,7 @@ export async function GET(
     });
 
     if (!customer) return NextResponse.json({ error: "客户不存在" }, { status: 404 });
-    if (!canAccessRegion(user, customer.region)) {
+    if (!canAccessCustomer(user, customer)) {
       return NextResponse.json({ error: "无权访问该客户" }, { status: 403 });
     }
 
@@ -86,15 +85,23 @@ export async function PUT(
     const { id } = await params;
     const existing = await prisma.customer.findFirst({ where: { id, deletedAt: null } });
     if (!existing) return NextResponse.json({ error: "客户不存在" }, { status: 404 });
-    if (!canAccessRegion(user, existing.region)) {
+    if (!canAccessCustomer(user, existing)) {
       return NextResponse.json({ error: "无权编辑该客户" }, { status: 403 });
     }
 
     const body = await request.json();
-    const region = isSuperAdmin(user) && body.region !== undefined ? String(body.region).trim() : existing.region;
     const assignedUserId = body.assignedUserId !== undefined
-      ? await ensureActiveAssignee(body.assignedUserId || null, region)
+      ? await ensureActiveAssignee(body.assignedUserId || null)
       : existing.assignedUserId;
+
+    // 非全局用户:编辑后客户仍须落在自己负责的省/市内
+    if (!canSeeAllData(user)) {
+      const finalProvince = body.province !== undefined ? cleanText(body.province) : existing.province;
+      const finalCity = body.city !== undefined ? cleanText(body.city) : existing.city;
+      if (!matchesTerritory(user.territories, finalProvince, finalCity)) {
+        return NextResponse.json({ error: "只能把客户保存在自己负责的省/市范围内" }, { status: 403 });
+      }
+    }
 
     const updateData: any = {};
     if (body.companyName !== undefined) updateData.companyName = String(body.companyName).trim();
@@ -106,7 +113,8 @@ export async function PUT(
     if (body.country !== undefined) updateData.country = cleanText(body.country) || "中国";
     if (body.province !== undefined) updateData.province = cleanText(body.province);
     if (body.city !== undefined) updateData.city = cleanText(body.city);
-    if (isSuperAdmin(user) && body.region !== undefined) updateData.region = region;
+    if (isSuperAdmin(user) && body.region !== undefined) updateData.region = String(body.region).trim();
+    if (canSeeAllData(user) && body.businessLine !== undefined) updateData.businessLine = body.businessLine === "外贸" ? "外贸" : "国内销售";
     if (body.address !== undefined) updateData.address = cleanText(body.address);
     if (body.customerSource !== undefined) updateData.customerSource = body.customerSource;
     if (body.customerType !== undefined) updateData.customerType = body.customerType;
@@ -174,7 +182,7 @@ export async function DELETE(
     const { id } = await params;
     const existing = await prisma.customer.findFirst({ where: { id, deletedAt: null } });
     if (!existing) return NextResponse.json({ error: "客户不存在或已删除" }, { status: 404 });
-    if (!canAccessRegion(user, existing.region)) {
+    if (!canAccessCustomer(user, existing)) {
       return NextResponse.json({ error: "无权删除该客户" }, { status: 403 });
     }
     if (!isSuperAdmin(user) && existing.assignedUserId !== user.id) {

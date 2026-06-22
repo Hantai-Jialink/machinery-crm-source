@@ -4,7 +4,8 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useSession } from "next-auth/react";
 import { ChevronLeft, ChevronRight, Edit2, Phone, Plus, Search, Trash2 } from "lucide-react";
-import { CUSTOMER_LEVELS, CUSTOMER_STATUS_LABELS, INTEREST_TAGS, REGIONS } from "@/lib/constants";
+import { CUSTOMER_LEVELS, CUSTOMER_STATUS_LABELS, INTEREST_TAGS } from "@/lib/constants";
+import { PROVINCE_OPTIONS, BUSINESS_LINES } from "@/lib/region-data";
 
 function formatMoney(value: number) {
   return value > 0 ? `¥${value.toLocaleString("zh-CN")}` : "-";
@@ -23,7 +24,8 @@ export default function CustomersPage() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [search, setSearch] = useState("");
-  const [region, setRegion] = useState("");
+  const [province, setProvince] = useState("");
+  const [businessLine, setBusinessLine] = useState("");
   const [status, setStatus] = useState("");
   const [level, setLevel] = useState("");
   const [tag, setTag] = useState("");
@@ -39,7 +41,8 @@ export default function CustomersPage() {
     const params = new URLSearchParams();
     params.set("page", page.toString());
     if (search) params.set("search", search);
-    if (region) params.set("region", region);
+    if (province) params.set("province", province);
+    if (businessLine) params.set("businessLine", businessLine);
     if (status) params.set("status", status);
     if (level) params.set("level", level);
     if (tag) params.set("tag", tag);
@@ -61,7 +64,7 @@ export default function CustomersPage() {
     } finally {
       setLoading(false);
     }
-  }, [page, search, region, status, level, tag, assignedUserId]);
+  }, [page, search, province, businessLine, status, level, tag, assignedUserId]);
 
   useEffect(() => {
     fetchCustomers();
@@ -140,10 +143,15 @@ export default function CustomersPage() {
             </div>
           </div>
 
+          <select value={province} onChange={(event) => { setProvince(event.target.value); setPage(1); }} className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-900">
+            <option value="">全部省份</option>
+            {PROVINCE_OPTIONS.map((item) => <option key={item} value={item}>{item}</option>)}
+          </select>
+
           {userRole === "SUPER_ADMIN" && (
-            <select value={region} onChange={(event) => { setRegion(event.target.value); setPage(1); }} className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-900">
-              <option value="">全部区域</option>
-              {REGIONS.map((item) => <option key={item} value={item}>{item}</option>)}
+            <select value={businessLine} onChange={(event) => { setBusinessLine(event.target.value); setPage(1); }} className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-900">
+              <option value="">全部业务线</option>
+              {BUSINESS_LINES.map((item) => <option key={item} value={item}>{item}</option>)}
             </select>
           )}
 
@@ -200,7 +208,7 @@ export default function CustomersPage() {
                   <tr key={customer.id} className="hover:bg-gray-50 transition-colors">
                     <td className="px-4 py-3"><Link href={`/customers/${customer.id}`} className="text-sm font-medium text-gray-900 hover:underline">{customer.companyName}</Link></td>
                     <td className="px-4 py-3 text-sm text-gray-600">{customer.contactName}</td>
-                    <td className="px-4 py-3"><span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-700">{customer.region}</span></td>
+                    <td className="px-4 py-3"><span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-700">{customer.province || customer.businessLine}</span></td>
                     <td className="px-4 py-3 text-sm text-gray-600">{customer.assignedUser?.name || "-"}</td>
                     <td className="px-4 py-3"><span className="text-xs px-2 py-0.5 rounded-full bg-blue-50 text-blue-700">{CUSTOMER_STATUS_LABELS[customer.status]}</span></td>
                     <td className="px-4 py-3"><span className={`text-xs px-2 py-0.5 rounded-full ${isWon ? "bg-green-50 text-green-700" : "bg-gray-100 text-gray-500"}`}>{isWon ? "已成交" : "未成交"}</span></td>
@@ -238,7 +246,7 @@ export default function CustomersPage() {
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <Link href={`/customers/${customer.id}`} className="text-sm font-medium text-gray-900 hover:underline">{customer.companyName}</Link>
-                    <p className="text-xs text-gray-500 mt-0.5">{customer.contactName} · {customer.region}</p>
+                    <p className="text-xs text-gray-500 mt-0.5">{customer.contactName} · {customer.province || customer.businessLine}</p>
                   </div>
                   <div className="flex gap-1">
                     <span className={`text-xs px-2 py-0.5 rounded-full ${isWon ? "bg-green-50 text-green-700" : "bg-gray-100 text-gray-500"}`}>{isWon ? "已成交" : "未成交"}</span>

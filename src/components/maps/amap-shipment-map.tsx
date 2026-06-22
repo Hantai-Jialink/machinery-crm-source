@@ -450,7 +450,7 @@ export function AmapShipmentMap({ shipments }: AmapShipmentMapProps) {
   const resolvedCount =
     geocodeData?.destinations.filter((d: ShipmentMapDestination) => Boolean(d.location)).length || 0;
   const skippedCount = geocodeData?.skippedCount ?? Math.max((geocodeData?.destinations.length || 0) - resolvedCount, 0);
-  const uniqueRegions = new Set(shipments.map((shipment) => shipment.contract?.customer?.region).filter(Boolean)).size;
+  const uniqueRegions = new Set(shipments.map((shipment) => shipment.contract?.customer?.province).filter(Boolean)).size;
   const displayError = formatMapError(mapError);
   const isBusy = renderState === "geocoding" || renderState === "loading-map" || renderState === "rendering";
 
@@ -490,7 +490,7 @@ export function AmapShipmentMap({ shipments }: AmapShipmentMapProps) {
             <p className="text-xl font-semibold">{shipments.length}</p>
           </div>
           <div className="rounded-lg border border-cyan-300/20 bg-slate-900/70 px-4 py-2 text-cyan-50">
-            <p className="text-[11px] text-cyan-100/55">区域</p>
+            <p className="text-[11px] text-cyan-100/55">省份</p>
             <p className="text-xl font-semibold">{uniqueRegions || "-"}</p>
           </div>
         </div>

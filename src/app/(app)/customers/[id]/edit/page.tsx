@@ -9,8 +9,9 @@ import {
   CUSTOMER_STATUS_LABELS,
   CUSTOMER_TYPE_LABELS,
   INTEREST_TAGS,
-  REGIONS,
 } from "@/lib/constants";
+import { BUSINESS_LINES } from "@/lib/region-data";
+import { ProvinceCitySelect } from "@/components/common/province-city-select";
 
 async function readJson(res: Response) {
   return res.json().catch(() => ({}));
@@ -21,6 +22,9 @@ export default function EditCustomerPage() {
   const router = useRouter();
   const { data: session } = useSession();
   const userRole = (session?.user as any)?.role;
+  const userViewScope = (session?.user as any)?.viewScope;
+  const userTerritories = ((session?.user as any)?.territories ?? []) as { province: string; cities: string[] }[];
+  const seeAll = userRole === "SUPER_ADMIN" || userViewScope === "ALL";
 
   const [form, setForm] = useState<any>(null);
   const [activeUsers, setActiveUsers] = useState<any[]>([]);
@@ -53,6 +57,7 @@ export default function EditCustomerPage() {
           province: customerData.province || "",
           city: customerData.city || "",
           region: customerData.region || "",
+          businessLine: customerData.businessLine || "国内销售",
           address: customerData.address || "",
           customerSource: customerData.customerSource || "展会",
           customerType: customerData.customerType || "NEW",
@@ -131,12 +136,17 @@ export default function EditCustomerPage() {
           <TextInput label="微信" value={form.wechat} onChange={(value) => handleChange("wechat", value)} />
           <TextInput label="WhatsApp" value={form.whatsapp} onChange={(value) => handleChange("whatsapp", value)} />
           <TextInput label="邮箱" type="email" value={form.email} onChange={(value) => handleChange("email", value)} />
-          <TextInput label="省份" value={form.province} onChange={(value) => handleChange("province", value)} />
-          <TextInput label="城市" value={form.city} onChange={(value) => handleChange("city", value)} />
+          <ProvinceCitySelect
+            province={form.province}
+            city={form.city}
+            onChange={({ province, city }) => setForm((prev: any) => ({ ...prev, province, city }))}
+            allowed={seeAll ? undefined : userTerritories}
+            includeForeign={seeAll && form.businessLine === "外贸"}
+          />
 
-          {userRole === "SUPER_ADMIN" && (
-            <SelectInput label="区域" value={form.region} onChange={(value) => handleChange("region", value)}>
-              {REGIONS.map((item) => <option key={item} value={item}>{item}</option>)}
+          {seeAll && (
+            <SelectInput label="业务线" value={form.businessLine} onChange={(value) => handleChange("businessLine", value)}>
+              {BUSINESS_LINES.map((item) => <option key={item} value={item}>{item}</option>)}
             </SelectInput>
           )}
 
@@ -158,7 +168,7 @@ export default function EditCustomerPage() {
 
           <SelectInput label="归属业务员/负责人" value={form.assignedUserId} onChange={(value) => handleChange("assignedUserId", value)}>
             <option value="">未分配</option>
-            {activeUsers.map((item) => <option key={item.id} value={item.id}>{item.name}（{item.region}）</option>)}
+            {activeUsers.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
           </SelectInput>
 
           <TextInput label="下次跟进日期" type="date" value={form.nextFollowDate} onChange={(value) => handleChange("nextFollowDate", value)} />

@@ -300,7 +300,7 @@ export function ContractEditor({ mode, contractId, quoteId, initialCustomerId }:
               <option value="">请选择客户</option>
               {customers.map((customer) => (<option key={customer.id} value={customer.id}>{customer.companyName} ({customer.contactName})</option>))}
             </select>
-            {selectedCustomer && <p className="text-xs text-gray-400 mt-1">{selectedCustomer.contactName} · {selectedCustomer.phone || "无电话"} · {selectedCustomer.region}</p>}
+            {selectedCustomer && <p className="text-xs text-gray-400 mt-1">{selectedCustomer.contactName} · {selectedCustomer.phone || "无电话"} · {[selectedCustomer.province, selectedCustomer.city].filter(Boolean).join(" ") || selectedCustomer.businessLine}</p>}
           </div>
         </div>
 

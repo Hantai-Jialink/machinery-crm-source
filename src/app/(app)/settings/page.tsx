@@ -30,8 +30,8 @@ export default function SettingsPage() {
             <dd className="text-sm text-gray-900">{ROLE_LABELS[(session?.user as any)?.role] || "-"}</dd>
           </div>
           <div className="flex items-center gap-4">
-            <dt className="text-sm text-gray-500 w-20">区域</dt>
-            <dd className="text-sm text-gray-900">{(session?.user as any)?.region || "-"}</dd>
+            <dt className="text-sm text-gray-500 w-20">数据范围</dt>
+            <dd className="text-sm text-gray-900">{(session?.user as any)?.role === "SUPER_ADMIN" || (session?.user as any)?.viewScope === "ALL" ? "全区域" : "按负责省市"}</dd>
           </div>
         </dl>
       </div>

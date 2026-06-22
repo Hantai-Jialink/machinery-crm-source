@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { canAccessRegion, getSessionUser, isSuperAdmin } from "@/lib/permissions";
+import { canAccessCustomer, getSessionUser, isSuperAdmin } from "@/lib/permissions";
 import { isContractLocked, writeOperationLog } from "@/lib/sales-items";
 
 export async function GET(request: NextRequest) {
@@ -22,7 +22,7 @@ export async function GET(request: NextRequest) {
           contractNo: true,
           contractStatus: true,
           amount: true,
-          customer: { select: { companyName: true, region: true } },
+          customer: { select: { companyName: true, region: true, businessLine: true, province: true, city: true } },
         },
       },
       requester: { select: { id: true, name: true } },
@@ -46,12 +46,12 @@ export async function POST(request: NextRequest) {
   const contract = await prisma.contract.findFirst({
     where: { id: body.contractId, deletedAt: null },
     include: {
-      customer: { select: { region: true } },
+      customer: { select: { region: true, businessLine: true, province: true, city: true } },
       shipments: { select: { shipmentStatus: true } },
     },
   });
   if (!contract) return NextResponse.json({ error: "合同不存在" }, { status: 404 });
-  if (!canAccessRegion(user, contract.customer.region)) {
+  if (!canAccessCustomer(user, contract.customer)) {
     return NextResponse.json({ error: "无权为该合同提交申请" }, { status: 403 });
   }
   if (!isContractLocked(contract)) {

@@ -4,7 +4,8 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useSession } from "next-auth/react";
 import { AlertTriangle, Clock, FileText, Filter, Truck, UserPlus, Users } from "lucide-react";
-import { FOLLOW_TYPE_LABELS, REGIONS } from "@/lib/constants";
+import { FOLLOW_TYPE_LABELS } from "@/lib/constants";
+import { PROVINCE_OPTIONS } from "@/lib/region-data";
 import { AmapShipmentMap } from "@/components/maps/amap-shipment-map";
 
 const PRESETS = [
@@ -58,7 +59,7 @@ export default function DashboardPage() {
   const [preset, setPreset] = useState("month");
   const [customStart, setCustomStart] = useState(new Date().toISOString().split("T")[0]);
   const [customEnd, setCustomEnd] = useState(new Date().toISOString().split("T")[0]);
-  const [region, setRegion] = useState("");
+  const [province, setProvince] = useState("");
   const [salesUserId, setSalesUserId] = useState("");
   const [customerStatus, setCustomerStatus] = useState("");
   const [contractStatus, setContractStatus] = useState("");
@@ -73,13 +74,13 @@ export default function DashboardPage() {
       params.set("start", customStart);
       params.set("end", customEnd);
     }
-    if (region) params.set("region", region);
+    if (province) params.set("province", province);
     if (salesUserId) params.set("salesUserId", salesUserId);
     if (customerStatus) params.set("customerStatus", customerStatus);
     if (contractStatus) params.set("contractStatus", contractStatus);
     if (shipmentStatus) params.set("shipmentStatus", shipmentStatus);
     return params.toString();
-  }, [preset, customStart, customEnd, region, salesUserId, customerStatus, contractStatus, shipmentStatus]);
+  }, [preset, customStart, customEnd, province, salesUserId, customerStatus, contractStatus, shipmentStatus]);
 
   useEffect(() => {
     fetch("/api/users/active")
@@ -115,7 +116,7 @@ export default function DashboardPage() {
   }, [query]);
 
   const clearFilters = () => {
-    setRegion("");
+    setProvince("");
     setSalesUserId("");
     setCustomerStatus("");
     setContractStatus("");
@@ -167,9 +168,9 @@ export default function DashboardPage() {
 
           <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-3">
             {userRole === "SUPER_ADMIN" && (
-              <select value={region} onChange={(event) => setRegion(event.target.value)} className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-900">
-                <option value="">全部区域</option>
-                {REGIONS.map((item) => <option key={item} value={item}>{item}</option>)}
+              <select value={province} onChange={(event) => setProvince(event.target.value)} className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-900">
+                <option value="">全部省份</option>
+                {PROVINCE_OPTIONS.map((item) => <option key={item} value={item}>{item}</option>)}
               </select>
             )}
             <select value={salesUserId} onChange={(event) => setSalesUserId(event.target.value)} className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-900">

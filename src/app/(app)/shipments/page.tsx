@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useSession } from "next-auth/react";
 import { Edit2, FileText, Image, Plus, Search, Trash2, Truck, X } from "lucide-react";
-import { REGIONS } from "@/lib/constants";
+import { PROVINCE_OPTIONS, BUSINESS_LINES } from "@/lib/region-data";
 import { toProtectedUploadUrl } from "@/lib/upload-urls";
 import { ContractCombobox } from "@/components/contracts/contract-combobox";
 
@@ -56,7 +56,8 @@ export default function ShipmentsPage() {
   const [form, setForm] = useState(defaultForm);
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("");
-  const [region, setRegion] = useState("");
+  const [province, setProvince] = useState("");
+  const [businessLine, setBusinessLine] = useState("");
   const [customerId, setCustomerId] = useState("");
   const [salesUserId, setSalesUserId] = useState("");
   const [createdById, setCreatedById] = useState("");
@@ -71,14 +72,15 @@ export default function ShipmentsPage() {
     const params = new URLSearchParams();
     if (search) params.set("search", search);
     if (status) params.set("status", status);
-    if (region) params.set("region", region);
+    if (province) params.set("province", province);
+    if (businessLine) params.set("businessLine", businessLine);
     if (customerId) params.set("customerId", customerId);
     if (salesUserId) params.set("salesUserId", salesUserId);
     if (createdById) params.set("createdById", createdById);
     if (dateStart) params.set("dateStart", dateStart);
     if (dateEnd) params.set("dateEnd", dateEnd);
     return params.toString();
-  }, [search, status, region, customerId, salesUserId, createdById, dateStart, dateEnd]);
+  }, [search, status, province, businessLine, customerId, salesUserId, createdById, dateStart, dateEnd]);
 
   const fetchShipments = () => {
     setLoading(true);
@@ -134,7 +136,8 @@ export default function ShipmentsPage() {
   const clearFilters = () => {
     setSearch("");
     setStatus("");
-    setRegion("");
+    setProvince("");
+    setBusinessLine("");
     setCustomerId("");
     setSalesUserId("");
     setCreatedById("");
@@ -325,10 +328,14 @@ export default function ShipmentsPage() {
             <option value="PARTIAL_SHIPPED">部分发货</option>
             <option value="SHIPPED">已发货</option>
           </select>
+          <select value={province} onChange={(event) => setProvince(event.target.value)} className="px-3 py-2 border border-gray-300 rounded-lg text-sm">
+            <option value="">全部省份</option>
+            {PROVINCE_OPTIONS.map((item) => <option key={item} value={item}>{item}</option>)}
+          </select>
           {userRole === "SUPER_ADMIN" && (
-            <select value={region} onChange={(event) => setRegion(event.target.value)} className="px-3 py-2 border border-gray-300 rounded-lg text-sm">
-              <option value="">全部区域</option>
-              {REGIONS.map((item) => <option key={item} value={item}>{item}</option>)}
+            <select value={businessLine} onChange={(event) => setBusinessLine(event.target.value)} className="px-3 py-2 border border-gray-300 rounded-lg text-sm">
+              <option value="">全部业务线</option>
+              {BUSINESS_LINES.map((item) => <option key={item} value={item}>{item}</option>)}
             </select>
           )}
           <select value={customerId} onChange={(event) => setCustomerId(event.target.value)} className="px-3 py-2 border border-gray-300 rounded-lg text-sm">
@@ -374,7 +381,7 @@ export default function ShipmentsPage() {
               <tr key={shipment.id} className="hover:bg-gray-50">
                 <td className="px-4 py-3"><Link href={`/contracts/${shipment.contract?.id}`} className="text-sm font-medium text-gray-900 hover:underline">{shipment.contract?.contractNo}</Link></td>
                 <td className="px-4 py-3"><Link href={`/customers/${shipment.contract?.customer?.id}`} className="text-sm text-gray-600 hover:underline">{shipment.contract?.customer?.companyName}</Link></td>
-                <td className="px-4 py-3 text-sm text-gray-600">{shipment.contract?.customer?.region}</td>
+                <td className="px-4 py-3 text-sm text-gray-600">{shipment.contract?.customer?.province}</td>
                 <td className="px-4 py-3 text-sm text-gray-600">{new Date(shipment.shipmentDate).toLocaleDateString("zh-CN")}</td>
                 <td className="px-4 py-3 text-sm text-gray-600">{shipment.equipmentName}</td>
                 <td className="px-4 py-3 text-sm text-gray-600">{shipment.quantity}</td>

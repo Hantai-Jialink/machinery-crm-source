@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { getSessionUser, canAccessRegion } from "@/lib/permissions";
+import { getSessionUser, canAccessCustomer } from "@/lib/permissions";
 
 export async function POST(request: NextRequest) {
   const user = await getSessionUser();
@@ -26,7 +26,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "客户不存在" }, { status: 404 });
   }
 
-  if (!canAccessRegion(user, customer.region)) {
+  if (!canAccessCustomer(user, customer)) {
     return NextResponse.json({ error: "无权限为该客户添加跟进记录" }, { status: 403 });
   }
 
@@ -40,6 +40,7 @@ export async function POST(request: NextRequest) {
         followType: body.followType,
         content: body.content,
         result: body.result || null,
+        address: body.address || null,
         nextFollowDate: body.nextFollowDate ? new Date(body.nextFollowDate) : null,
         newStatus: body.newStatus || null,
       },
@@ -93,7 +94,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "客户不存在" }, { status: 404 });
   }
 
-  if (!canAccessRegion(user, customer.region)) {
+  if (!canAccessCustomer(user, customer)) {
     return NextResponse.json({ error: "无权限查看该客户跟进记录" }, { status: 403 });
   }
 

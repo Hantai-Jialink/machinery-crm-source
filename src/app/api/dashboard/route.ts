@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { getSessionUser, isSuperAdmin } from "@/lib/permissions";
+import { getSessionUser, isSuperAdmin, canSeeAllData, customerIsolationWhere } from "@/lib/permissions";
 
 function startOfDay(date: Date) {
   const next = new Date(date);
@@ -81,18 +81,23 @@ export async function GET(request: NextRequest) {
     const contractStatus = searchParams.get("contractStatus") || "";
     const shipmentStatus = searchParams.get("shipmentStatus") || "";
 
-    const regionFilter = isSuperAdmin(user) ? region : user.region;
+    const seeAll = canSeeAllData(user);
+    const regionFilter = seeAll ? region : "";
+    const provinceFilter = seeAll ? (searchParams.get("province") || "") : "";
+    const isoWhere = seeAll ? {} : customerIsolationWhere(user);
 
-    const customerWhere: any = { deletedAt: null };
+    const customerWhere: any = { deletedAt: null, ...isoWhere };
     if (regionFilter) customerWhere.region = regionFilter;
+    if (provinceFilter) customerWhere.province = provinceFilter;
     if (customerStatus) customerWhere.status = customerStatus;
     if (salesUserId) customerWhere.assignedUserId = salesUserId;
 
     const contractWhere: any = {
       deletedAt: null,
-      customer: { deletedAt: null },
+      customer: { deletedAt: null, ...isoWhere },
     };
     if (regionFilter) contractWhere.customer.region = regionFilter;
+    if (provinceFilter) contractWhere.customer.province = provinceFilter;
     if (salesUserId) contractWhere.salesUserId = salesUserId;
     addContractStatusFilter(contractWhere, contractStatus);
 

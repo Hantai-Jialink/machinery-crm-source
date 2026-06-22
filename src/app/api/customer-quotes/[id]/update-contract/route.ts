@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { canAccessRegion, getSessionUser } from "@/lib/permissions";
+import { canAccessCustomer, getSessionUser } from "@/lib/permissions";
 import {
   assertAmountCoversPaid,
   canEditContract,
@@ -35,20 +35,20 @@ export async function POST(
   const quote = await prisma.customerQuote.findFirst({
     where: { id },
     include: {
-      customer: { select: { id: true, region: true } },
+      customer: { select: { id: true, region: true, businessLine: true, province: true, city: true } },
       items: { orderBy: { sortOrder: "asc" } },
     },
   });
 
   if (!quote) return NextResponse.json({ error: "报价不存在" }, { status: 404 });
-  if (!canAccessRegion(user, quote.customer.region)) {
+  if (!canAccessCustomer(user, quote.customer)) {
     return NextResponse.json({ error: "无权更新该报价关联合同" }, { status: 403 });
   }
 
   const contract = await prisma.contract.findFirst({
     where: { sourceQuoteId: id, deletedAt: null },
     include: {
-      customer: { select: { region: true } },
+      customer: { select: { region: true, businessLine: true, province: true, city: true } },
       shipments: { select: { shipmentStatus: true } },
       items: { orderBy: { sortOrder: "asc" } },
     },
@@ -97,7 +97,7 @@ export async function POST(
       },
       include: {
         items: { orderBy: { sortOrder: "asc" } },
-        customer: { select: { id: true, companyName: true, contactName: true, region: true } },
+        customer: { select: { id: true, companyName: true, contactName: true, region: true, businessLine: true, province: true, city: true } },
       },
     });
 

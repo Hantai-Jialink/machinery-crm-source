@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { getSessionUser, isSuperAdmin } from "@/lib/permissions";
+import { getSessionUser, isSuperAdmin, canAccessCustomer } from "@/lib/permissions";
 import {
   assertAmountCoversPaid,
   buildItemsFromInputs,
@@ -24,7 +24,7 @@ export async function GET(
     const contract = await prisma.contract.findFirst({
     where: { id, deletedAt: null },
     include: {
-      customer: { select: { id: true, companyName: true, contactName: true, phone: true, region: true } },
+      customer: { select: { id: true, companyName: true, contactName: true, phone: true, region: true, businessLine: true, province: true, city: true } },
       salesUser: { select: { id: true, name: true } },
       product: { select: { id: true, model: true, category: true, factoryPrice: true } },
       sourceQuote: { select: { id: true } },
@@ -53,7 +53,7 @@ export async function GET(
   });
 
     if (!contract) return NextResponse.json({ error: "合同不存在" }, { status: 404 });
-    if (!isSuperAdmin(user) && contract.customer.region !== user.region) {
+    if (!canAccessCustomer(user, contract.customer)) {
       return NextResponse.json({ error: "无权查看该合同" }, { status: 403 });
     }
 
@@ -87,13 +87,13 @@ export async function PUT(
   const contract = await prisma.contract.findFirst({
     where: { id, deletedAt: null },
     include: {
-      customer: { select: { region: true } },
+      customer: { select: { region: true, businessLine: true, province: true, city: true } },
       shipments: { select: { shipmentStatus: true } },
       items: true,
     },
   });
   if (!contract) return NextResponse.json({ error: "合同不存在" }, { status: 404 });
-  if (!isSuperAdmin(user) && contract.customer.region !== user.region) {
+  if (!canAccessCustomer(user, contract.customer)) {
     return NextResponse.json({ error: "无权编辑该合同" }, { status: 403 });
   }
   if (!canEditContract(user, contract)) {
@@ -103,7 +103,7 @@ export async function PUT(
   const customerId = body.customerId || contract.customerId;
   const customer = await prisma.customer.findFirst({ where: { id: customerId, deletedAt: null } });
   if (!customer) return NextResponse.json({ error: "客户不存在" }, { status: 404 });
-  if (!isSuperAdmin(user) && customer.region !== user.region) {
+  if (!canAccessCustomer(user, customer)) {
     return NextResponse.json({ error: "无权将合同转给该客户" }, { status: 403 });
   }
 
@@ -163,7 +163,7 @@ export async function PUT(
         },
         include: {
           items: { orderBy: { sortOrder: "asc" } },
-          customer: { select: { id: true, companyName: true, contactName: true, region: true } },
+          customer: { select: { id: true, companyName: true, contactName: true, region: true, businessLine: true, province: true, city: true } },
         },
       });
 

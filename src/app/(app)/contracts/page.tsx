@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useSession } from "next-auth/react";
 import { Plus, Search } from "lucide-react";
-import { REGIONS } from "@/lib/constants";
+import { PROVINCE_OPTIONS, BUSINESS_LINES } from "@/lib/region-data";
 
 const PAYMENT_STATUS_LABELS: Record<string, { label: string; color: string }> = {
   UNPAID: { label: "未回款", color: "bg-red-50 text-red-700" },
@@ -59,7 +59,8 @@ export default function ContractsPage() {
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
   const [contractStatus, setContractStatus] = useState("");
-  const [region, setRegion] = useState("");
+  const [province, setProvince] = useState("");
+  const [businessLine, setBusinessLine] = useState("");
   const [salesUserId, setSalesUserId] = useState("");
   const [paymentStatus, setPaymentStatus] = useState("");
   const [createdStart, setCreatedStart] = useState("");
@@ -113,7 +114,8 @@ export default function ContractsPage() {
     const params = new URLSearchParams();
     if (search) params.set("search", search);
     if (contractStatus) params.set("contractStatus", contractStatus);
-    if (region) params.set("region", region);
+    if (province) params.set("province", province);
+    if (businessLine) params.set("businessLine", businessLine);
     if (salesUserId) params.set("salesUserId", salesUserId);
     if (paymentStatus) params.set("paymentStatus", paymentStatus);
     if (createdStart) params.set("createdStart", createdStart);
@@ -121,7 +123,7 @@ export default function ContractsPage() {
     if (signedStart) params.set("signedStart", signedStart);
     if (signedEnd) params.set("signedEnd", signedEnd);
     return params.toString();
-  }, [search, contractStatus, region, salesUserId, paymentStatus, createdStart, createdEnd, signedStart, signedEnd]);
+  }, [search, contractStatus, province, businessLine, salesUserId, paymentStatus, createdStart, createdEnd, signedStart, signedEnd]);
 
   useEffect(() => {
     let active = true;
@@ -151,7 +153,8 @@ export default function ContractsPage() {
   const clearFilters = () => {
     setSearch("");
     setContractStatus("");
-    setRegion("");
+    setProvince("");
+    setBusinessLine("");
     setSalesUserId("");
     setPaymentStatus("");
     setCreatedStart("");
@@ -190,10 +193,14 @@ export default function ContractsPage() {
             {CONTRACT_STATUS_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
           </select>
 
+          <select value={province} onChange={(event) => setProvince(event.target.value)} className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-900">
+            <option value="">全部省份</option>
+            {PROVINCE_OPTIONS.map((item) => <option key={item} value={item}>{item}</option>)}
+          </select>
           {userRole === "SUPER_ADMIN" && (
-            <select value={region} onChange={(event) => setRegion(event.target.value)} className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-900">
-              <option value="">全部区域</option>
-              {REGIONS.map((item) => <option key={item} value={item}>{item}</option>)}
+            <select value={businessLine} onChange={(event) => setBusinessLine(event.target.value)} className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-900">
+              <option value="">全部业务线</option>
+              {BUSINESS_LINES.map((item) => <option key={item} value={item}>{item}</option>)}
             </select>
           )}
 

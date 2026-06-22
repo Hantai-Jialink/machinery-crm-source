@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { canAccessRegion, getSessionUser, isSuperAdmin } from "@/lib/permissions";
+import { canAccessCustomer, getSessionUser, isSuperAdmin } from "@/lib/permissions";
 import { writeOperationLog } from "@/lib/sales-items";
 
 // 超级管理员查看删除审批记录
@@ -24,7 +24,7 @@ export async function GET(request: NextRequest) {
           contractStatus: true,
           amount: true,
           deletedAt: true,
-          customer: { select: { companyName: true, region: true } },
+          customer: { select: { companyName: true, region: true, businessLine: true, province: true, city: true } },
         },
       },
       requester: { select: { id: true, name: true } },
@@ -48,10 +48,10 @@ export async function POST(request: NextRequest) {
 
   const contract = await prisma.contract.findFirst({
     where: { id: body.contractId, deletedAt: null },
-    include: { customer: { select: { region: true } } },
+    include: { customer: { select: { region: true, businessLine: true, province: true, city: true } } },
   });
   if (!contract) return NextResponse.json({ error: "合同不存在或已删除" }, { status: 404 });
-  if (!canAccessRegion(user, contract.customer.region)) {
+  if (!canAccessCustomer(user, contract.customer)) {
     return NextResponse.json({ error: "无权为该合同提交申请" }, { status: 403 });
   }
 

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { getSessionUser, isSuperAdmin } from "@/lib/permissions";
+import { getSessionUser, isSuperAdmin, canSeeAllData, customerIsolationWhere, canAccessCustomer } from "@/lib/permissions";
 import { writeOperationLog } from "@/lib/sales-items";
 
 const SHIPMENT_STATUS = ["NOT_SHIPPED", "PARTIAL_SHIPPED", "SHIPPED"];
@@ -44,10 +44,15 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "发货日期筛选格式错误" }, { status: 400 });
     }
 
-    const customerWhere: any = {};
-    if (!isSuperAdmin(user)) customerWhere.region = user.region;
-    else if (region) customerWhere.region = region;
-    if (customerId) customerWhere.id = customerId;
+    const customerConds: any[] = [];
+    if (!canSeeAllData(user)) customerConds.push(customerIsolationWhere(user));
+    else if (region) customerConds.push({ region });
+    if (customerId) customerConds.push({ id: customerId });
+    const province = searchParams.get("province") || "";
+    const businessLine = searchParams.get("businessLine") || "";
+    if (province) customerConds.push({ province });
+    if (businessLine && canSeeAllData(user)) customerConds.push({ businessLine });
+    const customerWhere: any = customerConds.length ? { AND: customerConds } : {};
 
     const contractWhere: any = { deletedAt: null };
     if (Object.keys(customerWhere).length) contractWhere.customer = customerWhere;
@@ -133,10 +138,10 @@ export async function POST(request: NextRequest) {
 
     const contract = await prisma.contract.findFirst({
       where: { id: body.contractId, deletedAt: null },
-      include: { customer: { select: { region: true } } },
+      include: { customer: { select: { businessLine: true, province: true, city: true } } },
     });
     if (!contract) return NextResponse.json({ error: "合同不存在" }, { status: 404 });
-    if (!isSuperAdmin(user) && contract.customer.region !== user.region) {
+    if (!canAccessCustomer(user, contract.customer)) {
       return NextResponse.json({ error: "无权限为该合同创建发货记录" }, { status: 403 });
     }
 

@@ -53,7 +53,7 @@ export function Sidebar() {
   const [productsOpen, setProductsOpen] = useState(pathname.startsWith("/products"));
 
   const userRole = (session?.user as any)?.role;
-  const userRegion = (session?.user as any)?.region;
+  const userViewScope = (session?.user as any)?.viewScope;
   const filteredNavItems = navItems.filter((item) => !item.adminOnly || userRole === "SUPER_ADMIN");
 
   const NavContent = () => (
@@ -127,7 +127,7 @@ export function Sidebar() {
       <div className="p-4 border-t border-gray-100">
         <div className="mb-3 text-xs text-gray-500">
           <p className="font-medium text-gray-700">{session?.user?.name || session?.user?.email}</p>
-          <p>{userRole === "SUPER_ADMIN" ? "超级管理员" : userRegion}</p>
+          <p>{userRole === "SUPER_ADMIN" ? "超级管理员" : userViewScope === "ALL" ? "全区域" : userRole === "FOREIGN_TRADE" ? "外贸业务" : "销售"}</p>
         </div>
         <button
           type="button"

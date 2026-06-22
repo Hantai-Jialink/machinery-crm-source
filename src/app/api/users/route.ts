@@ -3,6 +3,7 @@ import { Prisma } from "@prisma/client";
 import bcryptjs from "bcryptjs";
 import { prisma } from "@/lib/db";
 import { getSessionUser, canManageUsers } from "@/lib/permissions";
+import { sanitizeTerritories } from "@/lib/region-data";
 import { writeOperationLog } from "@/lib/sales-items";
 
 const USER_SELECT = {
@@ -11,6 +12,8 @@ const USER_SELECT = {
   name: true,
   role: true,
   region: true,
+  territories: true,
+  viewScope: true,
   isActive: true,
   createdAt: true,
 };
@@ -46,8 +49,8 @@ export async function POST(request: NextRequest) {
     if (!canManageUsers(user)) return NextResponse.json({ error: "无权限" }, { status: 403 });
 
     const body = await request.json();
-    if (!body.email || !body.password || !body.name || !body.role || !body.region) {
-      return NextResponse.json({ error: "姓名、账号、密码、角色和区域为必填项" }, { status: 400 });
+    if (!body.email || !body.password || !body.name || !body.role) {
+      return NextResponse.json({ error: "姓名、账号、密码和角色为必填项" }, { status: 400 });
     }
 
     const account = String(body.email).trim();
@@ -72,7 +75,9 @@ export async function POST(request: NextRequest) {
           password: hashedPassword,
           name,
           role: body.role,
-          region: body.region,
+          region: body.region || "其他",
+          territories: sanitizeTerritories(body.territories),
+          viewScope: body.viewScope === "ALL" ? "ALL" : "TERRITORY",
           isActive: true,
         },
         select: USER_SELECT,

@@ -96,7 +96,7 @@ export default function ContractDeleteRequestsPage() {
                     {item.contract?.contractNo}
                   </Link>
                   <p className="text-xs text-gray-500">
-                    {item.contract?.customer?.companyName} · {item.contract?.customer?.region}
+                    {item.contract?.customer?.companyName} · {item.contract?.customer?.province || item.contract?.customer?.businessLine}
                   </p>
                 </div>
                 <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-700">

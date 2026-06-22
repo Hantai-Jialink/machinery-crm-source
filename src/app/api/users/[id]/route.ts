@@ -3,6 +3,7 @@ import { Prisma } from "@prisma/client";
 import bcryptjs from "bcryptjs";
 import { prisma } from "@/lib/db";
 import { getSessionUser, canManageUsers } from "@/lib/permissions";
+import { sanitizeTerritories } from "@/lib/region-data";
 import { writeOperationLog } from "@/lib/sales-items";
 
 const VALID_ROLES = ["SUPER_ADMIN", "SALES", "FOREIGN_TRADE"];
@@ -14,6 +15,8 @@ const USER_SELECT = {
   name: true,
   role: true,
   region: true,
+  territories: true,
+  viewScope: true,
   isActive: true,
   createdAt: true,
 };
@@ -101,8 +104,15 @@ export async function PUT(
     }
 
     if (body.region !== undefined) {
-      if (!VALID_REGIONS.includes(body.region)) return NextResponse.json({ error: "区域无效" }, { status: 400 });
-      updateData.region = body.region;
+      updateData.region = String(body.region);
+    }
+
+    if (body.territories !== undefined) {
+      updateData.territories = sanitizeTerritories(body.territories);
+    }
+
+    if (body.viewScope !== undefined) {
+      updateData.viewScope = body.viewScope === "ALL" ? "ALL" : "TERRITORY";
     }
 
     if (body.isActive !== undefined) {

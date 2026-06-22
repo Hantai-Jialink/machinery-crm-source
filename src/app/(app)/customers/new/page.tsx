@@ -4,11 +4,12 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import {
-  REGIONS,
   CUSTOMER_SOURCES,
   INTEREST_TAGS,
   CUSTOMER_LEVELS,
 } from "@/lib/constants";
+import { BUSINESS_LINES } from "@/lib/region-data";
+import { ProvinceCitySelect } from "@/components/common/province-city-select";
 
 function formatMoney(v: any) {
   if (!v) return "暂未维护";
@@ -20,11 +21,14 @@ export default function NewCustomerPage() {
   const { data: session } = useSession();
   const userRole = (session?.user as any)?.role;
   const userRegion = (session?.user as any)?.region;
+  const userViewScope = (session?.user as any)?.viewScope;
+  const userTerritories = ((session?.user as any)?.territories ?? []) as { province: string; cities: string[] }[];
+  const seeAll = userRole === "SUPER_ADMIN" || userViewScope === "ALL";
 
   const [form, setForm] = useState({
     companyName: "", contactName: "", phone: "", wechat: "", whatsapp: "", email: "",
     country: "中国", province: "", city: "",
-    region: userRole === "SUPER_ADMIN" ? "华北" : userRegion || "华北",
+    businessLine: "国内销售",
     address: "", customerSource: "展会", customerType: "NEW" as string,
     customerLevel: "B" as string, interestTags: [] as string[], remark: "", nextFollowDate: "",
   });
@@ -167,12 +171,12 @@ export default function NewCustomerPage() {
         <div className="space-y-4">
           <h2 className="text-sm font-semibold text-gray-700">区域信息</h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {userRole === "SUPER_ADMIN" && (
+            {seeAll && (
               <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">区域 *</label>
-                <select value={form.region} onChange={(e) => handleChange("region", e.target.value)}
+                <label className="block text-xs font-medium text-gray-600 mb-1">业务线 *</label>
+                <select value={form.businessLine} onChange={(e) => handleChange("businessLine", e.target.value)}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-900">
-                  {REGIONS.map((r) => (<option key={r} value={r}>{r}</option>))}
+                  {BUSINESS_LINES.map((b) => (<option key={b} value={b}>{b}</option>))}
                 </select>
               </div>
             )}
@@ -181,16 +185,13 @@ export default function NewCustomerPage() {
               <input type="text" value={form.country} onChange={(e) => handleChange("country", e.target.value)}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-900" />
             </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">省份</label>
-              <input type="text" value={form.province} onChange={(e) => handleChange("province", e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-900" />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">城市</label>
-              <input type="text" value={form.city} onChange={(e) => handleChange("city", e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-900" />
-            </div>
+            <ProvinceCitySelect
+              province={form.province}
+              city={form.city}
+              onChange={({ province, city }) => setForm((f) => ({ ...f, province, city }))}
+              allowed={seeAll ? undefined : userTerritories}
+              includeForeign={seeAll && form.businessLine === "外贸"}
+            />
           </div>
         </div>
 

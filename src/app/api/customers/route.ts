@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
-import { getSessionUser, buildCustomerWhereClause, isSuperAdmin } from "@/lib/permissions";
+import { getSessionUser, buildCustomerWhereClause, isSuperAdmin, canSeeAllData, matchesTerritory } from "@/lib/permissions";
 import { writeOperationLog } from "@/lib/sales-items";
 
 function cleanText(value: unknown) {
@@ -9,14 +9,13 @@ function cleanText(value: unknown) {
   return text || null;
 }
 
-async function ensureActiveAssignee(assignedUserId: string | null | undefined, region: string) {
+async function ensureActiveAssignee(assignedUserId: string | null | undefined) {
   if (!assignedUserId) return null;
   const assignee = await prisma.user.findFirst({
     where: { id: assignedUserId, isActive: true },
-    select: { id: true, region: true },
+    select: { id: true },
   });
   if (!assignee) throw new Error("归属业务员不存在或已禁用");
-  if (assignee.region !== region) throw new Error("归属业务员区域与客户区域不一致");
   return assignee.id;
 }
 
@@ -37,15 +36,25 @@ export async function GET(request: NextRequest) {
 
     const where: any = buildCustomerWhereClause(user);
 
+    const andConds: any[] = [];
     if (search) {
-      where.OR = [
-        { companyName: { contains: search } },
-        { contactName: { contains: search } },
-        { phone: { contains: search } },
-        { email: { contains: search } },
-      ];
+      andConds.push({
+        OR: [
+          { companyName: { contains: search } },
+          { contactName: { contains: search } },
+          { phone: { contains: search } },
+          { email: { contains: search } },
+        ],
+      });
     }
+    if (andConds.length) where.AND = andConds;
 
+    const province = searchParams.get("province") || "";
+    const city = searchParams.get("city") || "";
+    const businessLine = searchParams.get("businessLine") || "";
+    if (province) where.province = province;
+    if (city) where.city = city;
+    if (businessLine && canSeeAllData(user)) where.businessLine = businessLine;
     if (region && isSuperAdmin(user)) where.region = region;
     if (status) where.status = status;
     if (level) where.customerLevel = level;
@@ -99,10 +108,18 @@ export async function POST(request: NextRequest) {
     if (!user) return NextResponse.json({ error: "未登录" }, { status: 401 });
 
     const body = await request.json();
-    const region = isSuperAdmin(user) ? String(body.region || "").trim() : user.region;
+    const seeAll = canSeeAllData(user);
+    const businessLine = seeAll && body.businessLine === "外贸" ? "外贸" : "国内销售";
+    const province = cleanText(body.province);
+    const city = cleanText(body.city);
 
-    if (!body.companyName || !body.contactName || !region || !body.customerSource || !body.customerType || !body.customerLevel) {
-      return NextResponse.json({ error: "公司名称、联系人、区域、客户来源、客户类型和客户等级为必填项" }, { status: 400 });
+    if (!body.companyName || !body.contactName || !province || !body.customerSource || !body.customerType || !body.customerLevel) {
+      return NextResponse.json({ error: "公司名称、联系人、省份、客户来源、客户类型和客户等级为必填项" }, { status: 400 });
+    }
+
+    // 普通销售只能在自己负责的省/市范围内新建客户(否则建完自己也看不到)
+    if (!seeAll && !matchesTerritory(user.territories, province, city)) {
+      return NextResponse.json({ error: "只能在自己负责的省/市范围内新建客户,请确认省/市选择" }, { status: 403 });
     }
 
     const duplicateConditions: any[] = [];
@@ -132,7 +149,7 @@ export async function POST(request: NextRequest) {
     }
 
     const defaultAssigneeId = isSuperAdmin(user) ? null : user.id;
-    const assignedUserId = await ensureActiveAssignee(body.assignedUserId || defaultAssigneeId, region);
+    const assignedUserId = await ensureActiveAssignee(body.assignedUserId || defaultAssigneeId);
 
     const customer = await prisma.$transaction(async (tx) => {
       const created = await tx.customer.create({
@@ -144,9 +161,10 @@ export async function POST(request: NextRequest) {
           whatsapp,
           email,
           country: cleanText(body.country) || "中国",
-          province: cleanText(body.province),
-          city: cleanText(body.city),
-          region,
+          province,
+          city,
+          region: cleanText(body.region) || "",
+          businessLine,
           address: cleanText(body.address),
           customerSource: body.customerSource,
           customerType: body.customerType,

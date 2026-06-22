@@ -121,6 +121,8 @@ model User {
   name      String
   role      Role
   region    String   @default("其他")
+  territories Json   @default("[]")
+  viewScope String   @default("TERRITORY")
   isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -155,7 +157,8 @@ model Customer {
   country        String?        @default("中国")
   province       String?
   city           String?
-  region         String
+  region         String         @default("")
+  businessLine   String         @default("国内销售")
   address        String?        @db.Text
   customerSource String
   customerType   CustomerType
@@ -177,6 +180,9 @@ model Customer {
   customerQuotes CustomerQuote[]
 
   @@index([region])
+  @@index([province])
+  @@index([city])
+  @@index([businessLine])
   @@index([status])
   @@index([assignedUserId])
   @@index([nextFollowDate])
@@ -195,6 +201,7 @@ model FollowRecord {
   followType     FollowType
   content        String          @db.Text
   result         String?         @db.Text
+  address        String?         @db.Text
   nextFollowDate DateTime?       @db.Date
   newStatus      CustomerStatus?
   createdAt      DateTime        @default(now())

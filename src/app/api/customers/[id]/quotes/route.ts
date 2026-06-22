@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { getSessionUser, canAccessRegion } from "@/lib/permissions";
+import { getSessionUser, canAccessCustomer } from "@/lib/permissions";
 
 export async function GET(
   request: NextRequest,
@@ -15,7 +15,7 @@ export async function GET(
     where: { id, deletedAt: null },
   });
   if (!customer) return NextResponse.json({ error: "客户不存在" }, { status: 404 });
-  if (!canAccessRegion(user, customer.region)) {
+  if (!canAccessCustomer(user, customer)) {
     return NextResponse.json({ error: "无权限" }, { status: 403 });
   }
 

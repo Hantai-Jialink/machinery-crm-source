@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { getSessionUser, canAccessRegion } from "@/lib/permissions";
+import { getSessionUser, canAccessCustomer } from "@/lib/permissions";
 import { canEditContract } from "@/lib/sales-items";
 
 export async function GET(
@@ -14,11 +14,11 @@ export async function GET(
     const { id } = await params;
     const quote = await prisma.customerQuote.findFirst({
       where: { id },
-      include: { customer: { select: { region: true } } },
+      include: { customer: { select: { region: true, businessLine: true, province: true, city: true } } },
     });
 
     if (!quote) return NextResponse.json({ error: "报价不存在" }, { status: 404 });
-    if (!canAccessRegion(user, quote.customer.region)) {
+    if (!canAccessCustomer(user, quote.customer)) {
       return NextResponse.json({ error: "无权查看该报价" }, { status: 403 });
     }
 

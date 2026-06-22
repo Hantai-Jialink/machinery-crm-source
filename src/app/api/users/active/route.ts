@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { getSessionUser, isSuperAdmin } from "@/lib/permissions";
+import { getSessionUser, isSuperAdmin, canSeeAllData } from "@/lib/permissions";
 
 export async function GET(request: NextRequest) {
   try {
@@ -18,8 +18,8 @@ export async function GET(request: NextRequest) {
       where.id = { not: excludeUserId };
     }
 
-    if (!isSuperAdmin(user)) {
-      where.region = user.region;
+    if (!canSeeAllData(user)) {
+      where.id = user.id;
     }
 
     const users = await prisma.user.findMany({

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { getSessionUser, isSuperAdmin } from "@/lib/permissions";
+import { getSessionUser, isSuperAdmin, canAccessCustomer } from "@/lib/permissions";
 import { buildItemsFromInputs, sumItems, writeOperationLog } from "@/lib/sales-items";
 
 export async function POST(request: NextRequest) {
@@ -36,7 +36,7 @@ export async function POST(request: NextRequest) {
       where: { id: body.customerId, deletedAt: null },
     });
     if (!customer) return NextResponse.json({ error: "客户不存在" }, { status: 404 });
-    if (!isSuperAdmin(user) && customer.region !== user.region) {
+    if (!canAccessCustomer(user, customer)) {
       return NextResponse.json({ error: "无权为该客户创建报价" }, { status: 403 });
     }
 
