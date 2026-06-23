@@ -9,7 +9,9 @@ export default auth((req) => {
     pathname.startsWith("/api/auth") ||
     pathname.startsWith("/_next") ||
     pathname.startsWith("/favicon") ||
-    pathname === "/logo.png"
+    pathname === "/logo.png" ||
+    pathname === "/manifest.webmanifest" ||
+    pathname.startsWith("/icons")
   ) {
     return NextResponse.next();
   }
