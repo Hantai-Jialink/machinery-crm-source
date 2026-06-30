@@ -14,6 +14,7 @@ import {
   LogOut,
   Menu,
   Package,
+  Boxes,
   Settings,
   Truck,
   UserCircle,
@@ -21,6 +22,7 @@ import {
   X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { canAccessERP } from "@/lib/permissions";
 
 const navItems = [
   { href: "/dashboard", label: "工作台", icon: LayoutDashboard },
@@ -37,6 +39,20 @@ const navItems = [
       { href: "/products/new-optional", label: "新增选配产品", adminOnly: true },
     ],
   },
+  {
+    href: "/erp/materials",
+    label: "ERP 仓库管理",
+    icon: Boxes,
+    erpOnly: true,
+    children: [
+      { href: "/erp/materials", label: "物料管理" },
+      { href: "/erp/inventory", label: "库存总览" },
+      { href: "/erp/stock-in", label: "入库单" },
+      { href: "/erp/stock-out", label: "出库单" },
+      { href: "/erp/stock-check", label: "盘点单" },
+      { href: "/erp/warehouse", label: "仓库设置" },
+    ],
+  },
   { href: "/reminders", label: "跟进提醒", icon: Bell },
   { href: "/contract-unlock-requests", label: "合同修改审批", icon: ClipboardCheck, adminOnly: true },
   { href: "/operation-logs", label: "操作日志", icon: History, adminOnly: true },
@@ -49,10 +65,16 @@ export function Sidebar() {
   const { data: session } = useSession();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [productsOpen, setProductsOpen] = useState(pathname.startsWith("/products"));
+  const [erpOpen, setErpOpen] = useState(pathname.startsWith("/erp"));
 
   const userRole = (session?.user as any)?.role;
   const userRegion = (session?.user as any)?.region;
-  const filteredNavItems = navItems.filter((item) => !item.adminOnly || userRole === "SUPER_ADMIN");
+  const hasErpAccess = canAccessERP({ role: userRole, region: userRegion, id: "" } as any);
+  const filteredNavItems = navItems.filter((item) => {
+    if (item.adminOnly && userRole !== "SUPER_ADMIN") return false;
+    if (item.erpOnly && !hasErpAccess) return false;
+    return true;
+  });
 
   const NavContent = () => (
     <>
@@ -66,12 +88,15 @@ export function Sidebar() {
           const Icon = item.icon;
 
           if (item.children) {
-            const visibleChildren = item.children.filter((child) => !child.adminOnly || userRole === "SUPER_ADMIN");
+            const visibleChildren = item.children.filter((child: any) => !child.adminOnly || userRole === "SUPER_ADMIN");
+            const isErp = item.href.startsWith("/erp");
+            const isOpen = isErp ? erpOpen : productsOpen;
+            const toggle = isErp ? () => setErpOpen((o) => !o) : () => setProductsOpen((o) => !o);
             return (
               <div key={item.href}>
                 <button
                   type="button"
-                  onClick={() => setProductsOpen((open) => !open)}
+                  onClick={toggle}
                   className={cn(
                     "w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors",
                     isActive ? "bg-gray-900 text-white" : "text-gray-600 hover:bg-gray-100 hover:text-gray-900"
@@ -79,9 +104,9 @@ export function Sidebar() {
                 >
                   <Icon className="w-4 h-4" />
                   <span className="flex-1 text-left">{item.label}</span>
-                  <ChevronDown className={cn("w-3.5 h-3.5 transition-transform", productsOpen && "rotate-180")} />
+                  <ChevronDown className={cn("w-3.5 h-3.5 transition-transform", isOpen && "rotate-180")} />
                 </button>
-                {productsOpen && (
+                {isOpen && (
                   <div className="ml-7 mt-1 space-y-1">
                     {visibleChildren.map((child) => {
                       const childActive = pathname === child.href;

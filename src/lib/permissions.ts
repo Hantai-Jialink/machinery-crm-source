@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 
 export type SessionUser = {
   id: string;
-  role: "SUPER_ADMIN" | "SALES" | "FOREIGN_TRADE";
+  role: "SUPER_ADMIN" | "SALES" | "FOREIGN_TRADE" | "WAREHOUSE";
   region: string;
   name?: string | null;
   email?: string | null;
@@ -94,4 +94,11 @@ export function canManageUsers(user: SessionUser): boolean {
  */
 export function canDeleteCustomer(user: SessionUser): boolean {
   return user.role === "SUPER_ADMIN";
+}
+
+/**
+ * 检查用户是否可以访问 ERP 模块
+ */
+export function canAccessERP(user: SessionUser): boolean {
+  return user.role === "SUPER_ADMIN" || user.role === "WAREHOUSE";
 }
