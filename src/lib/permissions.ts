@@ -7,7 +7,7 @@ export type Territory = { province: string; cities: string[] };
 
 export type SessionUser = {
   id: string;
-  role: "SUPER_ADMIN" | "SALES" | "FOREIGN_TRADE";
+  role: "SUPER_ADMIN" | "SALES" | "FOREIGN_TRADE" | "WAREHOUSE";
   region: string; // 旧字段,保留兼容,隔离已不再使用
   territories: Territory[]; // 负责的省/市
   viewScope: string; // "TERRITORY"(按分区) | "ALL"(全区域,看全部含外贸)
@@ -162,6 +162,11 @@ export function canManageProducts(user: SessionUser): boolean {
 /** 是否可以管理用户 */
 export function canManageUsers(user: SessionUser): boolean {
   return user.role === "SUPER_ADMIN";
+}
+
+/** 是否可以访问 ERP 模块 */
+export function canAccessERP(user: SessionUser): boolean {
+  return user.role === "SUPER_ADMIN" || user.role === "WAREHOUSE";
 }
 
 /** 是否可以删除客户 */

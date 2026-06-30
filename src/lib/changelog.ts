@@ -26,6 +26,16 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "v1.4.0",
+    date: "2026-06-30",
+    notes: [
+      "ERP 一期上线：新增物料主数据、仓库、库存台账、入库、出库、盘点、库存流水等模块。",
+      "新增 BOM（物料清单）基础表，为后续生产用料展开预留数据结构。",
+      "新增仓管（WAREHOUSE）角色及 ERP 权限隔离，ERP 菜单仅超级管理员和仓管可见。",
+      "出入库和盘点写库存改为可串行化事务，并加入同单物料重复校验，降低并发超扣风险。",
+    ],
+  },
+  {
     version: "v1.3.0",
     date: "2026-06-22",
     notes: [

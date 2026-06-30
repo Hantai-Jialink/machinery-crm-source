@@ -43,3 +43,12 @@ yarn-error.log*
 next-env.d.ts
 
 /src/generated/prisma
+
+# ERP raw inputs / local archives
+_erp-inputs/
+新建文件夹/
+*.bak
+*.bak_*
+*.tar.gz
+*.zip
+*.tmp
