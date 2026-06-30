@@ -1,0 +1,55 @@
+name: Build and Package
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+        env:
+          DATABASE_URL: mysql://placeholder:placeholder@localhost:3306/placeholder
+
+      - name: TypeScript check
+        run: npx tsc --noEmit
+
+      - name: Build Next.js (standalone)
+        run: npm run build
+        env:
+          DATABASE_URL: mysql://placeholder:placeholder@localhost:3306/placeholder
+          NEXTAUTH_SECRET: placeholder-build-secret
+          NEXTAUTH_URL: http://localhost:3000
+
+      - name: Package deployment artifact
+        run: |
+          # standalone 模式下需手动复制 static 和 public
+          cp -r .next/static .next/standalone/.next/static
+          cp -r public .next/standalone/public
+          cp -r prisma .next/standalone/prisma
+          cp package.json .next/standalone/
+          cd .next/standalone
+          tar czf ../../machinery-crm-deploy.tar.gz .
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: machinery-crm-deploy
+          path: machinery-crm-deploy.tar.gz
+          retention-days: 7
