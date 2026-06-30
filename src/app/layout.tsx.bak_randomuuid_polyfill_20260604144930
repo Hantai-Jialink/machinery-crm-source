@@ -1,0 +1,27 @@
+import type { Metadata } from "next";
+import { Geist } from "next/font/google";
+import "./globals.css";
+
+const geistSans = Geist({
+  variable: "--font-geist-sans",
+  subsets: ["latin"],
+});
+
+export const metadata: Metadata = {
+  title: "DachuanPro-CRM",
+  description: "大川机床客户关系管理系统",
+};
+
+export default function RootLayout({
+  children,
+}: Readonly<{
+  children: React.ReactNode;
+}>) {
+  return (
+    <html lang="zh-CN" className={`${geistSans.variable} h-full`}>
+      <body className="min-h-full antialiased bg-gray-50 text-gray-900">
+        {children}
+      </body>
+    </html>
+  );
+}

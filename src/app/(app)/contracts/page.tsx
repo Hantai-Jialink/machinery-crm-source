@@ -1,0 +1,266 @@
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import { useSession } from "next-auth/react";
+import { Plus, Search } from "lucide-react";
+import { REGIONS } from "@/lib/constants";
+
+const PAYMENT_STATUS_LABELS: Record<string, { label: string; color: string }> = {
+  UNPAID: { label: "未回款", color: "bg-red-50 text-red-700" },
+  PARTIAL_PAID: { label: "部分回款", color: "bg-yellow-50 text-yellow-700" },
+  PAID: { label: "已回款", color: "bg-green-50 text-green-700" },
+};
+
+const CONTRACT_STATUS_OPTIONS = [
+  { value: "", label: "全部状态" },
+  { value: "DRAFT", label: "草稿" },
+  { value: "SIGNED", label: "已确认" },
+  { value: "PRODUCTION", label: "生产中" },
+  { value: "SHIPPED", label: "已发货" },
+  { value: "COMPLETED", label: "已完成" },
+  { value: "ARCHIVED", label: "已归档" },
+  { value: "CANCELLED", label: "已取消" },
+];
+
+function formatMoney(amount: any) {
+  if (amount === null || amount === undefined || amount === "") return "-";
+  return `¥${Number(amount).toLocaleString("zh-CN")}`;
+}
+
+function contractStatusBadge(contract: any) {
+  if (contract.contractStatus === "DRAFT") return { label: "草稿", color: "bg-gray-100 text-gray-700" };
+  if (contract.contractStatus === "COMPLETED") return { label: "已完成", color: "bg-green-50 text-green-700" };
+  if (contract.contractStatus === "ARCHIVED") return { label: "已归档", color: "bg-slate-100 text-slate-700" };
+  if (contract.contractStatus === "CANCELLED") return { label: "已取消", color: "bg-red-50 text-red-600" };
+  if (contract.shipments?.some((item: any) => item.shipmentStatus === "SHIPPED" || item.shipmentStatus === "PARTIAL_SHIPPED")) {
+    return { label: "已发货", color: "bg-cyan-50 text-cyan-700" };
+  }
+  return { label: "已确认", color: "bg-blue-50 text-blue-700" };
+}
+
+function contractEquipmentLabel(contract: any) {
+  const mainItems = contract.items?.filter((item: any) => item.itemType === "MAIN") || [];
+  if (mainItems.length) {
+    return mainItems.map((item: any) => `${item.productNameSnapshot || ""} ${item.productModelSnapshot || ""}`.trim()).join("、");
+  }
+  return contract.equipmentName || contract.equipmentModel || "-";
+}
+
+async function readJson(res: Response) {
+  return res.json().catch(() => ({}));
+}
+
+export default function ContractsPage() {
+  const { data: session } = useSession();
+  const [contracts, setContracts] = useState<any[]>([]);
+  const [activeUsers, setActiveUsers] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [search, setSearch] = useState("");
+  const [contractStatus, setContractStatus] = useState("");
+  const [region, setRegion] = useState("");
+  const [salesUserId, setSalesUserId] = useState("");
+  const [paymentStatus, setPaymentStatus] = useState("");
+  const [createdStart, setCreatedStart] = useState("");
+  const [createdEnd, setCreatedEnd] = useState("");
+  const [signedStart, setSignedStart] = useState("");
+  const [signedEnd, setSignedEnd] = useState("");
+
+  const userRole = (session?.user as any)?.role;
+
+  const query = useMemo(() => {
+    const params = new URLSearchParams();
+    if (search) params.set("search", search);
+    if (contractStatus) params.set("contractStatus", contractStatus);
+    if (region) params.set("region", region);
+    if (salesUserId) params.set("salesUserId", salesUserId);
+    if (paymentStatus) params.set("paymentStatus", paymentStatus);
+    if (createdStart) params.set("createdStart", createdStart);
+    if (createdEnd) params.set("createdEnd", createdEnd);
+    if (signedStart) params.set("signedStart", signedStart);
+    if (signedEnd) params.set("signedEnd", signedEnd);
+    return params.toString();
+  }, [search, contractStatus, region, salesUserId, paymentStatus, createdStart, createdEnd, signedStart, signedEnd]);
+
+  useEffect(() => {
+    let active = true;
+    setLoading(true);
+    setError("");
+    fetch(`/api/contracts?${query}`)
+      .then(async (res) => {
+        const data = await readJson(res);
+        if (!res.ok) throw new Error(data.error || "合同列表加载失败");
+        return Array.isArray(data) ? data : [];
+      })
+      .then((data) => { if (active) setContracts(data); })
+      .catch((err) => { if (active) setError(err.message); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => {
+      active = false;
+    };
+  }, [query]);
+
+  useEffect(() => {
+    fetch("/api/users/active")
+      .then((res) => res.json())
+      .then((data) => setActiveUsers(Array.isArray(data) ? data : []))
+      .catch(() => setActiveUsers([]));
+  }, []);
+
+  const clearFilters = () => {
+    setSearch("");
+    setContractStatus("");
+    setRegion("");
+    setSalesUserId("");
+    setPaymentStatus("");
+    setCreatedStart("");
+    setCreatedEnd("");
+    setSignedStart("");
+    setSignedEnd("");
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <h1 className="text-xl font-semibold text-gray-900">合同管理</h1>
+        <Link href="/contracts/new" className="inline-flex items-center gap-1.5 px-4 py-2 bg-gray-900 text-white text-sm font-medium rounded-lg hover:bg-gray-800">
+          <Plus className="w-4 h-4" />
+          新增合同
+        </Link>
+      </div>
+
+      {error && <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
+
+      <div className="bg-white rounded-xl border border-gray-200 p-4 space-y-3">
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
+          <div className="relative md:col-span-2 xl:col-span-1">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+            <input
+              type="text"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="搜索合同编号、客户、联系人、产品"
+              className="w-full pl-9 pr-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
+            />
+          </div>
+
+          <select value={contractStatus} onChange={(event) => setContractStatus(event.target.value)} className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-900">
+            {CONTRACT_STATUS_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+          </select>
+
+          {userRole === "SUPER_ADMIN" && (
+            <select value={region} onChange={(event) => setRegion(event.target.value)} className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-900">
+              <option value="">全部区域</option>
+              {REGIONS.map((item) => <option key={item} value={item}>{item}</option>)}
+            </select>
+          )}
+
+          <select value={salesUserId} onChange={(event) => setSalesUserId(event.target.value)} className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-900">
+            <option value="">全部业务员</option>
+            {activeUsers.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+          </select>
+
+          <select value={paymentStatus} onChange={(event) => setPaymentStatus(event.target.value)} className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-900">
+            <option value="">全部回款</option>
+            <option value="UNPAID">未回款</option>
+            <option value="PARTIAL_PAID">部分回款</option>
+            <option value="PAID">已回款</option>
+          </select>
+
+          <DateInput label="创建开始" value={createdStart} onChange={setCreatedStart} />
+          <DateInput label="创建结束" value={createdEnd} onChange={setCreatedEnd} />
+          <DateInput label="签订开始" value={signedStart} onChange={setSignedStart} />
+          <DateInput label="签订结束" value={signedEnd} onChange={setSignedEnd} />
+        </div>
+        <button onClick={clearFilters} className="text-xs text-gray-500 hover:text-gray-900">清空筛选</button>
+      </div>
+
+      <div className="hidden lg:block bg-white rounded-xl border border-gray-200 overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead className="bg-gray-50 border-b border-gray-200">
+              <tr>
+                <th className="text-left px-4 py-3 text-xs font-medium text-gray-500">合同编号</th>
+                <th className="text-left px-4 py-3 text-xs font-medium text-gray-500">客户</th>
+                <th className="text-left px-4 py-3 text-xs font-medium text-gray-500">设备</th>
+                <th className="text-left px-4 py-3 text-xs font-medium text-gray-500">业务员</th>
+                <th className="text-right px-4 py-3 text-xs font-medium text-gray-500">合同金额</th>
+                <th className="text-right px-4 py-3 text-xs font-medium text-gray-500">已回款</th>
+                <th className="text-right px-4 py-3 text-xs font-medium text-gray-500">未回款</th>
+                <th className="text-left px-4 py-3 text-xs font-medium text-gray-500">回款状态</th>
+                <th className="text-left px-4 py-3 text-xs font-medium text-gray-500">合同状态</th>
+                <th className="text-left px-4 py-3 text-xs font-medium text-gray-500">签订日期</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {loading ? (
+                <tr><td colSpan={10} className="text-center py-8 text-sm text-gray-500">加载中...</td></tr>
+              ) : contracts.length === 0 ? (
+                <tr><td colSpan={10} className="text-center py-8 text-sm text-gray-500">暂无合同</td></tr>
+              ) : (
+                contracts.map((contract) => {
+                  const status = contractStatusBadge(contract);
+                  return (
+                    <tr key={contract.id} className="hover:bg-gray-50">
+                      <td className="px-4 py-3">
+                        <Link href={`/contracts/${contract.id}`} className="text-sm font-medium text-gray-900 hover:underline">{contract.contractNo}</Link>
+                      </td>
+                      <td className="px-4 py-3 text-sm text-gray-600">
+                        {contract.customer?.companyName}{contract.customer?.deletedAt && <span className="ml-1 text-xs text-gray-400">已隐藏</span>}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-gray-600">{contractEquipmentLabel(contract)}</td>
+                      <td className="px-4 py-3 text-sm text-gray-600">{contract.salesUser?.name || "-"}</td>
+                      <td className="px-4 py-3 text-sm text-gray-900 text-right font-medium">{formatMoney(contract.amount)}</td>
+                      <td className="px-4 py-3 text-sm text-green-700 text-right">{formatMoney(contract.paidAmount)}</td>
+                      <td className="px-4 py-3 text-sm text-red-600 text-right">{formatMoney(contract.unpaidAmount)}</td>
+                      <td className="px-4 py-3"><span className={`text-xs px-2 py-0.5 rounded-full ${PAYMENT_STATUS_LABELS[contract.paymentStatus]?.color}`}>{PAYMENT_STATUS_LABELS[contract.paymentStatus]?.label}</span></td>
+                      <td className="px-4 py-3"><span className={`text-xs px-2 py-0.5 rounded-full ${status.color}`}>{status.label}</span></td>
+                      <td className="px-4 py-3 text-xs text-gray-500">{new Date(contract.signedDate).toLocaleDateString("zh-CN")}</td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div className="lg:hidden space-y-3">
+        {loading ? (
+          <p className="text-center py-8 text-sm text-gray-500">加载中...</p>
+        ) : contracts.length === 0 ? (
+          <p className="text-center py-8 text-sm text-gray-500">暂无合同</p>
+        ) : (
+          contracts.map((contract) => {
+            const status = contractStatusBadge(contract);
+            return (
+              <Link key={contract.id} href={`/contracts/${contract.id}`} className="block bg-white rounded-xl border border-gray-200 p-4">
+                <div className="flex items-start justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-gray-900">{contract.contractNo}</p>
+                    <p className="text-xs text-gray-500 mt-0.5">{contract.customer?.companyName} · {contractEquipmentLabel(contract)}</p>
+                  </div>
+                  <span className={`text-xs px-2 py-0.5 rounded-full ${PAYMENT_STATUS_LABELS[contract.paymentStatus]?.color}`}>{PAYMENT_STATUS_LABELS[contract.paymentStatus]?.label}</span>
+                </div>
+                <div className="flex items-center justify-between mt-3 text-xs">
+                  <span className="text-gray-500">合同金额：{formatMoney(contract.amount)}</span>
+                  <span className={`px-2 py-0.5 rounded-full ${status.color}`}>{status.label}</span>
+                </div>
+              </Link>
+            );
+          })
+        )}
+      </div>
+    </div>
+  );
+}
+
+function DateInput({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
+  return (
+    <label className="flex items-center gap-2 px-3 py-2 border border-gray-300 rounded-lg text-sm">
+      <span className="shrink-0 text-xs text-gray-500">{label}</span>
+      <input type="date" value={value} onChange={(event) => onChange(event.target.value)} className="min-w-0 flex-1 text-sm focus:outline-none" />
+    </label>
+  );
+}
