@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
 import { Plus, Search, Trash2, Eye, ArrowDownToLine } from "lucide-react";
+import { MaterialCombobox } from "@/components/erp/material-combobox";
 
 export default function StockInPage() {
   const { data: session } = useSession();
@@ -135,10 +136,11 @@ export default function StockInPage() {
             <div className="space-y-2">
               {items.map((item, idx) => (
                 <div key={idx} className="flex gap-2 items-center">
-                  <select value={item.materialId} onChange={(e) => updateItem(idx, "materialId", e.target.value)} className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm">
-                    <option value="">选择物料</option>
-                    {materials.map((m) => <option key={m.id} value={m.id}>{m.code} - {m.name}</option>)}
-                  </select>
+                  <MaterialCombobox
+                    materials={materials}
+                    value={item.materialId}
+                    onChange={(materialId) => updateItem(idx, "materialId", materialId)}
+                  />
                   <input type="number" placeholder="数量" value={item.quantity} onChange={(e) => updateItem(idx, "quantity", e.target.value)}
                     className="w-24 px-3 py-2 border border-gray-300 rounded-lg text-sm" />
                   <input type="number" placeholder="单价" value={item.unitPrice} onChange={(e) => updateItem(idx, "unitPrice", e.target.value)}

@@ -90,6 +90,7 @@ async function main() {
       unit: m.unit || "件",
       standardPrice: dec(m.standardPrice),
       weight: dec(m.weight),
+      supplier: m.supplier,
       remark: m.remark,
     };
     const mat = await prisma.material.upsert({

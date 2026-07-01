@@ -26,6 +26,16 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "v1.4.2",
+    date: "2026-07-01",
+    notes: [
+      "入库、出库选物料支持打字模糊搜索。",
+      "预警阈值可按分类自定义设置，随时可改。",
+      "进入库存台账时若有缺货自动弹窗提示明细（名称、规格、标准价、供货商、剩余库存）。",
+      "物料新增供货商字段。",
+    ],
+  },
+  {
     version: "v1.4.1",
     date: "2026-07-01",
     notes: [

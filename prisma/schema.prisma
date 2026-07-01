@@ -560,6 +560,7 @@ model MaterialCategory {
   parent    MaterialCategory?  @relation("MaterialCategoryTree", fields: [parentId], references: [id])
   children  MaterialCategory[] @relation("MaterialCategoryTree")
   sortOrder Int               @default(0)
+  warningThreshold Decimal?    @db.Decimal(10, 2)
   createdAt DateTime          @default(now())
 
   materials Material[]
@@ -579,6 +580,7 @@ model Material {
   spec          String?
   materialType  String?
   drawingNo     String?
+  supplier      String?
   unit          String           @default("件")
   standardPrice Decimal?         @db.Decimal(12, 2)
   safetyStock   Decimal?         @db.Decimal(10, 2)

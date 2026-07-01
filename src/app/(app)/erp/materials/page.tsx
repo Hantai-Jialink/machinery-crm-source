@@ -2,9 +2,20 @@
 
 import { useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
-import { Plus, Search, Pencil, Trash2 } from "lucide-react";
+import { Plus, Search, Pencil, Trash2, SlidersHorizontal } from "lucide-react";
 
 const UNIT_OPTIONS = ["件", "个", "套", "kg", "米", "升", "箱", "包", "桶"];
+
+function flattenCategories(cats: any[], depth = 0): { id: string; label: string; warningThreshold?: any }[] {
+  const result: { id: string; label: string; warningThreshold?: any }[] = [];
+  for (const cat of cats) {
+    result.push({ id: cat.id, label: "  ".repeat(depth) + cat.name, warningThreshold: cat.warningThreshold });
+    if (cat.children) {
+      result.push(...flattenCategories(cat.children, depth + 1));
+    }
+  }
+  return result;
+}
 
 export default function MaterialsPage() {
   const { data: session } = useSession();
@@ -18,16 +29,30 @@ export default function MaterialsPage() {
 
   // Modal state
   const [showModal, setShowModal] = useState(false);
+  const [showWarningModal, setShowWarningModal] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
-  const [form, setForm] = useState<any>({ code: "", name: "", categoryId: "", spec: "", unit: "件", standardPrice: "", safetyStock: "", remark: "" });
+  const [form, setForm] = useState<any>({ code: "", name: "", categoryId: "", spec: "", unit: "件", standardPrice: "", safetyStock: "", supplier: "", remark: "" });
+  const [thresholdDraft, setThresholdDraft] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
+  const [savingThresholds, setSavingThresholds] = useState(false);
 
   const canEdit = userRole === "SUPER_ADMIN" || userRole === "WAREHOUSE";
 
+  const loadCategories = async () => {
+    const res = await fetch("/api/erp/material-categories");
+    const data = await res.json();
+    const next = Array.isArray(data) ? data : [];
+    setCategories(next);
+    const flat = flattenCategories(next);
+    setThresholdDraft(
+      Object.fromEntries(
+        flat.map((cat) => [cat.id, cat.warningThreshold !== null && cat.warningThreshold !== undefined ? String(cat.warningThreshold) : ""])
+      )
+    );
+  };
+
   useEffect(() => {
-    fetch("/api/erp/material-categories")
-      .then((r) => r.json())
-      .then((data) => setCategories(Array.isArray(data) ? data : []));
+    loadCategories();
   }, []);
 
   useEffect(() => {
@@ -43,7 +68,7 @@ export default function MaterialsPage() {
 
   const openCreate = () => {
     setEditId(null);
-    setForm({ code: "", name: "", categoryId: categories[0]?.id || "", spec: "", unit: "件", standardPrice: "", safetyStock: "", remark: "" });
+    setForm({ code: "", name: "", categoryId: categories[0]?.id || "", spec: "", unit: "件", standardPrice: "", safetyStock: "", supplier: "", remark: "" });
     setShowModal(true);
   };
 
@@ -57,6 +82,7 @@ export default function MaterialsPage() {
       unit: m.unit || "件",
       standardPrice: m.standardPrice ? String(m.standardPrice) : "",
       safetyStock: m.safetyStock ? String(m.safetyStock) : "",
+      supplier: m.supplier || "",
       remark: m.remark || "",
     });
     setShowModal(true);
@@ -89,15 +115,27 @@ export default function MaterialsPage() {
     setMaterials((prev) => prev.filter((m) => m.id !== id));
   };
 
-  const flattenCategories = (cats: any[], depth = 0): { id: string; label: string }[] => {
-    const result: { id: string; label: string }[] = [];
-    for (const cat of cats) {
-      result.push({ id: cat.id, label: "  ".repeat(depth) + cat.name });
-      if (cat.children) {
-        result.push(...flattenCategories(cat.children, depth + 1));
-      }
+  const handleSaveThresholds = async () => {
+    setSavingThresholds(true);
+    try {
+      const flat = flattenCategories(categories);
+      await Promise.all(
+        flat.map(async (cat) => {
+          const res = await fetch(`/api/erp/material-categories/${cat.id}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ warningThreshold: thresholdDraft[cat.id] ?? "" }),
+          });
+          if (!res.ok) {
+            throw new Error("Failed to save category warning threshold");
+          }
+        })
+      );
+      await loadCategories();
+      setShowWarningModal(false);
+    } finally {
+      setSavingThresholds(false);
     }
-    return result;
   };
 
   return (
@@ -105,12 +143,20 @@ export default function MaterialsPage() {
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <h1 className="text-xl font-semibold text-gray-900">物料管理</h1>
         {canEdit && (
-          <button
-            onClick={openCreate}
-            className="inline-flex items-center gap-1.5 px-4 py-2 bg-gray-900 text-white text-sm font-medium rounded-lg hover:bg-gray-800"
-          >
-            <Plus className="w-4 h-4" />新增物料
-          </button>
+          <div className="flex flex-wrap gap-2">
+            <button
+              onClick={() => setShowWarningModal(true)}
+              className="inline-flex items-center gap-1.5 px-4 py-2 bg-white text-gray-700 text-sm font-medium rounded-lg border border-gray-300 hover:bg-gray-50"
+            >
+              <SlidersHorizontal className="w-4 h-4" />分类预警设置
+            </button>
+            <button
+              onClick={openCreate}
+              className="inline-flex items-center gap-1.5 px-4 py-2 bg-gray-900 text-white text-sm font-medium rounded-lg hover:bg-gray-800"
+            >
+              <Plus className="w-4 h-4" />新增物料
+            </button>
+          </div>
         )}
       </div>
 
@@ -150,6 +196,7 @@ export default function MaterialsPage() {
                 <th className="text-left px-4 py-3 font-medium text-gray-600">名称</th>
                 <th className="text-left px-4 py-3 font-medium text-gray-600">分类</th>
                 <th className="text-left px-4 py-3 font-medium text-gray-600">规格</th>
+                <th className="text-left px-4 py-3 font-medium text-gray-600">供货商</th>
                 <th className="text-right px-4 py-3 font-medium text-gray-600">标准价</th>
                 <th className="text-right px-4 py-3 font-medium text-gray-600">安全库存</th>
                 <th className="text-center px-4 py-3 font-medium text-gray-600">单位</th>
@@ -163,6 +210,7 @@ export default function MaterialsPage() {
                   <td className="px-4 py-3 font-medium text-gray-900">{m.name}</td>
                   <td className="px-4 py-3 text-gray-500">{m.category?.name}</td>
                   <td className="px-4 py-3 text-gray-500">{m.spec || "-"}</td>
+                  <td className="px-4 py-3 text-gray-500">{m.supplier || "-"}</td>
                   <td className="px-4 py-3 text-right">{m.standardPrice ? `¥${Number(m.standardPrice).toLocaleString()}` : "-"}</td>
                   <td className="px-4 py-3 text-right">{m.safetyStock ? String(m.safetyStock) : "-"}</td>
                   <td className="px-4 py-3 text-center">{m.unit}</td>
@@ -233,6 +281,10 @@ export default function MaterialsPage() {
                 </div>
               </div>
               <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">供货商</label>
+                <input value={form.supplier} onChange={(e) => setForm({ ...form, supplier: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" />
+              </div>
+              <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">备注</label>
                 <textarea value={form.remark} onChange={(e) => setForm({ ...form, remark: e.target.value })} rows={2} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" />
               </div>
@@ -241,6 +293,42 @@ export default function MaterialsPage() {
               <button onClick={() => setShowModal(false)} className="px-4 py-2 text-sm text-gray-600 hover:text-gray-900 border border-gray-300 rounded-lg">取消</button>
               <button onClick={handleSave} disabled={saving || !form.code || !form.name || !form.categoryId}
                 className="px-4 py-2 text-sm bg-gray-900 text-white rounded-lg hover:bg-gray-800 disabled:opacity-50">{saving ? "保存中..." : "保存"}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showWarningModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setShowWarningModal(false)}>
+          <div className="bg-white rounded-xl p-6 w-full max-w-2xl shadow-xl max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-start justify-between gap-4 mb-4">
+              <div>
+                <h2 className="text-lg font-semibold">分类预警设置</h2>
+                <p className="text-xs text-gray-500 mt-1">某分类库存 ≤ 此数量时预警；留空 = 该分类不预警</p>
+              </div>
+              <button onClick={() => setShowWarningModal(false)} className="text-sm text-gray-500 hover:text-gray-900">关闭</button>
+            </div>
+            <div className="space-y-2">
+              {flattenCategories(categories).map((cat) => (
+                <div key={cat.id} className="grid grid-cols-[1fr_160px] gap-3 items-center border border-gray-100 rounded-lg px-3 py-2">
+                  <span className="text-sm text-gray-700 whitespace-pre">{cat.label}</span>
+                  <input
+                    type="number"
+                    min="0"
+                    value={thresholdDraft[cat.id] ?? ""}
+                    onChange={(event) => setThresholdDraft((draft) => ({ ...draft, [cat.id]: event.target.value }))}
+                    placeholder="留空不预警"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                  />
+                </div>
+              ))}
+            </div>
+            <div className="flex justify-end gap-2 mt-4">
+              <button onClick={() => setShowWarningModal(false)} className="px-4 py-2 text-sm text-gray-600 hover:text-gray-900 border border-gray-300 rounded-lg">取消</button>
+              <button onClick={handleSaveThresholds} disabled={savingThresholds}
+                className="px-4 py-2 text-sm bg-gray-900 text-white rounded-lg hover:bg-gray-800 disabled:opacity-50">
+                {savingThresholds ? "保存中..." : "保存"}
+              </button>
             </div>
           </div>
         </div>

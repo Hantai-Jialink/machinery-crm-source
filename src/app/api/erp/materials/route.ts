@@ -65,6 +65,7 @@ export async function POST(request: NextRequest) {
       spec: body.spec || null,
       materialType: body.materialType || null,
       drawingNo: body.drawingNo || null,
+      supplier: body.supplier || null,
       unit: body.unit || "件",
       standardPrice: body.standardPrice ? parseFloat(body.standardPrice) : null,
       safetyStock: body.safetyStock ? parseFloat(body.safetyStock) : null,

@@ -30,10 +30,6 @@ export async function GET(request: NextRequest) {
   }
 
   if (search) {
-    const nameFilter = where.material?.categoryId
-      ? { ...where.material, name: { contains: search } }
-      : { name: { contains: search } };
-
     if (where.material) {
       where.material = {
         ...where.material,
@@ -52,25 +48,44 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  // 安全库存预警：筛选 quantity <= safetyStock
+  const materialSelect = {
+    id: true,
+    name: true,
+    code: true,
+    spec: true,
+    unit: true,
+    safetyStock: true,
+    standardPrice: true,
+    supplier: true,
+    category: { select: { id: true, name: true, warningThreshold: true } },
+  };
+
+  const effectiveThreshold = (material: any) => {
+    if (material?.safetyStock !== null && material?.safetyStock !== undefined) {
+      return Number(material.safetyStock);
+    }
+    if (material?.category?.warningThreshold !== null && material?.category?.warningThreshold !== undefined) {
+      return Number(material.category.warningThreshold);
+    }
+    return null;
+  };
+
+  // Inventory warning: material safetyStock wins, then category warningThreshold.
   if (alertOnly) {
-    where.material = {
-      ...(where.material || {}),
-      safetyStock: { not: null },
-    };
-    // 先查出所有再过滤，因为跨表比较
+    // Fetch first, then filter because the threshold is chosen from related data.
     const inventories = await prisma.inventory.findMany({
       where,
       include: {
         warehouse: { select: { id: true, name: true, code: true } },
-        material: { select: { id: true, name: true, code: true, spec: true, unit: true, safetyStock: true } },
+        material: { select: materialSelect },
       },
       orderBy: { materialId: "asc" },
     });
 
-    const filtered = inventories.filter(
-      (inv) => inv.material.safetyStock !== null && Number(inv.quantity) <= Number(inv.material.safetyStock)
-    );
+    const filtered = inventories.filter((inv) => {
+      const threshold = effectiveThreshold(inv.material);
+      return threshold !== null && Number(inv.quantity) <= threshold;
+    });
 
     return NextResponse.json({
       items: filtered,
@@ -86,16 +101,7 @@ export async function GET(request: NextRequest) {
       include: {
         warehouse: { select: { id: true, name: true, code: true } },
         material: {
-          select: {
-            id: true,
-            name: true,
-            code: true,
-            spec: true,
-            unit: true,
-            safetyStock: true,
-            standardPrice: true,
-            category: { select: { id: true, name: true } },
-          },
+          select: materialSelect,
         },
       },
       orderBy: { materialId: "asc" },

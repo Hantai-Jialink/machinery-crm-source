@@ -15,6 +15,19 @@ export default function InventoryPage() {
   const [warehouseId, setWarehouseId] = useState("");
   const [alertOnly, setAlertOnly] = useState(false);
   const [page, setPage] = useState(1);
+  const [shortageItems, setShortageItems] = useState<any[]>([]);
+  const [showShortageModal, setShowShortageModal] = useState(false);
+  const [shortageAutoShown, setShortageAutoShown] = useState(false);
+
+  const effectiveThreshold = (material: any) => {
+    if (material?.safetyStock !== null && material?.safetyStock !== undefined) {
+      return Number(material.safetyStock);
+    }
+    if (material?.category?.warningThreshold !== null && material?.category?.warningThreshold !== undefined) {
+      return Number(material.category.warningThreshold);
+    }
+    return null;
+  };
 
   useEffect(() => {
     fetch("/api/erp/warehouses?onlyActive=1")
@@ -33,16 +46,30 @@ export default function InventoryPage() {
     fetch(`/api/erp/inventory?${params.toString()}`)
       .then((r) => r.json())
       .then((data) => {
-        if (alertOnly) {
-          setInventories(data.items || []);
-          setPagination(data.pagination || { page: 1, pageSize: 20, total: 0, totalPages: 0 });
-        } else {
-          setInventories(data.items || []);
-          setPagination(data.pagination || { page: 1, pageSize: 20, total: 0, totalPages: 0 });
-        }
+        setInventories(data.items || []);
+        setPagination(data.pagination || { page: 1, pageSize: 20, total: 0, totalPages: 0 });
       })
       .finally(() => setLoading(false));
   }, [search, warehouseId, alertOnly, page]);
+
+  useEffect(() => {
+    if (shortageAutoShown) return;
+    const params = new URLSearchParams();
+    if (search) params.set("search", search);
+    if (warehouseId) params.set("warehouseId", warehouseId);
+    params.set("alertOnly", "1");
+    params.set("pageSize", "100");
+    fetch(`/api/erp/inventory?${params.toString()}`)
+      .then((r) => r.json())
+      .then((data) => {
+        const items = data.items || [];
+        setShortageItems(items);
+        if (items.length > 0) {
+          setShowShortageModal(true);
+          setShortageAutoShown(true);
+        }
+      });
+  }, [search, warehouseId, shortageAutoShown]);
 
   return (
     <div className="space-y-4">
@@ -106,8 +133,8 @@ export default function InventoryPage() {
               <tbody>
                 {inventories.map((inv) => {
                   const qty = Number(inv.quantity);
-                  const safety = inv.material?.safetyStock ? Number(inv.material.safetyStock) : null;
-                  const isAlert = safety !== null && qty <= safety;
+                  const threshold = effectiveThreshold(inv.material);
+                  const isAlert = threshold !== null && qty <= threshold;
                   return (
                     <tr key={inv.id} className={`border-b border-gray-100 hover:bg-gray-50 ${isAlert ? "bg-red-50" : ""}`}>
                       <td className="px-4 py-3 font-mono text-xs">{inv.material?.code}</td>
@@ -115,7 +142,7 @@ export default function InventoryPage() {
                       <td className="px-4 py-3 text-gray-500">{inv.material?.spec || "-"}</td>
                       <td className="px-4 py-3 text-gray-500">{inv.warehouse?.name}</td>
                       <td className="px-4 py-3 text-right font-medium">{qty.toLocaleString()} {inv.material?.unit}</td>
-                      <td className="px-4 py-3 text-right">{safety !== null ? safety.toLocaleString() : "-"}</td>
+                      <td className="px-4 py-3 text-right">{threshold !== null ? threshold.toLocaleString() : "-"}</td>
                       <td className="px-4 py-3 text-right">¥{Number(inv.totalAmount).toLocaleString()}</td>
                       <td className="px-4 py-3 text-center">
                         {isAlert ? (
@@ -149,6 +176,51 @@ export default function InventoryPage() {
             </div>
           )}
         </>
+      )}
+
+      {showShortageModal && shortageItems.length > 0 && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setShowShortageModal(false)}>
+          <div className="bg-white rounded-xl p-6 w-full max-w-5xl shadow-xl max-h-[85vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-start justify-between gap-4 mb-4">
+              <div>
+                <h2 className="text-lg font-semibold text-gray-900">⚠️ 缺货预警</h2>
+                <p className="text-sm text-gray-500 mt-1">共 {shortageItems.length} 项低于预警线</p>
+              </div>
+              <button onClick={() => setShowShortageModal(false)} className="px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:bg-gray-50">关闭</button>
+            </div>
+            <div className="overflow-x-auto border border-gray-200 rounded-lg">
+              <table className="w-full text-sm">
+                <thead className="bg-gray-50 border-b border-gray-200">
+                  <tr>
+                    <th className="text-left px-3 py-2 font-medium text-gray-600">名称</th>
+                    <th className="text-left px-3 py-2 font-medium text-gray-600">规格</th>
+                    <th className="text-right px-3 py-2 font-medium text-gray-600">标准价</th>
+                    <th className="text-left px-3 py-2 font-medium text-gray-600">供货商</th>
+                    <th className="text-right px-3 py-2 font-medium text-gray-600">剩余库存</th>
+                    <th className="text-left px-3 py-2 font-medium text-gray-600">仓库</th>
+                    <th className="text-right px-3 py-2 font-medium text-gray-600">预警线</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {shortageItems.map((inv) => {
+                    const threshold = effectiveThreshold(inv.material);
+                    return (
+                      <tr key={inv.id} className="border-b border-gray-100">
+                        <td className="px-3 py-2 font-medium text-gray-900">{inv.material?.name}</td>
+                        <td className="px-3 py-2 text-gray-500">{inv.material?.spec || "-"}</td>
+                        <td className="px-3 py-2 text-right">{inv.material?.standardPrice ? `¥${Number(inv.material.standardPrice).toLocaleString()}` : "-"}</td>
+                        <td className="px-3 py-2 text-gray-500">{inv.material?.supplier || "-"}</td>
+                        <td className="px-3 py-2 text-right text-red-600 font-medium">{Number(inv.quantity).toLocaleString()} {inv.material?.unit}</td>
+                        <td className="px-3 py-2 text-gray-500">{inv.warehouse?.name}</td>
+                        <td className="px-3 py-2 text-right">{threshold !== null ? threshold.toLocaleString() : "-"}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

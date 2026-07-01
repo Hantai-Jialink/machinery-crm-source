@@ -54,6 +54,7 @@ export async function PUT(
       spec: body.spec !== undefined ? (body.spec || null) : undefined,
       materialType: body.materialType !== undefined ? (body.materialType || null) : undefined,
       drawingNo: body.drawingNo !== undefined ? (body.drawingNo || null) : undefined,
+      supplier: body.supplier !== undefined ? (body.supplier || null) : undefined,
       unit: body.unit || undefined,
       standardPrice: body.standardPrice !== undefined ? (body.standardPrice ? parseFloat(body.standardPrice) : null) : undefined,
       safetyStock: body.safetyStock !== undefined ? (body.safetyStock ? parseFloat(body.safetyStock) : null) : undefined,
