@@ -87,6 +87,7 @@ export function Sidebar() {
   const userViewScope = (session?.user as any)?.viewScope;
   const canViewERP = userRole === "SUPER_ADMIN" || userRole === "WAREHOUSE";
   const filteredNavItems = navItems.filter((item) => {
+    if (userRole === "WAREHOUSE") return item.erpOnly === true || item.href === "/settings";
     if (item.adminOnly && userRole !== "SUPER_ADMIN") return false;
     if (item.erpOnly && !canViewERP) return false;
     return true;

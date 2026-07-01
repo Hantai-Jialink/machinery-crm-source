@@ -26,6 +26,14 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "v1.4.1",
+    date: "2026-07-01",
+    notes: [
+      "新增用户可选「仓管」角色，角色名正常显示。",
+      "仓管账号仅可访问库存管理(ERP)与系统设置，其余板块前端隐藏、后端拦截，防止泄露客户与机密数据。",
+    ],
+  },
+  {
     version: "v1.4.0",
     date: "2026-06-30",
     notes: [

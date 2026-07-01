@@ -21,8 +21,26 @@ export default auth((req) => {
     return NextResponse.redirect(loginUrl);
   }
 
+  const role = (req.auth.user as any)?.role;
+
+  // 仓管(WAREHOUSE)硬隔离:只允许 ERP + 系统设置;
+  // 其余页面弹回库存台账,其余接口一律 403,防止泄露客户/合同等机密数据。
+  if (role === "WAREHOUSE") {
+    const warehouseAllowed =
+      pathname.startsWith("/erp") ||
+      pathname.startsWith("/api/erp") ||
+      pathname.startsWith("/settings") ||
+      pathname.startsWith("/api/settings");
+    if (!warehouseAllowed) {
+      if (pathname.startsWith("/api/")) {
+        return NextResponse.json({ error: "无权限访问" }, { status: 403 });
+      }
+      return NextResponse.redirect(new URL("/erp/inventory", req.url));
+    }
+  }
+
+  // 用户管理仅超级管理员
   if (pathname.startsWith("/users")) {
-    const role = (req.auth.user as any)?.role;
     if (role !== "SUPER_ADMIN") {
       return NextResponse.redirect(new URL("/dashboard", req.url));
     }
@@ -32,12 +50,7 @@ export default auth((req) => {
 });
 
 export const config = {
-
   matcher: [
-
     "/((?!api/upload|_next/static|_next/image|favicon.ico).*)",
-
   ],
-
 };
-

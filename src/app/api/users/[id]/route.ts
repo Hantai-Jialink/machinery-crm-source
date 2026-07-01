@@ -6,7 +6,7 @@ import { getSessionUser, canManageUsers } from "@/lib/permissions";
 import { sanitizeTerritories } from "@/lib/region-data";
 import { writeOperationLog } from "@/lib/sales-items";
 
-const VALID_ROLES = ["SUPER_ADMIN", "SALES", "FOREIGN_TRADE"];
+const VALID_ROLES = ["SUPER_ADMIN", "SALES", "FOREIGN_TRADE", "WAREHOUSE"];
 const VALID_REGIONS = ["华北", "华南", "华东", "外贸", "其他"];
 
 const USER_SELECT = {

@@ -9,7 +9,7 @@ type UserRow = {
   id: string;
   email: string;
   name: string;
-  role: "SUPER_ADMIN" | "SALES" | "FOREIGN_TRADE";
+  role: "SUPER_ADMIN" | "SALES" | "FOREIGN_TRADE" | "WAREHOUSE";
   region: string;
   territories?: Territory[];
   viewScope?: string;
@@ -460,6 +460,7 @@ function RoleSelect({ value, onChange }: { value: string; onChange: (value: stri
         <option value="SALES">销售</option>
         <option value="FOREIGN_TRADE">外贸业务</option>
         <option value="SUPER_ADMIN">超级管理员</option>
+        <option value="WAREHOUSE">仓管</option>
       </select>
     </div>
   );
