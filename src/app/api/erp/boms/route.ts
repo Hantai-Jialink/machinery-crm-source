@@ -1,0 +1,231 @@
+import { NextRequest, NextResponse } from "next/server";
+import { Prisma } from "@prisma/client";
+import { prisma } from "@/lib/db";
+import { getSessionUser, canAccessERP } from "@/lib/permissions";
+import { writeOperationLog } from "@/lib/sales-items";
+
+type BomLineInput = {
+  clientKey?: string;
+  parentClientKey?: string | null;
+  materialId?: string;
+  quantity?: string | number;
+  level?: string | number | null;
+  sortOrder?: number;
+};
+
+function toPositiveNumber(value: unknown) {
+  const next = Number(value);
+  return Number.isFinite(next) && next > 0 ? next : null;
+}
+
+function normalizeBomItems(items: unknown) {
+  if (!Array.isArray(items)) return [];
+  return items.map((item: BomLineInput, index) => {
+    const quantity = toPositiveNumber(item.quantity);
+    const level = Math.max(1, Math.trunc(Number(item.level || 1)));
+    return {
+      clientKey: item.clientKey || `line-${index}`,
+      parentClientKey: item.parentClientKey || null,
+      materialId: item.materialId || "",
+      quantity,
+      level: Number.isFinite(level) ? level : 1,
+      sortOrder: typeof item.sortOrder === "number" && Number.isFinite(item.sortOrder) ? item.sortOrder : index * 10,
+    };
+  });
+}
+
+function validateBomItems(items: ReturnType<typeof normalizeBomItems>) {
+  if (items.length === 0) return "BOM 至少需要一条物料明细";
+  if (items.some((item) => !item.materialId || item.quantity === null)) {
+    return "BOM 明细必须选择物料并填写大于 0 的用量";
+  }
+  return null;
+}
+
+async function loadProducts(productIds: string[]) {
+  if (productIds.length === 0) return new Map<string, any>();
+  const products = await prisma.product.findMany({
+    where: { id: { in: [...new Set(productIds)] } },
+    include: { translations: { where: { language: "ZH" }, take: 1 } },
+  });
+  return new Map(products.map((product) => [product.id, product]));
+}
+
+async function attachProducts<T extends { productId: string }>(boms: T[]) {
+  const productMap = await loadProducts(boms.map((bom) => bom.productId));
+  return boms.map((bom) => ({
+    ...bom,
+    product: productMap.get(bom.productId) || null,
+  }));
+}
+
+async function createBomItems(
+  tx: Prisma.TransactionClient,
+  bomId: string,
+  items: ReturnType<typeof normalizeBomItems>
+) {
+  const idByClientKey = new Map<string, string>();
+  for (const item of [...items].sort((a, b) => a.sortOrder - b.sortOrder)) {
+    const parentItemId = item.parentClientKey ? idByClientKey.get(item.parentClientKey) || null : null;
+    const created = await tx.bomItem.create({
+      data: {
+        bomId,
+        materialId: item.materialId,
+        quantity: item.quantity!,
+        level: item.level,
+        parentItemId,
+        sortOrder: item.sortOrder,
+      },
+    });
+    idByClientKey.set(item.clientKey, created.id);
+  }
+}
+
+export async function GET(request: NextRequest) {
+  const user = await getSessionUser();
+  if (!user) {
+    return NextResponse.json({ error: "未登录" }, { status: 401 });
+  }
+  if (!canAccessERP(user)) {
+    return NextResponse.json({ error: "无权限访问 ERP" }, { status: 403 });
+  }
+
+  const { searchParams } = new URL(request.url);
+  const productId = searchParams.get("productId") || "";
+  const search = searchParams.get("search") || "";
+  const active = searchParams.get("active") || "";
+  const page = Math.max(1, parseInt(searchParams.get("page") || "1", 10));
+  const pageSize = Math.min(100, Math.max(1, parseInt(searchParams.get("pageSize") || "20", 10)));
+  const skip = (page - 1) * pageSize;
+
+  const productWhere: any = search
+    ? {
+        OR: [
+          { model: { contains: search } },
+          { category: { contains: search } },
+          { translations: { some: { name: { contains: search } } } },
+        ],
+      }
+    : {};
+  const matchedProducts = search
+    ? await prisma.product.findMany({ where: productWhere, select: { id: true } })
+    : [];
+
+  const where: any = {};
+  if (productId) where.productId = productId;
+  if (active === "1") where.isActive = true;
+  if (active === "0") where.isActive = false;
+  if (search) where.productId = { in: matchedProducts.map((product) => product.id) };
+
+  const [boms, total] = await Promise.all([
+    prisma.bomHeader.findMany({
+      where,
+      include: {
+        items: {
+          include: {
+            material: {
+              select: { id: true, code: true, name: true, spec: true, unit: true, standardPrice: true },
+            },
+          },
+          orderBy: { sortOrder: "asc" },
+        },
+      },
+      orderBy: [{ isActive: "desc" }, { updatedAt: "desc" }],
+      skip,
+      take: pageSize,
+    }),
+    prisma.bomHeader.count({ where }),
+  ]);
+
+  return NextResponse.json({
+    items: await attachProducts(boms),
+    pagination: { page, pageSize, total, totalPages: Math.ceil(total / pageSize) },
+  });
+}
+
+export async function POST(request: NextRequest) {
+  const user = await getSessionUser();
+  if (!user) {
+    return NextResponse.json({ error: "未登录" }, { status: 401 });
+  }
+  if (!canAccessERP(user)) {
+    return NextResponse.json({ error: "无权限维护 BOM" }, { status: 403 });
+  }
+
+  const body = await request.json();
+  if (!body.productId) {
+    return NextResponse.json({ error: "请选择产品" }, { status: 400 });
+  }
+
+  const product = await prisma.product.findFirst({
+    where: { id: body.productId, isActive: true },
+    select: { id: true },
+  });
+  if (!product) {
+    return NextResponse.json({ error: "产品不存在或已停用" }, { status: 404 });
+  }
+
+  const items = normalizeBomItems(body.items);
+  const itemError = validateBomItems(items);
+  if (itemError) {
+    return NextResponse.json({ error: itemError }, { status: 400 });
+  }
+
+  const version = String(body.version || "v1.0").trim();
+  const duplicated = await prisma.bomHeader.findFirst({
+    where: { productId: body.productId, version },
+    select: { id: true },
+  });
+  if (duplicated) {
+    return NextResponse.json({ error: "同一产品已存在相同 BOM 版本" }, { status: 409 });
+  }
+
+  const isActive = body.isActive !== false;
+  const bom = await prisma.$transaction(async (tx) => {
+    if (isActive) {
+      await tx.bomHeader.updateMany({
+        where: { productId: body.productId, isActive: true },
+        data: { isActive: false },
+      });
+    }
+
+    const created = await tx.bomHeader.create({
+      data: {
+        productId: body.productId,
+        version,
+        isActive,
+        remark: body.remark || null,
+      },
+    });
+
+    await createBomItems(tx, created.id, items);
+
+    const after = await tx.bomHeader.findUnique({
+      where: { id: created.id },
+      include: { items: { orderBy: { sortOrder: "asc" } } },
+    });
+    await writeOperationLog(tx, {
+      userId: user.id,
+      action: "CREATE_BOM",
+      entityType: "BomHeader",
+      entityId: created.id,
+      afterData: after,
+    });
+
+    return created;
+  });
+
+  const detail = await prisma.bomHeader.findUnique({
+    where: { id: bom.id },
+    include: {
+      items: {
+        include: {
+          material: { select: { id: true, code: true, name: true, spec: true, unit: true, standardPrice: true } },
+        },
+        orderBy: { sortOrder: "asc" },
+      },
+    },
+  });
+
+  return NextResponse.json((await attachProducts(detail ? [detail] : []))[0] || bom, { status: 201 });
+}
