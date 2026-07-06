@@ -153,6 +153,48 @@ jobs:
           echo "OK: $PKG_FILE"
           ls -lh "$PKG_FILE"
 
+      - name: 烟测独立包
+        run: |
+          set -Eeuo pipefail
+
+          PKG_FILE="$(find dist -maxdepth 1 -name '*.tar.gz' -print -quit)"
+          test -n "$PKG_FILE"
+
+          SMOKE_DIR="$(mktemp -d)"
+          tar -xzf "$PKG_FILE" -C "$SMOKE_DIR"
+          PKG_ROOT="$(find "$SMOKE_DIR" -mindepth 1 -maxdepth 1 -type d -print -quit)"
+          test -n "$PKG_ROOT"
+          cd "$PKG_ROOT"
+
+          test -f start-standalone.cjs
+          test -f node_modules/prisma/build/index.js
+          node node_modules/prisma/build/index.js -v
+
+          DATABASE_URL="mysql://placeholder:placeholder@127.0.0.1:3306/placeholder" \
+          NEXTAUTH_SECRET="placeholder-smoke-secret" \
+          AUTH_SECRET="placeholder-smoke-secret" \
+          NEXTAUTH_URL="http://127.0.0.1:3000" \
+          PORT=3000 \
+          HOSTNAME=127.0.0.1 \
+          node start-standalone.cjs &
+          server_pid="$!"
+
+          cleanup() {
+            kill "$server_pid" 2>/dev/null || true
+          }
+          trap cleanup EXIT
+
+          for attempt in {1..30}; do
+            status_code="$(curl -sS -o /dev/null -w "%{http_code}" -I http://127.0.0.1:3000/login || true)"
+            if [[ "$status_code" =~ ^(200|302|307)$ ]]; then
+              exit 0
+            fi
+            sleep 1
+          done
+
+          curl -I http://127.0.0.1:3000/login
+          exit 1
+
       - name: 上传成品包（可在本次运行页面底部下载）
         uses: actions/upload-artifact@v4
         with:
