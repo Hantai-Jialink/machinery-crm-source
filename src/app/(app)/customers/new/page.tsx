@@ -30,10 +30,11 @@ export default function NewCustomerPage() {
     country: "中国", province: "", city: "",
     businessLine: "国内销售",
     address: "", customerSource: "展会", customerType: "NEW" as string,
-    customerLevel: "B" as string, interestTags: [] as string[], remark: "", nextFollowDate: "",
+    customerLevel: "B" as string, interestTags: [] as string[], assignedUserId: "", remark: "", nextFollowDate: "",
   });
 
   // 产品报价
+  const [activeUsers, setActiveUsers] = useState<any[]>([]);
   const [products, setProducts] = useState<any[]>([]);
   const [quoteProductId, setQuoteProductId] = useState("");
   const [quotePrice, setQuotePrice] = useState("");
@@ -47,6 +48,14 @@ export default function NewCustomerPage() {
   useEffect(() => {
     fetch("/api/products?productType=MAIN").then(r => r.json()).then(setProducts);
   }, []);
+
+  useEffect(() => {
+    if (userRole !== "SUPER_ADMIN") return;
+    fetch("/api/users/active")
+      .then((res) => res.json())
+      .then((data) => setActiveUsers(Array.isArray(data) ? data : []))
+      .catch(() => setActiveUsers([]));
+  }, [userRole]);
 
   useEffect(() => {
     if (quoteProductId) {
@@ -220,6 +229,18 @@ export default function NewCustomerPage() {
                 {CUSTOMER_LEVELS.map((l) => (<option key={l} value={l}>{l}级</option>))}
               </select>
             </div>
+            {userRole === "SUPER_ADMIN" && (
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">归属业务员 / 负责人</label>
+                <select value={form.assignedUserId} onChange={(e) => handleChange("assignedUserId", e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-900">
+                  <option value="">未分配</option>
+                  {activeUsers.map((user) => (
+                    <option key={user.id} value={user.id}>{user.name}（{user.region}）</option>
+                  ))}
+                </select>
+              </div>
+            )}
             <div>
               <label className="block text-xs font-medium text-gray-600 mb-1">下次跟进日期</label>
               <input type="date" value={form.nextFollowDate} onChange={(e) => handleChange("nextFollowDate", e.target.value)}

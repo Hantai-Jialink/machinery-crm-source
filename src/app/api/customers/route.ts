@@ -148,8 +148,13 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    const requestedAssigneeId = cleanText(body.assignedUserId);
+    if (!isSuperAdmin(user) && requestedAssigneeId && requestedAssigneeId !== user.id) {
+      return NextResponse.json({ error: "普通销售不能将客户分配给其他负责人" }, { status: 403 });
+    }
+
     const defaultAssigneeId = isSuperAdmin(user) ? null : user.id;
-    const assignedUserId = await ensureActiveAssignee(body.assignedUserId || defaultAssigneeId);
+    const assignedUserId = await ensureActiveAssignee(requestedAssigneeId || defaultAssigneeId);
 
     const customer = await prisma.$transaction(async (tx) => {
       const created = await tx.customer.create({
