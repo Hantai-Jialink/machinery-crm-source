@@ -51,12 +51,17 @@ jobs:
 
           required_runtime_paths=(
             "node_modules/prisma"
+            "node_modules/@prisma/config"
             "node_modules/@prisma/engines"
+            "node_modules/@prisma/engines-version"
+            "node_modules/@prisma/fetch-engine"
+            "node_modules/@prisma/get-platform"
             "node_modules/@prisma/debug"
             "node_modules/@prisma/client"
             "node_modules/.prisma"
             "node_modules/@swc/helpers"
             "node_modules/@next/env"
+            "node_modules/jiti"
           )
 
           for runtime_path in "${required_runtime_paths[@]}"; do
@@ -81,12 +86,17 @@ jobs:
 
           required_runtime_paths=(
             "node_modules/prisma"
+            "node_modules/@prisma/config"
             "node_modules/@prisma/engines"
+            "node_modules/@prisma/engines-version"
+            "node_modules/@prisma/fetch-engine"
+            "node_modules/@prisma/get-platform"
             "node_modules/@prisma/debug"
             "node_modules/@prisma/client"
             "node_modules/.prisma"
             "node_modules/@swc/helpers"
             "node_modules/@next/env"
+            "node_modules/jiti"
           )
 
           for runtime_path in "${required_runtime_paths[@]}"; do
