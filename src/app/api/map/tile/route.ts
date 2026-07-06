@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getSessionUser } from "@/lib/permissions";
 
 // 大川机床 CRM —— 天地图瓦片服务器中转
 // 浏览器请求 /api/map/tile?layer=vec&z=&x=&y= ，由服务器带密钥去天地图取瓦片再返回。
@@ -16,6 +17,11 @@ function getKey() {
 }
 
 export async function GET(request: NextRequest) {
+  const user = await getSessionUser();
+  if (!user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   const key = getKey();
   if (!key) {
     return new NextResponse("TIANDITU_KEY 未配置", { status: 500 });
