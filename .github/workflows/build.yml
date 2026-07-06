@@ -34,17 +34,91 @@ jobs:
         env:
           DATABASE_URL: mysql://placeholder:placeholder@localhost:3306/placeholder
           NEXTAUTH_SECRET: placeholder-build-secret
+          AUTH_SECRET: placeholder-build-secret
           NEXTAUTH_URL: http://localhost:3000
 
       - name: Package deployment artifact
         run: |
-          # standalone 模式下需手动复制 static 和 public
-          cp -r .next/static .next/standalone/.next/static
-          cp -r public .next/standalone/public
-          cp -r prisma .next/standalone/prisma
-          cp package.json .next/standalone/
-          cd .next/standalone
+          set -euo pipefail
+
+          STANDALONE_DIR=".next/standalone"
+
+          mkdir -p "$STANDALONE_DIR/.next"
+          cp -r .next/static "$STANDALONE_DIR/.next/static"
+          cp -r public "$STANDALONE_DIR/public"
+          cp -r prisma "$STANDALONE_DIR/prisma"
+          cp package.json start-standalone.cjs "$STANDALONE_DIR/"
+
+          required_runtime_paths=(
+            "node_modules/prisma"
+            "node_modules/@prisma/engines"
+            "node_modules/@prisma/debug"
+            "node_modules/@prisma/client"
+            "node_modules/.prisma"
+            "node_modules/@swc/helpers"
+            "node_modules/@next/env"
+          )
+
+          for runtime_path in "${required_runtime_paths[@]}"; do
+            test -e "$runtime_path"
+            mkdir -p "$STANDALONE_DIR/$(dirname "$runtime_path")"
+            rm -rf "$STANDALONE_DIR/$runtime_path"
+            cp -a "$runtime_path" "$STANDALONE_DIR/$(dirname "$runtime_path")/"
+            test -e "$STANDALONE_DIR/$runtime_path"
+          done
+
+          cd "$STANDALONE_DIR"
           tar czf ../../machinery-crm-deploy.tar.gz .
+
+      - name: Smoke test deployment artifact
+        run: |
+          set -euo pipefail
+
+          smoke_dir="$(mktemp -d)"
+          tar xzf machinery-crm-deploy.tar.gz -C "$smoke_dir"
+
+          cd "$smoke_dir"
+
+          required_runtime_paths=(
+            "node_modules/prisma"
+            "node_modules/@prisma/engines"
+            "node_modules/@prisma/debug"
+            "node_modules/@prisma/client"
+            "node_modules/.prisma"
+            "node_modules/@swc/helpers"
+            "node_modules/@next/env"
+          )
+
+          for runtime_path in "${required_runtime_paths[@]}"; do
+            test -e "$runtime_path"
+          done
+
+          node node_modules/prisma/build/index.js -v
+
+          DATABASE_URL="mysql://placeholder:placeholder@127.0.0.1:3306/placeholder" \
+          NEXTAUTH_SECRET="placeholder-smoke-secret" \
+          AUTH_SECRET="placeholder-smoke-secret" \
+          NEXTAUTH_URL="http://127.0.0.1:3000" \
+          PORT=3000 \
+          HOSTNAME=127.0.0.1 \
+          node start-standalone.cjs &
+          server_pid="$!"
+
+          cleanup() {
+            kill "$server_pid" 2>/dev/null || true
+          }
+          trap cleanup EXIT
+
+          for attempt in {1..30}; do
+            status_code="$(curl -sS -o /dev/null -w "%{http_code}" -I http://127.0.0.1:3000/login || true)"
+            if [[ "$status_code" =~ ^(200|302|307)$ ]]; then
+              exit 0
+            fi
+            sleep 1
+          done
+
+          curl -I http://127.0.0.1:3000/login
+          exit 1
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4

@@ -23,5 +23,8 @@ if (process.env.START_MODE === "next") {
   process.argv = [process.execPath, "next", "start"];
   require("next/dist/bin/next");
 } else {
-  require("./.next/standalone/server.js");
+  const standaloneServerPath = path.join(__dirname, ".next", "standalone", "server.js");
+  const packagedServerPath = path.join(__dirname, "server.js");
+
+  require(fs.existsSync(standaloneServerPath) ? standaloneServerPath : packagedServerPath);
 }
