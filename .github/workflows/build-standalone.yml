@@ -136,6 +136,7 @@ jobs:
           prisma_runtime_packages=(
             "prisma"
             "jiti"
+            "@next/env"
             "@prisma/client"
             "@prisma/config"
             "@prisma/debug"
@@ -143,6 +144,7 @@ jobs:
             "@prisma/engines-version"
             "@prisma/fetch-engine"
             "@prisma/get-platform"
+            "@swc/helpers"
           )
           for package_name in "${prisma_runtime_packages[@]}"; do
             copy_package "$package_name"
