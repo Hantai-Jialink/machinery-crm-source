@@ -118,15 +118,35 @@ jobs:
               cp -aL "$(dirname "$PRISMA_CLIENT_DIR")/." "$PKG_DIR/node_modules/.prisma/"
             fi
           fi
-          if [[ -d node_modules/@prisma ]]; then
-            rm -rf "$PKG_DIR/node_modules/@prisma"
-            mkdir -p "$PKG_DIR/node_modules/@prisma"
-            cp -aL node_modules/@prisma/. "$PKG_DIR/node_modules/@prisma/"
-          fi
-          # 可选但推荐：保留 Prisma CLI 包，方便 fallback / 排查
-          if [[ -d node_modules/prisma ]]; then
-            cp -aL node_modules/prisma "$PKG_DIR/node_modules/prisma"
-          fi
+
+          copy_package() {
+            local package_name="$1"
+            local source_dir=""
+            if [[ -d "node_modules/$package_name" ]]; then
+              source_dir="node_modules/$package_name"
+            else
+              source_dir="$(find node_modules -path "*/node_modules/$package_name" -type d -print -quit)"
+            fi
+            test -n "$source_dir"
+            mkdir -p "$PKG_DIR/node_modules/$(dirname "$package_name")"
+            rm -rf "$PKG_DIR/node_modules/$package_name"
+            cp -aL "$source_dir" "$PKG_DIR/node_modules/$package_name"
+          }
+
+          prisma_runtime_packages=(
+            "prisma"
+            "jiti"
+            "@prisma/client"
+            "@prisma/config"
+            "@prisma/debug"
+            "@prisma/engines"
+            "@prisma/engines-version"
+            "@prisma/fetch-engine"
+            "@prisma/get-platform"
+          )
+          for package_name in "${prisma_runtime_packages[@]}"; do
+            copy_package "$package_name"
+          done
 
           # 7. 放入启动脚本和部署说明
           cp -a start-standalone.cjs "$PKG_DIR/start-standalone.cjs"
