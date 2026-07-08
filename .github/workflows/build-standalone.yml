@@ -128,6 +128,71 @@ jobs:
             cp -aL node_modules/prisma "$PKG_DIR/node_modules/prisma"
           fi
 
+          # pnpm keeps many transitive packages under .pnpm instead of exposing
+          # them as top-level node_modules entries. The standalone server and
+          # Prisma CLI resolve from the extracted package root, so materialize
+          # the runtime packages that must be available at that root.
+          PKG_DIR="$PKG_DIR" node <<'NODE'
+          const fs = require("node:fs");
+          const path = require("node:path");
+          const { createRequire } = require("node:module");
+
+          const pkgDir = process.env.PKG_DIR;
+          const rootRequire = createRequire(path.join(process.cwd(), "package.json"));
+
+          function requireFromPackage(packageName) {
+            const packageJson = rootRequire.resolve(`${packageName}/package.json`);
+            return createRequire(packageJson);
+          }
+
+          const resolvers = {
+            root: rootRequire,
+            next: requireFromPackage("next"),
+            prisma: requireFromPackage("prisma"),
+          };
+
+          const runtimePackages = [
+            { name: "@swc/helpers", from: "next" },
+            { name: "@next/env", from: "next" },
+            { name: "prisma", from: "root" },
+            { name: "@prisma/client", from: "root" },
+            { name: "@prisma/engines", from: "prisma" },
+            { name: "@prisma/debug", from: "prisma" },
+            { name: "@prisma/config", from: "prisma" },
+            { name: "@prisma/engines-version", from: "prisma" },
+            { name: "@prisma/fetch-engine", from: "prisma" },
+            { name: "@prisma/get-platform", from: "prisma" },
+            { name: "jiti", from: "prisma" },
+          ];
+
+          function packageRoot(packageName, resolver) {
+            try {
+              return path.dirname(resolver.resolve(`${packageName}/package.json`));
+            } catch {
+              const entry = resolver.resolve(packageName);
+              let dir = path.dirname(entry);
+              while (dir !== path.parse(dir).root) {
+                if (fs.existsSync(path.join(dir, "package.json"))) return dir;
+                dir = path.dirname(dir);
+              }
+              throw new Error(`Unable to locate package root for ${packageName}`);
+            }
+          }
+
+          function destination(packageName) {
+            return path.join(pkgDir, "node_modules", ...packageName.split("/"));
+          }
+
+          for (const spec of runtimePackages) {
+            const source = packageRoot(spec.name, resolvers[spec.from]);
+            const target = destination(spec.name);
+            fs.rmSync(target, { recursive: true, force: true });
+            fs.mkdirSync(path.dirname(target), { recursive: true });
+            fs.cpSync(source, target, { recursive: true, dereference: true });
+            console.log(`Copied ${spec.name} from ${source}`);
+          }
+          NODE
+
           # 7. 放入启动脚本和部署说明
           cp -a start-standalone.cjs "$PKG_DIR/start-standalone.cjs"
           cp -a package.json "$PKG_DIR/package.json"
@@ -146,9 +211,99 @@ jobs:
           test -f "$PKG_DIR/prisma/schema.prisma"
           find "$PKG_DIR/node_modules/.prisma/client" -name 'libquery_engine-*' -print -quit >/dev/null
           test -z "$(find "$PKG_DIR" -type l -print -quit)"
+          PKG_DIR="$PKG_DIR" node <<'NODE'
+          const path = require("node:path");
+          const { createRequire } = require("node:module");
+
+          const pkgDir = process.env.PKG_DIR;
+          const serverRequire = createRequire(path.join(pkgDir, "server.js"));
+          const packageRequire = createRequire(path.join(pkgDir, "package.json"));
+          const modules = [
+            { name: "@swc/helpers/_/_interop_require_default", resolver: serverRequire },
+            { name: "@next/env", resolver: serverRequire },
+            { name: "@prisma/engines", resolver: packageRequire },
+            { name: "@prisma/debug", resolver: packageRequire },
+            { name: "@prisma/config", resolver: packageRequire },
+            { name: "@prisma/fetch-engine", resolver: packageRequire },
+            { name: "@prisma/get-platform", resolver: packageRequire },
+          ];
+
+          for (const mod of modules) {
+            console.log(`${mod.name} -> ${mod.resolver.resolve(mod.name)}`);
+          }
+          NODE
+          node "$PKG_DIR/node_modules/prisma/build/index.js" -v
 
           # 9. 打 tar.gz，归档内保留一个顶层目录
           tar -C "$OUT_DIR" -czf "$PKG_FILE" "$(basename "$PKG_DIR")"
+
+          # Verify the exact tarball shape after extraction, not just the staging
+          # directory, so upload-artifact never publishes a package that cannot
+          # resolve runtime dependencies from the extracted root.
+          VERIFY_DIR="$OUT_DIR/verify-extract"
+          rm -rf "$VERIFY_DIR"
+          mkdir -p "$VERIFY_DIR"
+          tar -xzf "$PKG_FILE" -C "$VERIFY_DIR"
+          VERIFY_APP="$VERIFY_DIR/$(basename "$PKG_DIR")"
+          test -f "$VERIFY_APP/server.js"
+          test -f "$VERIFY_APP/start-standalone.cjs"
+          test -d "$VERIFY_APP/.next/static"
+          test -f "$VERIFY_APP/.next/server/app/(app)/erp/bom/page.js"
+          test -f "$VERIFY_APP/.next/server/app/api/erp/boms/route.js"
+          test -f "$VERIFY_APP/.next/server/app/api/erp/boms/[id]/route.js"
+          test -f "$VERIFY_APP/.next/server/app/api/erp/boms/[id]/requirements/route.js"
+          test -f "$VERIFY_APP/.next/server/app/api/erp/products/route.js"
+          grep -q 'version: "v1.4.3"' "$VERIFY_APP/src/lib/changelog.ts"
+          PKG_DIR="$VERIFY_APP" node <<'NODE'
+          const path = require("node:path");
+          const { createRequire } = require("node:module");
+
+          const pkgDir = process.env.PKG_DIR;
+          const serverRequire = createRequire(path.join(pkgDir, "server.js"));
+          const packageRequire = createRequire(path.join(pkgDir, "package.json"));
+          const modules = [
+            { name: "@swc/helpers/_/_interop_require_default", resolver: serverRequire },
+            { name: "@next/env", resolver: serverRequire },
+            { name: "@prisma/engines", resolver: packageRequire },
+            { name: "@prisma/debug", resolver: packageRequire },
+            { name: "@prisma/config", resolver: packageRequire },
+            { name: "@prisma/fetch-engine", resolver: packageRequire },
+            { name: "@prisma/get-platform", resolver: packageRequire },
+          ];
+
+          for (const mod of modules) {
+            console.log(`${mod.name} -> ${mod.resolver.resolve(mod.name)}`);
+          }
+          NODE
+          node "$VERIFY_APP/node_modules/prisma/build/index.js" -v
+          SMOKE_LOG="$VERIFY_DIR/server.log"
+          PORT=3000 HOSTNAME=127.0.0.1 node "$VERIFY_APP/start-standalone.cjs" >"$SMOKE_LOG" 2>&1 &
+          SERVER_PID=$!
+          trap 'kill "$SERVER_PID" 2>/dev/null || true' EXIT
+
+          STATUS=""
+          for _ in {1..30}; do
+            STATUS="$(curl -sS -o /dev/null -w "%{http_code}" http://127.0.0.1:3000/login || true)"
+            if [[ "$STATUS" =~ ^(200|302|307)$ ]]; then
+              break
+            fi
+            if ! kill -0 "$SERVER_PID" 2>/dev/null; then
+              cat "$SMOKE_LOG"
+              exit 1
+            fi
+            sleep 1
+          done
+
+          if [[ ! "$STATUS" =~ ^(200|302|307)$ ]]; then
+            cat "$SMOKE_LOG"
+            echo "Smoke check failed with HTTP status: ${STATUS:-none}"
+            exit 1
+          fi
+
+          kill "$SERVER_PID" 2>/dev/null || true
+          wait "$SERVER_PID" || true
+          trap - EXIT
+          rm -rf "$VERIFY_DIR"
 
           echo "OK: $PKG_FILE"
           ls -lh "$PKG_FILE"
