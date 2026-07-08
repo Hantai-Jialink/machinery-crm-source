@@ -26,6 +26,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "v1.4.3",
+    date: "2026-07-03",
+    notes: [
+      "ERP 二期上线 BOM 管理：支持按产品维护 BOM 版本、启用/停用版本和多层级物料明细。",
+      "新增 BOM 用料展开与缺料测算：可按生产台数和仓库库存计算需求、可用量、缺口和估算金额。",
+      "ERP 侧边栏新增 BOM 管理入口，仓管和超级管理员可直接进入维护与测算。",
+    ],
+  },
+  {
     version: "v1.4.2",
     date: "2026-07-01",
     notes: [
