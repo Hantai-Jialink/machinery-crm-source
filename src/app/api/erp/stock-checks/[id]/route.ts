@@ -187,3 +187,39 @@ export async function PUT(
     throw e;
   }
 }
+
+// DELETE: 仅删除尚未提交的盘点草稿，不回滚库存、不删除已完成盘点记录
+export async function DELETE(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const user = await getSessionUser();
+  if (!user) {
+    return NextResponse.json({ error: "未登录" }, { status: 401 });
+  }
+  if (!canAccessERP(user)) {
+    return NextResponse.json({ error: "无权限删除盘点草稿" }, { status: 403 });
+  }
+
+  const { id } = await params;
+
+  const existing = await prisma.stockCheck.findUnique({
+    where: { id },
+    select: { id: true, status: true },
+  });
+
+  if (!existing) {
+    return NextResponse.json({ error: "盘点单不存在" }, { status: 404 });
+  }
+
+  if (existing.status !== "DRAFT") {
+    return NextResponse.json({ error: "已完成盘点单不能删除，请重新创建盘点单或走管理员纠错流程" }, { status: 400 });
+  }
+
+  await prisma.$transaction(async (tx) => {
+    await tx.stockCheckItem.deleteMany({ where: { stockCheckId: id } });
+    await tx.stockCheck.delete({ where: { id } });
+  });
+
+  return NextResponse.json({ ok: true });
+}

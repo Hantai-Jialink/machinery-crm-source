@@ -357,19 +357,19 @@ export default function ShipmentsPage() {
       </div>
 
       <div className="bg-white rounded-xl border border-gray-200 overflow-x-auto">
-        <table className="w-full min-w-[1120px]">
+        <table className="w-full min-w-[1240px]">
           <thead className="bg-gray-50 border-b border-gray-200">
             <tr>
               <th className="text-left px-4 py-3 text-xs font-medium text-gray-500">合同</th>
               <th className="text-left px-4 py-3 text-xs font-medium text-gray-500">客户</th>
-              <th className="text-left px-4 py-3 text-xs font-medium text-gray-500">区域</th>
-              <th className="text-left px-4 py-3 text-xs font-medium text-gray-500">发货日期</th>
+              <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 whitespace-nowrap w-20">区域</th>
+              <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 whitespace-nowrap w-28">发货日期</th>
               <th className="text-left px-4 py-3 text-xs font-medium text-gray-500">设备</th>
-              <th className="text-left px-4 py-3 text-xs font-medium text-gray-500">数量</th>
-              <th className="text-left px-4 py-3 text-xs font-medium text-gray-500">司机电话</th>
-              <th className="text-left px-4 py-3 text-xs font-medium text-gray-500">状态</th>
-              <th className="text-left px-4 py-3 text-xs font-medium text-gray-500">附件</th>
-              <th className="text-left px-4 py-3 text-xs font-medium text-gray-500">操作</th>
+              <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 whitespace-nowrap w-16">数量</th>
+              <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 whitespace-nowrap w-32">司机电话</th>
+              <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 whitespace-nowrap w-24">状态</th>
+              <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 whitespace-nowrap w-20">附件</th>
+              <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 whitespace-nowrap w-32">操作</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
@@ -381,25 +381,25 @@ export default function ShipmentsPage() {
               <tr key={shipment.id} className="hover:bg-gray-50">
                 <td className="px-4 py-3"><Link href={`/contracts/${shipment.contract?.id}`} className="text-sm font-medium text-gray-900 hover:underline">{shipment.contract?.contractNo}</Link></td>
                 <td className="px-4 py-3"><Link href={`/customers/${shipment.contract?.customer?.id}`} className="text-sm text-gray-600 hover:underline">{shipment.contract?.customer?.companyName}</Link></td>
-                <td className="px-4 py-3 text-sm text-gray-600">{shipment.contract?.customer?.province}</td>
-                <td className="px-4 py-3 text-sm text-gray-600">{new Date(shipment.shipmentDate).toLocaleDateString("zh-CN")}</td>
+                <td className="px-4 py-3 text-sm text-gray-600 whitespace-nowrap">{shipment.contract?.customer?.province}</td>
+                <td className="px-4 py-3 text-sm text-gray-600 whitespace-nowrap">{new Date(shipment.shipmentDate).toLocaleDateString("zh-CN")}</td>
                 <td className="px-4 py-3 text-sm text-gray-600">{shipment.equipmentName}</td>
-                <td className="px-4 py-3 text-sm text-gray-600">{shipment.quantity}</td>
-                <td className="px-4 py-3 text-sm text-gray-600">{shipment.driverPhone}</td>
-                <td className="px-4 py-3"><span className={`text-xs px-2 py-0.5 rounded-full ${SHIPMENT_STATUS_LABELS[shipment.shipmentStatus]?.color}`}>{SHIPMENT_STATUS_LABELS[shipment.shipmentStatus]?.label}</span></td>
-                <td className="px-4 py-3">
-                  <div className="flex flex-wrap gap-2">
+                <td className="px-4 py-3 text-sm text-gray-600 whitespace-nowrap">{shipment.quantity}</td>
+                <td className="px-4 py-3 text-sm text-gray-600 whitespace-nowrap">{shipment.driverPhone}</td>
+                <td className="px-4 py-3 whitespace-nowrap"><span className={`inline-flex whitespace-nowrap text-xs px-2 py-0.5 rounded-full ${SHIPMENT_STATUS_LABELS[shipment.shipmentStatus]?.color}`}>{SHIPMENT_STATUS_LABELS[shipment.shipmentStatus]?.label}</span></td>
+                <td className="px-4 py-3 whitespace-nowrap">
+                  <div className="flex flex-nowrap gap-2">
                     {shipment.deliveryNoteUrl && <a href={toProtectedUploadUrl(shipment.deliveryNoteUrl)} target="_blank" className="text-xs text-blue-600 hover:underline">发货单</a>}
                     {shipment.shipmentPhotoUrl && <a href={toProtectedUploadUrl(shipment.shipmentPhotoUrl)} target="_blank" className="text-xs text-blue-600 hover:underline">照片</a>}
                     {!shipment.deliveryNoteUrl && !shipment.shipmentPhotoUrl && <span className="text-xs text-gray-400">无</span>}
                   </div>
                 </td>
-                <td className="px-4 py-3">
-                  <div className="flex items-center gap-3">
-                    <button onClick={() => startEdit(shipment)} disabled={saving} className="inline-flex items-center gap-1 text-xs text-gray-600 hover:text-gray-900 disabled:opacity-50">
+                <td className="px-4 py-3 whitespace-nowrap">
+                  <div className="flex items-center gap-3 whitespace-nowrap">
+                    <button onClick={() => startEdit(shipment)} disabled={saving} className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap text-xs text-gray-600 hover:text-gray-900 disabled:opacity-50">
                       <Edit2 className="w-3.5 h-3.5" />修改
                     </button>
-                    <button onClick={() => handleDelete(shipment)} disabled={saving} className="inline-flex items-center gap-1 text-xs text-red-600 hover:text-red-700 disabled:opacity-50">
+                    <button onClick={() => handleDelete(shipment)} disabled={saving} className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap text-xs text-red-600 hover:text-red-700 disabled:opacity-50">
                       <Trash2 className="w-3.5 h-3.5" />删除
                     </button>
                   </div>

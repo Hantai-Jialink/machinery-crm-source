@@ -30,11 +30,12 @@ export default function NewCustomerPage() {
     country: "中国", province: "", city: "",
     businessLine: "国内销售",
     address: "", customerSource: "展会", customerType: "NEW" as string,
-    customerLevel: "B" as string, interestTags: [] as string[], remark: "", nextFollowDate: "",
+    customerLevel: "B" as string, interestTags: [] as string[], assignedUserId: "", remark: "", nextFollowDate: "",
   });
 
   // 产品报价
   const [products, setProducts] = useState<any[]>([]);
+  const [activeUsers, setActiveUsers] = useState<any[]>([]);
   const [quoteProductId, setQuoteProductId] = useState("");
   const [quotePrice, setQuotePrice] = useState("");
   const [quoteRemark, setQuoteRemark] = useState("");
@@ -45,7 +46,13 @@ export default function NewCustomerPage() {
   const [duplicateWarning, setDuplicateWarning] = useState<any>(null);
 
   useEffect(() => {
-    fetch("/api/products?productType=MAIN").then(r => r.json()).then(setProducts);
+    Promise.all([
+      fetch("/api/products?productType=MAIN").then(r => r.json()),
+      fetch("/api/users/active").then(r => r.json()),
+    ]).then(([productData, userData]) => {
+      setProducts(Array.isArray(productData) ? productData : []);
+      setActiveUsers(Array.isArray(userData) ? userData : []);
+    });
   }, []);
 
   useEffect(() => {
@@ -204,6 +211,14 @@ export default function NewCustomerPage() {
               <select value={form.customerSource} onChange={(e) => handleChange("customerSource", e.target.value)}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-900">
                 {CUSTOMER_SOURCES.map((s) => (<option key={s} value={s}>{s}</option>))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">归属业务员/负责人</label>
+              <select value={form.assignedUserId} onChange={(e) => handleChange("assignedUserId", e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-900">
+                <option value="">未分配（默认当前账号）</option>
+                {activeUsers.map((item) => (<option key={item.id} value={item.id}>{item.name}</option>))}
               </select>
             </div>
             <div>
