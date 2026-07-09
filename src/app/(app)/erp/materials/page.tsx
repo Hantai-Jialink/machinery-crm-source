@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
-import { Plus, Search, Pencil, Trash2, SlidersHorizontal } from "lucide-react";
+import { FileDown, Plus, Search, Pencil, Trash2, SlidersHorizontal, Upload } from "lucide-react";
+import { MaterialImportDialog, downloadMaterialImportTemplate } from "@/components/erp/material-import-dialog";
 
 const UNIT_OPTIONS = ["件", "个", "套", "kg", "米", "升", "箱", "包", "桶"];
 
@@ -30,6 +31,7 @@ export default function MaterialsPage() {
   // Modal state
   const [showModal, setShowModal] = useState(false);
   const [showWarningModal, setShowWarningModal] = useState(false);
+  const [showImportModal, setShowImportModal] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [form, setForm] = useState<any>({ code: "", name: "", categoryId: "", spec: "", unit: "件", standardPrice: "", safetyStock: "", supplier: "", remark: "" });
   const [thresholdDraft, setThresholdDraft] = useState<Record<string, string>>({});
@@ -55,16 +57,20 @@ export default function MaterialsPage() {
     loadCategories();
   }, []);
 
-  useEffect(() => {
+  const loadMaterials = useCallback(async () => {
     setLoading(true);
     const params = new URLSearchParams();
     if (search) params.set("search", search);
     if (categoryId) params.set("categoryId", categoryId);
-    fetch(`/api/erp/materials?${params.toString()}`)
-      .then((r) => r.json())
-      .then((data) => setMaterials(Array.isArray(data) ? data : []))
-      .finally(() => setLoading(false));
+    const res = await fetch(`/api/erp/materials?${params.toString()}`);
+    const data = await res.json();
+    setMaterials(Array.isArray(data) ? data : []);
+    setLoading(false);
   }, [search, categoryId]);
+
+  useEffect(() => {
+    loadMaterials();
+  }, [loadMaterials]);
 
   const openCreate = () => {
     setEditId(null);
@@ -100,13 +106,7 @@ export default function MaterialsPage() {
     });
     setSaving(false);
     setShowModal(false);
-    // refresh
-    const params = new URLSearchParams();
-    if (search) params.set("search", search);
-    if (categoryId) params.set("categoryId", categoryId);
-    const res = await fetch(`/api/erp/materials?${params.toString()}`);
-    const data = await res.json();
-    setMaterials(Array.isArray(data) ? data : []);
+    await loadMaterials();
   };
 
   const handleDelete = async (id: string) => {
@@ -144,6 +144,18 @@ export default function MaterialsPage() {
         <h1 className="text-xl font-semibold text-gray-900">物料管理</h1>
         {canEdit && (
           <div className="flex flex-wrap gap-2">
+            <button
+              onClick={downloadMaterialImportTemplate}
+              className="inline-flex items-center gap-1.5 px-4 py-2 bg-white text-gray-700 text-sm font-medium rounded-lg border border-gray-300 hover:bg-gray-50"
+            >
+              <FileDown className="w-4 h-4" />下载物料导入模板
+            </button>
+            <button
+              onClick={() => setShowImportModal(true)}
+              className="inline-flex items-center gap-1.5 px-4 py-2 bg-white text-gray-700 text-sm font-medium rounded-lg border border-gray-300 hover:bg-gray-50"
+            >
+              <Upload className="w-4 h-4" />Excel导入物料
+            </button>
             <button
               onClick={() => setShowWarningModal(true)}
               className="inline-flex items-center gap-1.5 px-4 py-2 bg-white text-gray-700 text-sm font-medium rounded-lg border border-gray-300 hover:bg-gray-50"
@@ -333,6 +345,13 @@ export default function MaterialsPage() {
           </div>
         </div>
       )}
+
+      <MaterialImportDialog
+        open={showImportModal}
+        categories={categories}
+        onClose={() => setShowImportModal(false)}
+        onImported={loadMaterials}
+      />
     </div>
   );
 }

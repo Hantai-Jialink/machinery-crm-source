@@ -54,7 +54,7 @@ export async function GET(
     },
   });
   if (!bom) {
-    return NextResponse.json({ error: "BOM 不存在" }, { status: 404 });
+    return NextResponse.json({ error: "整机用料清单不存在" }, { status: 404 });
   }
 
   const requiredByMaterial = new Map<string, number>();

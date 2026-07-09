@@ -35,9 +35,9 @@ function normalizeBomItems(items: unknown) {
 }
 
 function validateBomItems(items: ReturnType<typeof normalizeBomItems>) {
-  if (items.length === 0) return "BOM 至少需要一条物料明细";
+  if (items.length === 0) return "整机用料清单至少需要一条物料明细";
   if (items.some((item) => !item.materialId || item.quantity === null)) {
-    return "BOM 明细必须选择物料并填写大于 0 的用量";
+    return "整机用料清单明细必须选择物料并填写大于 0 的用量";
   }
   return null;
 }
@@ -149,7 +149,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "未登录" }, { status: 401 });
   }
   if (!canAccessERP(user)) {
-    return NextResponse.json({ error: "无权限维护 BOM" }, { status: 403 });
+    return NextResponse.json({ error: "无权限维护整机用料清单" }, { status: 403 });
   }
 
   const body = await request.json();
@@ -177,7 +177,7 @@ export async function POST(request: NextRequest) {
     select: { id: true },
   });
   if (duplicated) {
-    return NextResponse.json({ error: "同一产品已存在相同 BOM 版本" }, { status: 409 });
+    return NextResponse.json({ error: "同一产品已存在相同用料清单版本" }, { status: 409 });
   }
 
   const isActive = body.isActive !== false;

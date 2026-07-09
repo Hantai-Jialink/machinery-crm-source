@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
-import { Plus, Eye, CheckCircle, Trash2 } from "lucide-react";
+import { Plus, Eye, CheckCircle, Info } from "lucide-react";
 
 const STOCK_CHECK_STATUS_LABELS: Record<string, string> = {
   DRAFT: "草稿",
@@ -159,6 +159,23 @@ export default function StockCheckPage() {
       <div className="flex gap-1 bg-gray-100 rounded-lg p-1 w-fit">
         <button onClick={() => setTab("history")} className={`px-4 py-2 rounded-md text-sm font-medium ${tab === "history" ? "bg-white shadow" : "text-gray-600"}`}>盘点记录</button>
         <button onClick={() => setTab("form")} className={`px-4 py-2 rounded-md text-sm font-medium ${tab === "form" ? "bg-white shadow" : "text-gray-600"}`}>新增盘点</button>
+      </div>
+
+      <div className="rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900">
+        <div className="mb-2 flex items-center gap-2 font-semibold">
+          <Info className="h-4 w-4" />
+          使用说明
+        </div>
+        <ol className="grid gap-1 sm:grid-cols-2">
+          <li>1. 创建盘点单后，系统会自动读取当前库存作为账面数量。</li>
+          <li>2. 仓管员根据实际库存填写实盘数量。</li>
+          <li>3. 系统自动计算差异数量。</li>
+          <li>4. 实盘数量大于账面数量，属于盘盈。</li>
+          <li>5. 实盘数量小于账面数量，属于盘亏。</li>
+          <li>6. 提交盘点后，系统根据差异自动调整库存，并生成库存流水。</li>
+          <li>7. 已完成盘点单不允许随意修改。</li>
+          <li>8. 如果后续发现错误，应重新创建盘点单或走管理员纠错流程。</li>
+        </ol>
       </div>
 
       {tab === "form" && canEdit && (

@@ -63,7 +63,7 @@ const navItems: NavItem[] = [
     children: [
       { href: "/erp/inventory", label: "库存台账" },
       { href: "/erp/materials", label: "物料管理" },
-      { href: "/erp/bom", label: "BOM 管理" },
+      { href: "/erp/bom", label: "整机用料清单" },
       { href: "/erp/warehouse", label: "仓库管理" },
       { href: "/erp/stock-in", label: "入库" },
       { href: "/erp/stock-out", label: "出库" },
