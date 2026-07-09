@@ -214,7 +214,7 @@ export default function NewCustomerPage() {
               </select>
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">归属业务员/负责人</label>
+              <label className="block text-xs font-medium text-gray-600 mb-1">负责业务员</label>
               <select value={form.assignedUserId} onChange={(e) => handleChange("assignedUserId", e.target.value)}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-900">
                 <option value="">未分配（默认当前账号）</option>
