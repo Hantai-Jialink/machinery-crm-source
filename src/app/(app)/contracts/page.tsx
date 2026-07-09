@@ -226,20 +226,20 @@ export default function ContractsPage() {
 
       <div className="hidden lg:block bg-white rounded-xl border border-gray-200 overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full">
+          <table className="w-full min-w-[1320px]">
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
                 <th className="text-left px-4 py-3 text-xs font-medium text-gray-500">合同编号</th>
                 <th className="text-left px-4 py-3 text-xs font-medium text-gray-500">客户</th>
                 <th className="text-left px-4 py-3 text-xs font-medium text-gray-500">设备</th>
-                <th className="text-left px-4 py-3 text-xs font-medium text-gray-500">业务员</th>
+                <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 whitespace-nowrap w-24">业务员</th>
                 <th className="text-right px-4 py-3 text-xs font-medium text-gray-500">合同金额</th>
                 <th className="text-right px-4 py-3 text-xs font-medium text-gray-500">已回款</th>
                 <th className="text-right px-4 py-3 text-xs font-medium text-gray-500">未回款</th>
-                <th className="text-left px-4 py-3 text-xs font-medium text-gray-500">回款状态</th>
-                <th className="text-left px-4 py-3 text-xs font-medium text-gray-500">合同状态</th>
-                <th className="text-left px-4 py-3 text-xs font-medium text-gray-500">签订日期</th>
-                <th className="text-right px-4 py-3 text-xs font-medium text-gray-500">操作</th>
+                <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 whitespace-nowrap w-24">回款状态</th>
+                <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 whitespace-nowrap w-24">合同状态</th>
+                <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 whitespace-nowrap w-28">签订日期</th>
+                <th className="text-right px-4 py-3 text-xs font-medium text-gray-500 whitespace-nowrap w-24">操作</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
@@ -259,25 +259,25 @@ export default function ContractsPage() {
                         {contract.customer?.companyName}{contract.customer?.deletedAt && <span className="ml-1 text-xs text-gray-400">已隐藏</span>}
                       </td>
                       <td className="px-4 py-3 text-sm text-gray-600">{contractEquipmentLabel(contract)}</td>
-                      <td className="px-4 py-3 text-sm text-gray-600">{contract.salesUser?.name || "-"}</td>
+                      <td className="px-4 py-3 text-sm text-gray-600 whitespace-nowrap">{contract.salesUser?.name || "-"}</td>
                       <td className="px-4 py-3 text-sm text-gray-900 text-right font-medium">{formatMoney(contract.amount)}</td>
                       <td className="px-4 py-3 text-sm text-green-700 text-right">{formatMoney(contract.paidAmount)}</td>
                       <td className="px-4 py-3 text-sm text-red-600 text-right">{formatMoney(contract.unpaidAmount)}</td>
-                      <td className="px-4 py-3"><span className={`text-xs px-2 py-0.5 rounded-full ${PAYMENT_STATUS_LABELS[contract.paymentStatus]?.color}`}>{PAYMENT_STATUS_LABELS[contract.paymentStatus]?.label}</span></td>
-                      <td className="px-4 py-3"><span className={`text-xs px-2 py-0.5 rounded-full ${status.color}`}>{status.label}</span></td>
-                      <td className="px-4 py-3 text-xs text-gray-500">{new Date(contract.signedDate).toLocaleDateString("zh-CN")}</td>
-                      <td className="px-4 py-3 text-right">
+                      <td className="px-4 py-3 whitespace-nowrap"><span className={`inline-flex whitespace-nowrap text-xs px-2 py-0.5 rounded-full ${PAYMENT_STATUS_LABELS[contract.paymentStatus]?.color}`}>{PAYMENT_STATUS_LABELS[contract.paymentStatus]?.label}</span></td>
+                      <td className="px-4 py-3 whitespace-nowrap"><span className={`inline-flex whitespace-nowrap text-xs px-2 py-0.5 rounded-full ${status.color}`}>{status.label}</span></td>
+                      <td className="px-4 py-3 text-xs text-gray-500 whitespace-nowrap">{new Date(contract.signedDate).toLocaleDateString("zh-CN")}</td>
+                      <td className="px-4 py-3 text-right whitespace-nowrap">
                         {userRole === "SUPER_ADMIN" ? (
                           <button
                             onClick={() => handleDelete(contract)}
-                            className="text-xs px-2.5 py-1 rounded-lg border border-red-200 text-red-600 hover:bg-red-50"
+                            className="whitespace-nowrap text-xs px-2.5 py-1 rounded-lg border border-red-200 text-red-600 hover:bg-red-50"
                           >
                             删除
                           </button>
                         ) : (
                           <button
                             onClick={() => handleRequestDelete(contract)}
-                            className="text-xs px-2.5 py-1 rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-50"
+                            className="whitespace-nowrap text-xs px-2.5 py-1 rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-50"
                           >
                             申请删除
                           </button>

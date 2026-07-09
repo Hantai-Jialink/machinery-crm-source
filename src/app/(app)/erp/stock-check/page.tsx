@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
-import { Plus, Eye, CheckCircle, Info } from "lucide-react";
+import { Plus, CheckCircle, Info, Trash2 } from "lucide-react";
 
 const STOCK_CHECK_STATUS_LABELS: Record<string, string> = {
   DRAFT: "草稿",
@@ -53,6 +53,17 @@ export default function StockCheckPage() {
       .finally(() => setLoading(false));
   }, [tab, filterWarehouse, page]);
 
+  const refreshStockChecks = async () => {
+    const params = new URLSearchParams();
+    if (filterWarehouse) params.set("warehouseId", filterWarehouse);
+    params.set("page", String(page));
+    params.set("pageSize", "20");
+    const listRes = await fetch(`/api/erp/stock-checks?${params.toString()}`);
+    const listData = await listRes.json();
+    setStockChecks(listData.items || []);
+    setPagination(listData.pagination || { page: 1, pageSize: 20, total: 0, totalPages: 0 });
+  };
+
   const loadInventoryForWarehouse = async (wid: string) => {
     const res = await fetch(`/api/erp/inventory?warehouseId=${wid}&pageSize=100`);
     const data = await res.json();
@@ -75,6 +86,25 @@ export default function StockCheckPage() {
     const data = await res.json();
     setDetail(data);
     setDetailId(id);
+  };
+
+  const deleteDraft = async (stockCheck: any) => {
+    if (stockCheck.status !== "DRAFT") {
+      alert("已完成盘点单不能删除，如需纠错请重新创建盘点单或走管理员纠错流程。");
+      return;
+    }
+    if (!confirm(`确定删除盘点草稿「${stockCheck.batchNo}」吗？`)) return;
+    const res = await fetch(`/api/erp/stock-checks/${stockCheck.id}`, { method: "DELETE" });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      alert(data.error || "删除盘点草稿失败");
+      return;
+    }
+    if (detailId === stockCheck.id) {
+      setDetailId(null);
+      setDetail(null);
+    }
+    await refreshStockChecks();
   };
 
   const handleSubmitDraft = async () => {
@@ -123,14 +153,7 @@ export default function StockCheckPage() {
     const data = await res.json();
     if (res.ok) {
       setDetail(data);
-      // refresh list
-      const params = new URLSearchParams();
-      if (filterWarehouse) params.set("warehouseId", filterWarehouse);
-      params.set("page", String(page));
-      params.set("pageSize", "20");
-      const listRes = await fetch(`/api/erp/stock-checks?${params.toString()}`);
-      const listData = await listRes.json();
-      setStockChecks(listData.items || []);
+      await refreshStockChecks();
     }
   };
 
@@ -273,9 +296,19 @@ export default function StockCheckPage() {
                       <td className="px-4 py-3 text-right">{sc.items?.length || 0} 项</td>
                       <td className="px-4 py-3 text-gray-500">{sc.checkDate ? new Date(sc.checkDate).toLocaleDateString("zh-CN") : "-"}</td>
                       <td className="px-4 py-3 text-center">
-                        <button onClick={() => viewDetail(sc.id)} className="text-gray-400 hover:text-gray-700">
-                          <Eye className="w-4 h-4" />
-                        </button>
+                        <div className="inline-flex items-center gap-3 whitespace-nowrap">
+                          <button onClick={() => viewDetail(sc.id)} className="text-xs text-gray-600 hover:text-gray-900">
+                            修改
+                          </button>
+                          <button
+                            onClick={() => deleteDraft(sc)}
+                            disabled={sc.status !== "DRAFT"}
+                            title={sc.status === "DRAFT" ? "删除盘点草稿" : "已完成盘点单不能删除"}
+                            className="inline-flex items-center gap-1 text-xs text-red-600 hover:text-red-700 disabled:cursor-not-allowed disabled:text-gray-300"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />删除
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}
