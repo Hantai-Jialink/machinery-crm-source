@@ -37,9 +37,9 @@ function normalizeBomItems(items: unknown) {
 }
 
 function validateBomItems(items: ReturnType<typeof normalizeBomItems>) {
-  if (items.length === 0) return "BOM 至少需要一条物料明细";
+  if (items.length === 0) return "整机用料清单至少需要一条物料明细";
   if (items.some((item) => !item.materialId || item.quantity === null)) {
-    return "BOM 明细必须选择物料并填写大于 0 的用量";
+    return "整机用料清单明细必须选择物料并填写大于 0 的用量";
   }
   return null;
 }
@@ -118,7 +118,7 @@ export async function GET(
   const { id } = await params;
   const bom = await loadBom(id);
   if (!bom) {
-    return NextResponse.json({ error: "BOM 不存在" }, { status: 404 });
+    return NextResponse.json({ error: "整机用料清单不存在" }, { status: 404 });
   }
 
   return NextResponse.json(bom);
@@ -133,7 +133,7 @@ export async function PUT(
     return NextResponse.json({ error: "未登录" }, { status: 401 });
   }
   if (!canAccessERP(user)) {
-    return NextResponse.json({ error: "无权限维护 BOM" }, { status: 403 });
+    return NextResponse.json({ error: "无权限维护整机用料清单" }, { status: 403 });
   }
 
   const { id } = await params;
@@ -144,7 +144,7 @@ export async function PUT(
     include: { items: { orderBy: { sortOrder: "asc" } } },
   });
   if (!existing) {
-    return NextResponse.json({ error: "BOM 不存在" }, { status: 404 });
+    return NextResponse.json({ error: "整机用料清单不存在" }, { status: 404 });
   }
 
   const nextProductId = body.productId || existing.productId;
@@ -162,7 +162,7 @@ export async function PUT(
     select: { id: true },
   });
   if (duplicated) {
-    return NextResponse.json({ error: "同一产品已存在相同 BOM 版本" }, { status: 409 });
+    return NextResponse.json({ error: "同一产品已存在相同用料清单版本" }, { status: 409 });
   }
 
   const items = normalizeBomItems(body.items);
@@ -218,13 +218,13 @@ export async function DELETE(
     return NextResponse.json({ error: "未登录" }, { status: 401 });
   }
   if (!canAccessERP(user)) {
-    return NextResponse.json({ error: "无权限停用 BOM" }, { status: 403 });
+    return NextResponse.json({ error: "无权限停用整机用料清单" }, { status: 403 });
   }
 
   const { id } = await params;
   const existing = await prisma.bomHeader.findUnique({ where: { id } });
   if (!existing) {
-    return NextResponse.json({ error: "BOM 不存在" }, { status: 404 });
+    return NextResponse.json({ error: "整机用料清单不存在" }, { status: 404 });
   }
 
   await prisma.$transaction(async (tx) => {

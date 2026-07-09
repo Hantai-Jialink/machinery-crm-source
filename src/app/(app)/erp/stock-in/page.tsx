@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
-import { Plus, Search, Trash2, Eye, ArrowDownToLine } from "lucide-react";
+import { AlertTriangle, Plus, Trash2, Eye } from "lucide-react";
 import { MaterialCombobox } from "@/components/erp/material-combobox";
 
 export default function StockInPage() {
@@ -20,6 +20,7 @@ export default function StockInPage() {
   const [filterWarehouse, setFilterWarehouse] = useState("");
   const [detailId, setDetailId] = useState<string | null>(null);
   const [detail, setDetail] = useState<any>(null);
+  const [correctionTarget, setCorrectionTarget] = useState<any>(null);
 
   // Form state
   const [warehouseId, setWarehouseId] = useState("");
@@ -193,7 +194,7 @@ export default function StockInPage() {
                     <th className="text-left px-4 py-3 font-medium text-gray-600">类型</th>
                     <th className="text-right px-4 py-3 font-medium text-gray-600">明细数</th>
                     <th className="text-left px-4 py-3 font-medium text-gray-600">日期</th>
-                    <th className="text-center px-4 py-3 font-medium text-gray-600">详情</th>
+                    <th className="text-center px-4 py-3 font-medium text-gray-600">操作</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -209,7 +210,16 @@ export default function StockInPage() {
                       <td className="px-4 py-3 text-right">{si.items?.length || 0} 项</td>
                       <td className="px-4 py-3 text-gray-500">{new Date(si.createdAt).toLocaleDateString("zh-CN")}</td>
                       <td className="px-4 py-3 text-center">
-                        <button onClick={() => viewDetail(si.id)} className="text-gray-400 hover:text-gray-700"><Eye className="w-4 h-4" /></button>
+                        <div className="flex items-center justify-center gap-2">
+                          <button onClick={() => viewDetail(si.id)} className="inline-flex items-center gap-1 text-gray-500 hover:text-gray-900">
+                            <Eye className="w-4 h-4" />查看
+                          </button>
+                          {canEdit && (
+                            <button onClick={() => setCorrectionTarget(si)} className="inline-flex items-center gap-1 text-amber-600 hover:text-amber-800">
+                              <AlertTriangle className="w-4 h-4" />纠错/作废
+                            </button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -238,6 +248,7 @@ export default function StockInPage() {
               <p><span className="text-gray-500">类型：</span>{detail.type}</p>
               <p><span className="text-gray-500">日期：</span>{new Date(detail.createdAt).toLocaleDateString("zh-CN")}</p>
               <p><span className="text-gray-500">备注：</span>{detail.remark || "-"}</p>
+              <p><span className="text-gray-500">状态：</span>已提交</p>
             </div>
             <table className="w-full text-sm border">
               <thead className="bg-gray-50">
@@ -261,6 +272,36 @@ export default function StockInPage() {
             </table>
             <div className="text-right mt-2">
               <button onClick={() => setDetailId(null)} className="px-4 py-2 text-sm border border-gray-300 rounded-lg">关闭</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {correctionTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setCorrectionTarget(null)}>
+          <div className="w-full max-w-lg rounded-xl bg-white p-6 shadow-xl" onClick={(event) => event.stopPropagation()}>
+            <div className="mb-4 flex items-start gap-3">
+              <AlertTriangle className="mt-0.5 h-5 w-5 text-amber-600" />
+              <div>
+                <h2 className="text-lg font-semibold text-gray-900">入库单纠错/作废</h2>
+                <p className="mt-1 text-sm text-gray-600">单号 {correctionTarget.batchNo} 已提交并影响库存，不能直接编辑明细或删除。</p>
+              </div>
+            </div>
+            <div className="space-y-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+              <p>当前数据表暂未提供 status、voidedAt、voidReason 等作废字段。</p>
+              <p>安全纠错需要后续增加作废状态、作废原因和反向库存流水，原入库单保留为已作废记录。</p>
+            </div>
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                onClick={() => {
+                  viewDetail(correctionTarget.id);
+                  setCorrectionTarget(null);
+                }}
+                className="rounded-lg border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+              >
+                查看原单
+              </button>
+              <button onClick={() => setCorrectionTarget(null)} className="rounded-lg bg-gray-900 px-4 py-2 text-sm text-white hover:bg-gray-800">知道了</button>
             </div>
           </div>
         </div>
