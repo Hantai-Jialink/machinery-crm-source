@@ -699,18 +699,20 @@ model Inventory {
 // ==================== ERP：入库单（头 + 明细） ====================
 
 model StockIn {
-  id          String      @id @default(uuid())
-  batchNo     String      @unique
-  warehouseId String
-  warehouse   Warehouse   @relation(fields: [warehouseId], references: [id])
-  type        StockInType @default(PURCHASE)
-  remark      String?     @db.Text
-  createdById String
-  createdAt   DateTime    @default(now())
+  id              String      @id @default(uuid())
+  batchNo         String      @unique
+  warehouseId     String
+  warehouse       Warehouse   @relation(fields: [warehouseId], references: [id])
+  purchaseOrderId String?
+  type            StockInType @default(PURCHASE)
+  remark          String?     @db.Text
+  createdById     String
+  createdAt       DateTime    @default(now())
 
   items StockInItem[]
 
   @@index([warehouseId])
+  @@index([purchaseOrderId])
   @@index([type])
   @@index([createdById])
   @@index([createdAt])
@@ -718,19 +720,21 @@ model StockIn {
 }
 
 model StockInItem {
-  id         String   @id @default(uuid())
-  stockInId  String
-  stockIn    StockIn  @relation(fields: [stockInId], references: [id], onDelete: Cascade)
-  materialId String
-  material   Material @relation(fields: [materialId], references: [id])
-  quantity   Decimal  @db.Decimal(10, 2)
-  unitPrice  Decimal  @db.Decimal(12, 2)
-  amount     Decimal  @db.Decimal(12, 2)
-  sortOrder  Int      @default(0)
-  createdAt  DateTime @default(now())
+  id                  String   @id @default(uuid())
+  stockInId           String
+  stockIn             StockIn  @relation(fields: [stockInId], references: [id], onDelete: Cascade)
+  materialId          String
+  material            Material @relation(fields: [materialId], references: [id])
+  purchaseOrderItemId String?
+  quantity            Decimal  @db.Decimal(10, 2)
+  unitPrice           Decimal  @db.Decimal(12, 2)
+  amount              Decimal  @db.Decimal(12, 2)
+  sortOrder           Int      @default(0)
+  createdAt           DateTime @default(now())
 
   @@index([stockInId])
   @@index([materialId])
+  @@index([purchaseOrderItemId])
   @@map("erp_stock_in_items")
 }
 

@@ -33,5 +33,11 @@ export async function GET(
     return NextResponse.json({ error: "入库单不存在" }, { status: 404 });
   }
 
-  return NextResponse.json(stockIn);
+  const purchaseOrder = stockIn.purchaseOrderId
+    ? await prisma.purchaseOrder.findFirst({
+      where: { id: stockIn.purchaseOrderId, deletedAt: null },
+      select: { id: true, orderNo: true, status: true },
+    })
+    : null;
+  return NextResponse.json({ ...stockIn, purchaseOrder });
 }

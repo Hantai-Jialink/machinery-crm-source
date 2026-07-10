@@ -1,11 +1,15 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
-import { AlertTriangle, Plus, Trash2, Eye } from "lucide-react";
+import { AlertTriangle, Eye, Link2Off, Plus, Trash2 } from "lucide-react";
 import { MaterialCombobox } from "@/components/erp/material-combobox";
 
 export default function StockInPage() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const purchaseOrderId = searchParams.get("purchaseOrderId") || "";
   const { data: session } = useSession();
   const userRole = (session?.user as any)?.role;
   const canEdit = userRole === "SUPER_ADMIN" || userRole === "WAREHOUSE";
@@ -21,6 +25,9 @@ export default function StockInPage() {
   const [detailId, setDetailId] = useState<string | null>(null);
   const [detail, setDetail] = useState<any>(null);
   const [correctionTarget, setCorrectionTarget] = useState<any>(null);
+  const [purchaseSource, setPurchaseSource] = useState<any>(null);
+  const [formError, setFormError] = useState("");
+  const [refreshKey, setRefreshKey] = useState(0);
 
   // Form state
   const [warehouseId, setWarehouseId] = useState("");
@@ -48,7 +55,46 @@ export default function StockInPage() {
         setPagination(data.pagination || { page: 1, pageSize: 20, total: 0, totalPages: 0 });
       })
       .finally(() => setLoading(false));
-  }, [tab, filterWarehouse, page]);
+  }, [tab, filterWarehouse, page, refreshKey]);
+
+  useEffect(() => {
+    if (!purchaseOrderId) {
+      setPurchaseSource(null);
+      return;
+    }
+    setFormError("");
+    fetch(`/api/erp/purchase-orders/${purchaseOrderId}`)
+      .then(async (res) => ({ ok: res.ok, data: await res.json() }))
+      .then(({ ok, data }) => {
+        if (!ok) {
+          setFormError(data.error || "加载采购订单失败");
+          return;
+        }
+        if (data.status !== "ORDERED" && data.status !== "PARTIAL_RECEIVED") {
+          setFormError("只有已下单或部分到货状态的采购订单可以生成入库单");
+          return;
+        }
+        const availableItems = (data.items || []).map((item: any) => {
+          const remaining = Number(item.quantity) - Number(item.receivedQuantity || 0);
+          return {
+            materialId: item.materialId,
+            purchaseOrderItemId: item.id,
+            quantity: remaining > 0 ? String(remaining) : "",
+            unitPrice: String(item.unitPrice || ""),
+            maxQuantity: remaining,
+          };
+        }).filter((item: any) => item.maxQuantity > 0);
+        if (availableItems.length === 0) {
+          setFormError("该采购订单没有可入库的剩余明细");
+          return;
+        }
+        setPurchaseSource({ id: data.id, orderNo: data.orderNo, status: data.status });
+        setStockInType("PURCHASE");
+        setRemark(`采购订单 ${data.orderNo} 入库`);
+        setItems(availableItems);
+        setTab("form");
+      });
+  }, [purchaseOrderId]);
 
   const viewDetail = async (id: string) => {
     const res = await fetch(`/api/erp/stock-in/${id}`);
@@ -67,19 +113,60 @@ export default function StockInPage() {
 
   const handleSubmit = async () => {
     if (!warehouseId || items.length === 0) return;
-    const validItems = items.filter((i) => i.materialId && i.quantity && i.unitPrice);
+    const validItems = items.filter((i) => i.materialId && i.quantity && i.unitPrice && (!purchaseSource || i.purchaseOrderItemId));
     if (validItems.length === 0) return;
+    if (purchaseSource && validItems.some((item) => Number(item.quantity) > Number(item.maxQuantity))) {
+      setFormError("入库数量不能超过采购订单明细的剩余到货数量");
+      return;
+    }
+    setFormError("");
     setSaving(true);
-    await fetch("/api/erp/stock-in", {
+    const res = await fetch("/api/erp/stock-in", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ warehouseId, type: stockInType, remark, items: validItems }),
+      body: JSON.stringify({ warehouseId, type: stockInType, remark, purchaseOrderId: purchaseSource?.id, items: validItems }),
     });
+    const data = await res.json();
     setSaving(false);
+    if (!res.ok) {
+      setFormError(data.error || "保存入库单失败");
+      return;
+    }
+    if (purchaseSource) {
+      router.replace(`/erp/purchase-orders/${purchaseSource.id}`);
+      return;
+    }
     setWarehouseId("");
     setRemark("");
     setItems([{ materialId: "", quantity: "", unitPrice: "" }]);
     setTab("history");
+    setRefreshKey((value) => value + 1);
+  };
+
+  const cancelForm = () => {
+    setFormError("");
+    setWarehouseId("");
+    setRemark("");
+    setItems([{ materialId: "", quantity: "", unitPrice: "" }]);
+    if (purchaseSource) {
+      setPurchaseSource(null);
+      router.replace("/erp/stock-in");
+      return;
+    }
+    setTab("history");
+  };
+
+  const unlinkPurchase = async (stockIn: any) => {
+    if (!window.confirm(`确认撤销入库单 ${stockIn.batchNo} 与采购订单的关联吗？库存不会回退。`)) return;
+    const res = await fetch(`/api/erp/stock-in/${stockIn.id}/unlink-purchase`, { method: "POST" });
+    const data = await res.json();
+    if (!res.ok) {
+      setFormError(data.error || "撤销采购关联失败");
+      return;
+    }
+    setFormError("");
+    setRefreshKey((value) => value + 1);
+    if (detailId === stockIn.id) setDetail(null);
   };
 
   const totalAmount = items.reduce((sum, i) => sum + (parseFloat(i.quantity || "0") * parseFloat(i.unitPrice || "0")), 0);
@@ -90,7 +177,11 @@ export default function StockInPage() {
         <h1 className="text-xl font-semibold text-gray-900">入库单</h1>
         {canEdit && (
           <button
-            onClick={() => setTab("form")}
+            onClick={() => {
+              setPurchaseSource(null);
+              router.replace("/erp/stock-in");
+              setTab("form");
+            }}
             className="inline-flex items-center gap-1.5 px-4 py-2 bg-gray-900 text-white text-sm font-medium rounded-lg hover:bg-gray-800"
           >
             <Plus className="w-4 h-4" />新增入库
@@ -98,13 +189,16 @@ export default function StockInPage() {
         )}
       </div>
 
+      {formError && <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{formError}</p>}
+
       <div className="flex gap-1 bg-gray-100 rounded-lg p-1 w-fit">
         <button onClick={() => setTab("history")} className={`px-4 py-2 rounded-md text-sm font-medium ${tab === "history" ? "bg-white shadow" : "text-gray-600"}`}>入库记录</button>
-        <button onClick={() => setTab("form")} className={`px-4 py-2 rounded-md text-sm font-medium ${tab === "form" ? "bg-white shadow" : "text-gray-600"}`}>新增入库</button>
+        <button onClick={() => { setPurchaseSource(null); router.replace("/erp/stock-in"); setTab("form"); }} className={`px-4 py-2 rounded-md text-sm font-medium ${tab === "form" ? "bg-white shadow" : "text-gray-600"}`}>新增入库</button>
       </div>
 
       {tab === "form" && canEdit && (
         <div className="bg-white rounded-xl border border-gray-200 p-6 space-y-4">
+          {purchaseSource && <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-900">来源采购订单：<span className="font-medium">{purchaseSource.orderNo}</span>。物料明细已锁定，可按实际到货数量调整。</div>}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div>
               <label className="block text-xs font-medium text-gray-600 mb-1">仓库 *</label>
@@ -115,7 +209,7 @@ export default function StockInPage() {
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-600 mb-1">入库类型</label>
-              <select value={stockInType} onChange={(e) => setStockInType(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm">
+              <select value={stockInType} disabled={Boolean(purchaseSource)} onChange={(e) => setStockInType(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm disabled:bg-gray-50">
                 <option value="PURCHASE">采购入库</option>
                 <option value="RETURN">退货入库</option>
                 <option value="INITIAL">期初入库</option>
@@ -132,24 +226,19 @@ export default function StockInPage() {
           <div>
             <div className="flex items-center justify-between mb-2">
               <h3 className="text-sm font-semibold text-gray-700">入库明细</h3>
-              <button onClick={addItem} className="text-xs text-gray-600 hover:text-gray-900 border px-2 py-1 rounded">+ 添加行</button>
+              {!purchaseSource && <button onClick={addItem} className="text-xs text-gray-600 hover:text-gray-900 border px-2 py-1 rounded">+ 添加行</button>}
             </div>
             <div className="space-y-2">
               {items.map((item, idx) => (
                 <div key={idx} className="flex gap-2 items-center">
-                  <MaterialCombobox
-                    materials={materials}
-                    value={item.materialId}
-                    onChange={(materialId) => updateItem(idx, "materialId", materialId)}
-                  />
-                  <input type="number" placeholder="数量" value={item.quantity} onChange={(e) => updateItem(idx, "quantity", e.target.value)}
-                    className="w-24 px-3 py-2 border border-gray-300 rounded-lg text-sm" />
+                  {purchaseSource ? <div className="min-w-[220px] flex-1 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700">{(() => { const material = materials.find((value) => value.id === item.materialId); return material ? `${material.code} - ${material.name}` : "采购物料"; })()}</div> : <MaterialCombobox materials={materials} value={item.materialId} onChange={(materialId) => updateItem(idx, "materialId", materialId)} />}
+                  <div className="w-28"><input type="number" min="0.01" max={purchaseSource ? item.maxQuantity : undefined} step="0.01" placeholder="数量" value={item.quantity} onChange={(e) => updateItem(idx, "quantity", e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" />{purchaseSource && <p className="mt-1 text-xs text-gray-500">最多 {Number(item.maxQuantity).toLocaleString()}</p>}</div>
                   <input type="number" placeholder="单价" value={item.unitPrice} onChange={(e) => updateItem(idx, "unitPrice", e.target.value)}
                     className="w-24 px-3 py-2 border border-gray-300 rounded-lg text-sm" />
                   <span className="text-sm text-gray-500 w-24 text-right">
                     ¥{((parseFloat(item.quantity || "0")) * parseFloat(item.unitPrice || "0")).toLocaleString()}
                   </span>
-                  {items.length > 1 && (
+                  {!purchaseSource && items.length > 1 && (
                     <button onClick={() => removeItem(idx)} className="text-gray-400 hover:text-red-500"><Trash2 className="w-4 h-4" /></button>
                   )}
                 </div>
@@ -161,8 +250,8 @@ export default function StockInPage() {
           </div>
 
           <div className="flex justify-end gap-2">
-            <button onClick={() => setTab("history")} className="px-4 py-2 text-sm text-gray-600 border border-gray-300 rounded-lg">取消</button>
-            <button onClick={handleSubmit} disabled={saving || !warehouseId || items.filter(i => i.materialId && i.quantity && i.unitPrice).length === 0}
+            <button onClick={cancelForm} className="px-4 py-2 text-sm text-gray-600 border border-gray-300 rounded-lg">取消</button>
+            <button onClick={handleSubmit} disabled={saving || !warehouseId || items.filter(i => i.materialId && i.quantity && i.unitPrice && (!purchaseSource || i.purchaseOrderItemId)).length === 0}
               className="px-4 py-2 text-sm bg-gray-900 text-white rounded-lg hover:bg-gray-800 disabled:opacity-50">
               {saving ? "保存中..." : "确认入库"}
             </button>
@@ -192,6 +281,7 @@ export default function StockInPage() {
                     <th className="text-left px-4 py-3 font-medium text-gray-600">单号</th>
                     <th className="text-left px-4 py-3 font-medium text-gray-600">仓库</th>
                     <th className="text-left px-4 py-3 font-medium text-gray-600">类型</th>
+                    <th className="text-left px-4 py-3 font-medium text-gray-600">来源采购单</th>
                     <th className="text-right px-4 py-3 font-medium text-gray-600">明细数</th>
                     <th className="text-left px-4 py-3 font-medium text-gray-600">日期</th>
                     <th className="text-center px-4 py-3 font-medium text-gray-600">操作</th>
@@ -207,6 +297,7 @@ export default function StockInPage() {
                           {si.type === "PURCHASE" ? "采购" : si.type === "RETURN" ? "退货" : si.type === "INITIAL" ? "期初" : si.type === "CHECK_IN" ? "盘盈" : "其他"}
                         </span>
                       </td>
+                      <td className="px-4 py-3 text-gray-500">{si.purchaseOrder?.orderNo || "-"}</td>
                       <td className="px-4 py-3 text-right">{si.items?.length || 0} 项</td>
                       <td className="px-4 py-3 text-gray-500">{new Date(si.createdAt).toLocaleDateString("zh-CN")}</td>
                       <td className="px-4 py-3 text-center">
@@ -217,6 +308,11 @@ export default function StockInPage() {
                           {canEdit && (
                             <button onClick={() => setCorrectionTarget(si)} className="inline-flex items-center gap-1 text-amber-600 hover:text-amber-800">
                               <AlertTriangle className="w-4 h-4" />纠错/作废
+                            </button>
+                          )}
+                          {canEdit && si.purchaseOrderId && (
+                            <button onClick={() => unlinkPurchase(si)} className="inline-flex items-center gap-1 text-red-600 hover:text-red-800">
+                              <Link2Off className="w-4 h-4" />撤销采购关联
                             </button>
                           )}
                         </div>
@@ -248,6 +344,7 @@ export default function StockInPage() {
               <p><span className="text-gray-500">类型：</span>{detail.type}</p>
               <p><span className="text-gray-500">日期：</span>{new Date(detail.createdAt).toLocaleDateString("zh-CN")}</p>
               <p><span className="text-gray-500">备注：</span>{detail.remark || "-"}</p>
+              <p><span className="text-gray-500">来源采购单：</span>{detail.purchaseOrder?.orderNo || detail.purchaseOrderId || "-"}</p>
               <p><span className="text-gray-500">状态：</span>已提交</p>
             </div>
             <table className="w-full text-sm border">
