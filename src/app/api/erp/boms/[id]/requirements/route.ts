@@ -46,6 +46,7 @@ export async function GET(
               unit: true,
               standardPrice: true,
               supplier: true,
+              supplierId: true,
             },
           },
         },

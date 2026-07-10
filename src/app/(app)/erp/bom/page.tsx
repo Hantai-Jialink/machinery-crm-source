@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useSession } from "next-auth/react";
-import { AlertTriangle, Boxes, Calculator, CheckCircle2, Eye, Pencil, Plus, Search, Trash2 } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { AlertTriangle, Boxes, Calculator, CheckCircle2, Eye, Pencil, Plus, Search, ShoppingCart, Trash2 } from "lucide-react";
 
 type BomLine = {
   clientKey: string;
@@ -17,6 +18,11 @@ type CategoryNode = {
   name: string;
   code?: string | null;
   children?: CategoryNode[];
+};
+
+type SelectedShortageRow = {
+  row: any;
+  quantity: string;
 };
 
 function makeLine(materialId = ""): BomLine {
@@ -63,6 +69,7 @@ function quantity(value: unknown) {
 
 export default function BomPage() {
   const { data: session } = useSession();
+  const router = useRouter();
   const userRole = (session?.user as any)?.role;
   const canEdit = userRole === "SUPER_ADMIN" || userRole === "WAREHOUSE";
 
@@ -83,6 +90,10 @@ export default function BomPage() {
   const [requireQty, setRequireQty] = useState("1");
   const [requireWarehouseId, setRequireWarehouseId] = useState("");
   const [detailLoading, setDetailLoading] = useState(false);
+  const [shortageSelections, setShortageSelections] = useState<Record<string, string>>({});
+  const [showSuggestionConfirm, setShowSuggestionConfirm] = useState(false);
+  const [generatingSuggestions, setGeneratingSuggestions] = useState(false);
+  const [suggestionResult, setSuggestionResult] = useState<any>(null);
 
   const [showModal, setShowModal] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
@@ -117,6 +128,21 @@ export default function BomPage() {
     });
   }, [materials, materialSearch, materialCategoryId]);
   const flatCategories = useMemo(() => flattenCategories(categories), [categories]);
+  const selectedShortageRows = useMemo<SelectedShortageRow[]>(() => {
+    const rows: any[] = Array.isArray(requirements?.items) ? requirements.items : [];
+    return rows
+      .filter((row: any) => Number(row.shortageQty) > 0 && shortageSelections[row.material.id] !== undefined)
+      .map((row: any): SelectedShortageRow => ({ row, quantity: shortageSelections[row.material.id] }));
+  }, [requirements, shortageSelections]);
+  const selectedSupplierGroupCount = useMemo(
+    () => new Set(selectedShortageRows.map(({ row }) => row.material.supplierId).filter(Boolean)).size,
+    [selectedShortageRows]
+  );
+  const selectedWithoutSupplier = useMemo(
+    () => selectedShortageRows.filter(({ row }) => !row.material.supplierId),
+    [selectedShortageRows]
+  );
+  const hasInvalidSuggestionQuantity = selectedShortageRows.some(({ quantity }) => !Number.isFinite(Number(quantity)) || Number(quantity) <= 0);
 
   const loadBoms = async () => {
     setLoading(true);
@@ -134,6 +160,8 @@ export default function BomPage() {
 
   const loadDetail = async (id: string) => {
     setSelectedId(id);
+    setRequirements(null);
+    setShortageSelections({});
     setDetailLoading(true);
     const res = await fetch(`/api/erp/boms/${id}`);
     const data = await res.json();
@@ -149,6 +177,8 @@ export default function BomPage() {
     const res = await fetch(`/api/erp/boms/${selectedId}/requirements?${params.toString()}`);
     const data = await res.json();
     setRequirements(data.error ? null : data);
+    setShortageSelections({});
+    setShowSuggestionConfirm(false);
   };
 
   useEffect(() => {
@@ -271,6 +301,43 @@ export default function BomPage() {
     if (selectedId === id) {
       setDetail((current: any) => current ? { ...current, isActive: false } : current);
     }
+  };
+
+  const toggleShortageSelection = (row: any, checked: boolean) => {
+    setShortageSelections((current) => {
+      const next = { ...current };
+      if (checked) next[row.material.id] = String(row.shortageQty);
+      else delete next[row.material.id];
+      return next;
+    });
+  };
+
+  const updateSuggestionQuantity = (materialId: string, value: string) => {
+    setShortageSelections((current) => ({ ...current, [materialId]: value }));
+  };
+
+  const createPurchaseSuggestions = async () => {
+    if (!selectedId || selectedShortageRows.length === 0 || hasInvalidSuggestionQuantity) return;
+    setGeneratingSuggestions(true);
+    const res = await fetch("/api/erp/purchase-orders/from-shortage", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        bomId: selectedId,
+        productionQuantity: requireQty,
+        warehouseId: requireWarehouseId || null,
+        lines: selectedShortageRows.map(({ row, quantity }) => ({ materialId: row.material.id, quantity })),
+      }),
+    });
+    const data = await res.json();
+    setGeneratingSuggestions(false);
+    if (!res.ok) {
+      alert(data.error || "生成采购建议失败");
+      return;
+    }
+    setShowSuggestionConfirm(false);
+    setShortageSelections({});
+    setSuggestionResult(data);
   };
 
   return (
@@ -481,18 +548,32 @@ export default function BomPage() {
                   </div>
 
                   <div className="border border-gray-200 rounded-lg overflow-hidden">
-                    <table className="w-full text-sm">
+                    <table className="w-full min-w-[650px] text-sm">
                       <thead className="bg-gray-50 border-b border-gray-200">
                         <tr>
+                          {canEdit && <th className="w-12 px-3 py-2 text-center font-medium text-gray-600">选择</th>}
                           <th className="text-left px-3 py-2 font-medium text-gray-600">物料</th>
                           <th className="text-right px-3 py-2 font-medium text-gray-600">需求</th>
                           <th className="text-right px-3 py-2 font-medium text-gray-600">可用</th>
                           <th className="text-right px-3 py-2 font-medium text-gray-600">缺口</th>
+                          {canEdit && <th className="w-32 px-3 py-2 text-right font-medium text-gray-600">建议采购量</th>}
                         </tr>
                       </thead>
                       <tbody>
                         {requirements.items.map((row: any) => (
                           <tr key={row.material.id} className={`border-b border-gray-100 ${row.enough ? "" : "bg-red-50"}`}>
+                            {canEdit && (
+                              <td className="px-3 py-2 text-center">
+                                {Number(row.shortageQty) > 0 ? (
+                                  <input
+                                    type="checkbox"
+                                    checked={shortageSelections[row.material.id] !== undefined}
+                                    onChange={(event) => toggleShortageSelection(row, event.target.checked)}
+                                    className="rounded border-gray-300"
+                                  />
+                                ) : null}
+                              </td>
+                            )}
                             <td className="px-3 py-2">
                               <p className="font-medium text-gray-900">{row.material.name}</p>
                               <p className="text-xs text-gray-500">{row.material.code} {row.material.spec || ""}</p>
@@ -502,11 +583,38 @@ export default function BomPage() {
                             <td className={`px-3 py-2 text-right font-medium ${row.enough ? "text-green-700" : "text-red-700"}`}>
                               {quantity(row.shortageQty)} {row.material.unit}
                             </td>
+                            {canEdit && (
+                              <td className="px-3 py-2 text-right">
+                                {shortageSelections[row.material.id] !== undefined ? (
+                                  <input
+                                    type="number"
+                                    min="0.01"
+                                    step="0.01"
+                                    value={shortageSelections[row.material.id]}
+                                    onChange={(event) => updateSuggestionQuantity(row.material.id, event.target.value)}
+                                    className="w-28 rounded-lg border border-gray-300 px-2 py-1.5 text-right text-sm"
+                                    aria-label={`${row.material.name}建议采购量`}
+                                  />
+                                ) : <span className="text-xs text-gray-400">-</span>}
+                              </td>
+                            )}
                           </tr>
                         ))}
                       </tbody>
                     </table>
                   </div>
+                  {canEdit && (
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                      <p className="text-xs text-gray-500">已选择 {selectedShortageRows.length} 项缺料，可调整建议采购数量后生成草稿。</p>
+                      <button
+                        onClick={() => setShowSuggestionConfirm(true)}
+                        disabled={selectedShortageRows.length === 0 || hasInvalidSuggestionQuantity}
+                        className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        <ShoppingCart className="h-4 w-4" />生成采购建议
+                      </button>
+                    </div>
+                  )}
                 </>
               )}
             </div>
@@ -519,6 +627,66 @@ export default function BomPage() {
           <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1} className="px-3 py-1.5 text-sm border rounded-lg disabled:opacity-40">上一页</button>
           <span className="text-sm text-gray-500">第 {page} / {pagination.totalPages} 页</span>
           <button onClick={() => setPage((p) => Math.min(pagination.totalPages, p + 1))} disabled={page >= pagination.totalPages} className="px-3 py-1.5 text-sm border rounded-lg disabled:opacity-40">下一页</button>
+        </div>
+      )}
+
+      {showSuggestionConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => !generatingSuggestions && setShowSuggestionConfirm(false)}>
+          <div className="w-full max-w-lg rounded-xl bg-white shadow-xl" onClick={(event) => event.stopPropagation()}>
+            <div className="border-b border-gray-200 p-5">
+              <h2 className="text-lg font-semibold text-gray-900">确认生成采购建议</h2>
+              <p className="mt-1 text-sm text-gray-500">将为已关联供应商的物料生成采购订单草稿，不会自动下单或影响库存。</p>
+            </div>
+            <div className="max-h-[55vh] space-y-4 overflow-y-auto p-5 text-sm">
+              <p>已选择 <span className="font-semibold text-gray-900">{selectedShortageRows.length}</span> 项物料，预计按 <span className="font-semibold text-gray-900">{selectedSupplierGroupCount}</span> 个已关联供应商拆分订单。</p>
+              {selectedWithoutSupplier.length > 0 && (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-amber-800">
+                  <p className="font-medium">以下物料未关联供应商，需要先手动指定：</p>
+                  <ul className="mt-2 space-y-1 text-xs">
+                    {selectedWithoutSupplier.map(({ row }) => <li key={row.material.id}>{row.material.code} {row.material.name}</li>)}
+                  </ul>
+                </div>
+              )}
+              <p className="text-xs text-gray-500">提交时会再次校验供应商是否启用；已停用供应商的物料不会生成订单，并会在结果中列出。</p>
+            </div>
+            <div className="flex justify-end gap-2 border-t border-gray-200 p-4">
+              <button onClick={() => setShowSuggestionConfirm(false)} disabled={generatingSuggestions} className="rounded-lg border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50">取消</button>
+              <button onClick={createPurchaseSuggestions} disabled={generatingSuggestions || selectedShortageRows.length === 0 || hasInvalidSuggestionQuantity} className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50">{generatingSuggestions ? "生成中..." : "确认生成"}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {suggestionResult && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setSuggestionResult(null)}>
+          <div className="w-full max-w-lg rounded-xl bg-white shadow-xl" onClick={(event) => event.stopPropagation()}>
+            <div className="border-b border-gray-200 p-5">
+              <h2 className="text-lg font-semibold text-gray-900">采购建议生成结果</h2>
+              <p className="mt-1 text-sm text-gray-500">已生成 {suggestionResult.createdOrders?.length || 0} 张采购订单草稿。</p>
+            </div>
+            <div className="max-h-[55vh] space-y-4 overflow-y-auto p-5 text-sm">
+              {suggestionResult.createdOrders?.length > 0 && (
+                <div>
+                  <p className="mb-2 font-medium text-gray-900">已生成草稿</p>
+                  <ul className="space-y-1 text-gray-700">
+                    {suggestionResult.createdOrders.map((order: any) => <li key={order.id}>{order.orderNo} · {order.supplierName} · {order.itemCount} 项</li>)}
+                  </ul>
+                </div>
+              )}
+              {suggestionResult.unhandledItems?.length > 0 && (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-amber-800">
+                  <p className="font-medium">需手动处理的物料</p>
+                  <ul className="mt-2 space-y-1 text-xs">
+                    {suggestionResult.unhandledItems.map((item: any) => <li key={item.materialId}>{item.code} {item.name}：{item.reason}</li>)}
+                  </ul>
+                </div>
+              )}
+            </div>
+            <div className="flex justify-end gap-2 border-t border-gray-200 p-4">
+              <button onClick={() => setSuggestionResult(null)} className="rounded-lg border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">返回缺料测算</button>
+              {suggestionResult.createdOrders?.length > 0 && <button onClick={() => router.push("/erp/purchase-orders")} className="rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-800">查看采购订单</button>}
+            </div>
+          </div>
         </div>
       )}
 
