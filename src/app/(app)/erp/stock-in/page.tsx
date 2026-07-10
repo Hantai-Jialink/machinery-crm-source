@@ -1,12 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { AlertTriangle, Eye, Link2Off, Plus, Trash2 } from "lucide-react";
 import { MaterialCombobox } from "@/components/erp/material-combobox";
 
-export default function StockInPage() {
+function StockInContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const purchaseOrderId = searchParams.get("purchaseOrderId") || "";
@@ -404,5 +404,13 @@ export default function StockInPage() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function StockInPage() {
+  return (
+    <Suspense fallback={<div className="py-8 text-center text-gray-500">加载中...</div>}>
+      <StockInContent />
+    </Suspense>
   );
 }
