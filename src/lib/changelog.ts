@@ -26,6 +26,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "v1.5.0-partA",
+    date: "2026-07-10",
+    notes: [
+      "ERP 第三期采购管理 Part A：新增供应商档案，支持新增、编辑和软停用。",
+      "物料可关联规范供应商，保留原有手填供货商字段和历史数据。",
+      "新增采购订单基础模块：支持草稿创建、明细数量/单价/金额计算与订单详情查看。",
+    ],
+  },
+  {
     version: "v1.4.3",
     date: "2026-07-03",
     notes: [

@@ -2,6 +2,15 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { getSessionUser, canAccessERP } from "@/lib/permissions";
 
+async function validateSupplierId(supplierId: unknown) {
+  if (!supplierId) return null;
+  const supplier = await prisma.supplier.findFirst({
+    where: { id: String(supplierId), isActive: true, deletedAt: null },
+    select: { id: true },
+  });
+  return supplier ? supplier.id : undefined;
+}
+
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -45,6 +54,11 @@ export async function PUT(
   const { id } = await params;
   const body = await request.json();
 
+  const supplierId = body.supplierId !== undefined ? await validateSupplierId(body.supplierId) : undefined;
+  if (body.supplierId && !supplierId) {
+    return NextResponse.json({ error: "供应商不存在或已停用" }, { status: 400 });
+  }
+
   const material = await prisma.material.update({
     where: { id },
     data: {
@@ -55,6 +69,7 @@ export async function PUT(
       materialType: body.materialType !== undefined ? (body.materialType || null) : undefined,
       drawingNo: body.drawingNo !== undefined ? (body.drawingNo || null) : undefined,
       supplier: body.supplier !== undefined ? (body.supplier || null) : undefined,
+      supplierId: supplierId === undefined ? undefined : supplierId || null,
       unit: body.unit || undefined,
       standardPrice: body.standardPrice !== undefined ? (body.standardPrice ? parseFloat(body.standardPrice) : null) : undefined,
       safetyStock: body.safetyStock !== undefined ? (body.safetyStock ? parseFloat(body.safetyStock) : null) : undefined,

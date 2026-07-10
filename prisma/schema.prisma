@@ -528,6 +528,14 @@ enum StockMovementType {
   CHECK_ADJUST
 }
 
+enum PurchaseOrderStatus {
+  DRAFT
+  ORDERED
+  PARTIAL_RECEIVED
+  RECEIVED
+  CANCELLED
+}
+
 // ==================== ERP：仓库 ====================
 // 注：createdById / productId 等指向 CRM 既有模型（User/Product）的字段
 // 一律使用标量外键（不声明 @relation），以遵守「不改动 CRM 既有模型」约束。
@@ -581,6 +589,7 @@ model Material {
   materialType  String?
   drawingNo     String?
   supplier      String?
+  supplierId    String?
   unit          String           @default("件")
   standardPrice Decimal?         @db.Decimal(12, 2)
   safetyStock   Decimal?         @db.Decimal(10, 2)
@@ -599,9 +608,73 @@ model Material {
   bomItems        BomItem[]
 
   @@index([categoryId])
+  @@index([supplierId])
   @@index([isActive])
   @@index([deletedAt])
   @@map("erp_materials")
+}
+
+// ==================== ERP：供应商与采购订单（第 3 期 Part A） ====================
+// 注：supplierId / materialId 等均为标量关联，避免改动既有 CRM/ERP 模型关系。
+
+model Supplier {
+  id           String    @id @default(uuid())
+  name         String
+  contactName  String?
+  phone        String?
+  wechat       String?
+  email        String?
+  address      String?
+  mainCategory String?
+  remark       String?   @db.Text
+  isActive     Boolean   @default(true)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  deletedAt    DateTime?
+
+  @@index([isActive])
+  @@index([deletedAt])
+  @@map("erp_suppliers")
+}
+
+model PurchaseOrder {
+  id                   String              @id @default(uuid())
+  orderNo              String              @unique
+  supplierId           String
+  supplierNameSnapshot String
+  orderDate            DateTime
+  expectedArrivalDate  DateTime?
+  status               PurchaseOrderStatus @default(DRAFT)
+  remark               String?             @db.Text
+  createdById          String
+  createdAt            DateTime            @default(now())
+  updatedAt            DateTime            @updatedAt
+  deletedAt            DateTime?
+
+  @@index([supplierId])
+  @@index([status])
+  @@index([createdById])
+  @@index([createdAt])
+  @@map("erp_purchase_orders")
+}
+
+model PurchaseOrderItem {
+  id                   String   @id @default(uuid())
+  purchaseOrderId      String
+  materialId           String
+  materialCodeSnapshot String
+  materialNameSnapshot String
+  materialSpecSnapshot String?
+  quantity             Decimal  @db.Decimal(10, 2)
+  unitPrice            Decimal  @db.Decimal(12, 2)
+  amount               Decimal  @db.Decimal(12, 2)
+  receivedQuantity     Decimal  @default(0) @db.Decimal(10, 2)
+  sortOrder            Int      @default(0)
+  createdAt            DateTime @default(now())
+
+  @@index([purchaseOrderId])
+  @@index([materialId])
+  @@map("erp_purchase_order_items")
 }
 
 // ==================== ERP：库存台账 ====================

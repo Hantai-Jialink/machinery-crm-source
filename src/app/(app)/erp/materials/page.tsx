@@ -24,6 +24,7 @@ export default function MaterialsPage() {
 
   const [materials, setMaterials] = useState<any[]>([]);
   const [categories, setCategories] = useState<any[]>([]);
+  const [suppliers, setSuppliers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [categoryId, setCategoryId] = useState("");
@@ -33,12 +34,13 @@ export default function MaterialsPage() {
   const [showWarningModal, setShowWarningModal] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
-  const [form, setForm] = useState<any>({ code: "", name: "", categoryId: "", spec: "", unit: "件", standardPrice: "", safetyStock: "", supplier: "", remark: "" });
+  const [form, setForm] = useState<any>({ code: "", name: "", categoryId: "", spec: "", unit: "件", standardPrice: "", safetyStock: "", supplier: "", supplierId: "", remark: "" });
   const [thresholdDraft, setThresholdDraft] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [savingThresholds, setSavingThresholds] = useState(false);
 
   const canEdit = userRole === "SUPER_ADMIN" || userRole === "WAREHOUSE";
+  const supplierById = new Map(suppliers.map((supplier) => [supplier.id, supplier]));
 
   const loadCategories = async () => {
     const res = await fetch("/api/erp/material-categories");
@@ -55,6 +57,9 @@ export default function MaterialsPage() {
 
   useEffect(() => {
     loadCategories();
+    fetch("/api/erp/suppliers")
+      .then((res) => res.json())
+      .then((data) => setSuppliers(data.items || []));
   }, []);
 
   const loadMaterials = useCallback(async () => {
@@ -74,7 +79,7 @@ export default function MaterialsPage() {
 
   const openCreate = () => {
     setEditId(null);
-    setForm({ code: "", name: "", categoryId: categories[0]?.id || "", spec: "", unit: "件", standardPrice: "", safetyStock: "", supplier: "", remark: "" });
+    setForm({ code: "", name: "", categoryId: categories[0]?.id || "", spec: "", unit: "件", standardPrice: "", safetyStock: "", supplier: "", supplierId: "", remark: "" });
     setShowModal(true);
   };
 
@@ -89,6 +94,7 @@ export default function MaterialsPage() {
       standardPrice: m.standardPrice ? String(m.standardPrice) : "",
       safetyStock: m.safetyStock ? String(m.safetyStock) : "",
       supplier: m.supplier || "",
+      supplierId: m.supplierId || "",
       remark: m.remark || "",
     });
     setShowModal(true);
@@ -222,7 +228,7 @@ export default function MaterialsPage() {
                   <td className="px-4 py-3 font-medium text-gray-900">{m.name}</td>
                   <td className="px-4 py-3 text-gray-500">{m.category?.name}</td>
                   <td className="px-4 py-3 text-gray-500">{m.spec || "-"}</td>
-                  <td className="px-4 py-3 text-gray-500">{m.supplier || "-"}</td>
+                  <td className="px-4 py-3 text-gray-500">{supplierById.get(m.supplierId)?.name || m.supplier || "-"}</td>
                   <td className="px-4 py-3 text-right">{m.standardPrice ? `¥${Number(m.standardPrice).toLocaleString()}` : "-"}</td>
                   <td className="px-4 py-3 text-right">{m.safetyStock ? String(m.safetyStock) : "-"}</td>
                   <td className="px-4 py-3 text-center">{m.unit}</td>
@@ -293,7 +299,16 @@ export default function MaterialsPage() {
                 </div>
               </div>
               <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">供货商</label>
+                <label className="block text-xs font-medium text-gray-600 mb-1">关联供应商</label>
+                <select value={form.supplierId} onChange={(e) => setForm({ ...form, supplierId: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm">
+                  <option value="">不关联</option>
+                  {suppliers.filter((supplier) => supplier.isActive || supplier.id === form.supplierId).map((supplier) => (
+                    <option key={supplier.id} value={supplier.id}>{supplier.name}{supplier.isActive ? "" : "（已停用）"}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">历史手填供货商（兼容旧数据）</label>
                 <input value={form.supplier} onChange={(e) => setForm({ ...form, supplier: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" />
               </div>
               <div>

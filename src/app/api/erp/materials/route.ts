@@ -2,6 +2,15 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { getSessionUser, canAccessERP } from "@/lib/permissions";
 
+async function validateSupplierId(supplierId: unknown) {
+  if (!supplierId) return null;
+  const supplier = await prisma.supplier.findFirst({
+    where: { id: String(supplierId), isActive: true, deletedAt: null },
+    select: { id: true },
+  });
+  return supplier ? supplier.id : undefined;
+}
+
 export async function GET(request: NextRequest) {
   const user = await getSessionUser();
   if (!user) {
@@ -57,6 +66,11 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "物料编码、名称和分类为必填项" }, { status: 400 });
   }
 
+  const supplierId = await validateSupplierId(body.supplierId);
+  if (body.supplierId && !supplierId) {
+    return NextResponse.json({ error: "供应商不存在或已停用" }, { status: 400 });
+  }
+
   const material = await prisma.material.create({
     data: {
       code: body.code,
@@ -66,6 +80,7 @@ export async function POST(request: NextRequest) {
       materialType: body.materialType || null,
       drawingNo: body.drawingNo || null,
       supplier: body.supplier || null,
+      supplierId: supplierId || null,
       unit: body.unit || "件",
       standardPrice: body.standardPrice ? parseFloat(body.standardPrice) : null,
       safetyStock: body.safetyStock ? parseFloat(body.safetyStock) : null,
