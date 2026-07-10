@@ -1,15 +1,15 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
-import { ArrowLeft, Plus, Save, Trash2 } from "lucide-react";
+import { ArrowLeft, CheckCheck, PackageCheck, Plus, Save, Trash2, XCircle } from "lucide-react";
 import { MaterialCombobox } from "@/components/erp/material-combobox";
 
 type OrderLine = { materialId: string; quantity: string; unitPrice: string };
 
-const statusLabel: Record<string, string> = { DRAFT: "草稿", ORDERED: "已下单", PARTIAL_RECEIVED: "部分到货", RECEIVED: "已完成", CANCELLED: "已取消" };
+const statusLabel: Record<string, string> = { DRAFT: "草稿", ORDERED: "已下单", PARTIAL_RECEIVED: "部分到货", RECEIVED: "已到货", CANCELLED: "已取消" };
 
 function dateInputValue(value: unknown) {
   if (!value) return "";
@@ -33,6 +33,7 @@ export default function PurchaseOrderDetailPage() {
   const [order, setOrder] = useState<any>(null);
   const [loading, setLoading] = useState(!isNew);
   const [saving, setSaving] = useState(false);
+  const [changingStatus, setChangingStatus] = useState(false);
   const [error, setError] = useState("");
   const [form, setForm] = useState({ supplierId: "", orderDate: dateInputValue(new Date()), expectedArrivalDate: "", remark: "", items: [{ materialId: "", quantity: "1", unitPrice: "" }] as OrderLine[] });
 
@@ -46,10 +47,10 @@ export default function PurchaseOrderDetailPage() {
     });
   }, []);
 
-  useEffect(() => {
+  const loadOrder = useCallback(async () => {
     if (isNew) return;
     setLoading(true);
-    fetch(`/api/erp/purchase-orders/${orderId}`)
+    await fetch(`/api/erp/purchase-orders/${orderId}`)
       .then(async (res) => ({ ok: res.ok, data: await res.json() }))
       .then(({ ok, data }) => {
         if (!ok) {
@@ -67,6 +68,10 @@ export default function PurchaseOrderDetailPage() {
       })
       .finally(() => setLoading(false));
   }, [isNew, orderId]);
+
+  useEffect(() => {
+    void loadOrder();
+  }, [loadOrder]);
 
   const isDraft = isNew || order?.status === "DRAFT";
   const editable = canEdit && isDraft;
@@ -101,6 +106,25 @@ export default function PurchaseOrderDetailPage() {
     setOrder(data);
   };
 
+  const changeStatus = async (status: string) => {
+    if (!order || changingStatus) return;
+    if (status === "CANCELLED" && !window.confirm("确认取消这张采购订单吗？取消后不能恢复。")) return;
+    setChangingStatus(true);
+    setError("");
+    const res = await fetch(`/api/erp/purchase-orders/${orderId}/status`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status }),
+    });
+    const data = await res.json();
+    setChangingStatus(false);
+    if (!res.ok) {
+      setError(data.error || "变更采购订单状态失败");
+      return;
+    }
+    await loadOrder();
+  };
+
   if (loading) return <p className="py-8 text-center text-sm text-gray-500">加载中...</p>;
 
   return (
@@ -110,7 +134,7 @@ export default function PurchaseOrderDetailPage() {
         {!isNew && order && <span className="rounded-full bg-gray-100 px-2.5 py-1 text-sm text-gray-700">{statusLabel[order.status] || order.status}</span>}
       </div>
       {error && <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
-      {!isNew && !isDraft && <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">该采购订单不是草稿状态，本期不提供状态流转或收货功能，仅可查看。</p>}
+      {!isNew && !isDraft && <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">该采购订单的供应商和采购明细已锁定，请按当前状态执行后续操作。</p>}
       <section className="space-y-4 rounded-xl border border-gray-200 bg-white p-5">
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
           <label className="block text-xs font-medium text-gray-600"><span className="mb-1 block">供应商 *</span><select value={form.supplierId} disabled={!editable} onChange={(event) => setForm({ ...form, supplierId: event.target.value })} className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm disabled:bg-gray-50">{isNew && <option value="">请选择供应商</option>}{activeSuppliers.map((supplier) => <option key={supplier.id} value={supplier.id}>{supplier.name}{supplier.isActive ? "" : "（已停用）"}</option>)}</select></label>
@@ -125,6 +149,11 @@ export default function PurchaseOrderDetailPage() {
         <div className="border-t border-gray-200 px-4 py-3 text-right text-sm font-semibold text-gray-900">合计金额：{money(total)}</div>
       </section>
       {editable && <div className="flex justify-end"><button onClick={save} disabled={saving || !form.supplierId || !form.orderDate || form.items.filter((item) => item.materialId).length === 0} className="inline-flex items-center gap-1.5 rounded-lg bg-gray-900 px-4 py-2 text-sm text-white hover:bg-gray-800 disabled:opacity-50"><Save className="h-4 w-4" />{saving ? "保存中..." : isNew ? "创建草稿" : "保存草稿"}</button></div>}
+      {!isNew && order && canEdit && <div className="flex flex-wrap justify-end gap-2">
+        {order.status === "DRAFT" && <><button onClick={() => changeStatus("ORDERED")} disabled={changingStatus} className="inline-flex items-center gap-1.5 rounded-lg bg-gray-900 px-4 py-2 text-sm text-white hover:bg-gray-800 disabled:opacity-50"><PackageCheck className="h-4 w-4" />下单</button><button onClick={() => changeStatus("CANCELLED")} disabled={changingStatus} className="inline-flex items-center gap-1.5 rounded-lg border border-red-300 px-4 py-2 text-sm text-red-700 hover:bg-red-50 disabled:opacity-50"><XCircle className="h-4 w-4" />取消</button></>}
+        {order.status === "ORDERED" && <><button onClick={() => changeStatus("PARTIAL_RECEIVED")} disabled={changingStatus} className="inline-flex items-center gap-1.5 rounded-lg border border-amber-300 px-4 py-2 text-sm text-amber-800 hover:bg-amber-50 disabled:opacity-50"><PackageCheck className="h-4 w-4" />标记部分到货</button><button onClick={() => changeStatus("RECEIVED")} disabled={changingStatus} className="inline-flex items-center gap-1.5 rounded-lg bg-green-700 px-4 py-2 text-sm text-white hover:bg-green-800 disabled:opacity-50"><CheckCheck className="h-4 w-4" />标记已到货</button><button onClick={() => changeStatus("CANCELLED")} disabled={changingStatus} className="inline-flex items-center gap-1.5 rounded-lg border border-red-300 px-4 py-2 text-sm text-red-700 hover:bg-red-50 disabled:opacity-50"><XCircle className="h-4 w-4" />取消</button></>}
+        {order.status === "PARTIAL_RECEIVED" && <button onClick={() => changeStatus("RECEIVED")} disabled={changingStatus} className="inline-flex items-center gap-1.5 rounded-lg bg-green-700 px-4 py-2 text-sm text-white hover:bg-green-800 disabled:opacity-50"><CheckCheck className="h-4 w-4" />标记已到货</button>}
+      </div>}
     </div>
   );
 }

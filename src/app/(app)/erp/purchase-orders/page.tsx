@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
 import { Eye, Plus, Search } from "lucide-react";
 
-const statusLabel: Record<string, string> = { DRAFT: "草稿", ORDERED: "已下单", PARTIAL_RECEIVED: "部分到货", RECEIVED: "已完成", CANCELLED: "已取消" };
+const statusLabel: Record<string, string> = { DRAFT: "草稿", ORDERED: "已下单", PARTIAL_RECEIVED: "部分到货", RECEIVED: "已到货", CANCELLED: "已取消" };
 const statusColor: Record<string, string> = { DRAFT: "bg-gray-100 text-gray-700", ORDERED: "bg-blue-100 text-blue-700", PARTIAL_RECEIVED: "bg-amber-100 text-amber-700", RECEIVED: "bg-green-100 text-green-700", CANCELLED: "bg-red-100 text-red-700" };
 
 function money(value: unknown) { return `¥${Number(value || 0).toLocaleString("zh-CN", { maximumFractionDigits: 2 })}`; }
