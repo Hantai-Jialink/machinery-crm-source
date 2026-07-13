@@ -619,12 +619,13 @@ model Material {
   updatedAt     DateTime         @updatedAt
   deletedAt     DateTime?
 
-  inventories     Inventory[]
-  stockInItems    StockInItem[]
-  stockOutItems   StockOutItem[]
-  stockCheckItems StockCheckItem[]
-  movements       StockMovement[]
-  bomItems        BomItem[]
+  inventories                  Inventory[]
+  stockInItems                 StockInItem[]
+  stockOutItems                StockOutItem[]
+  stockCheckItems              StockCheckItem[]
+  movements                    StockMovement[]
+  bomItems                     BomItem[]
+  purchaseOrderShortageSources PurchaseOrderShortageSource[]
 
   @@index([categoryId])
   @@index([supplierId])
@@ -673,8 +674,9 @@ model PurchaseOrder {
   updatedAt               DateTime            @updatedAt
   deletedAt               DateTime?
 
-  sourceProductionOrder ProductionOrder? @relation("PurchaseOrderSourceProductionOrder", fields: [sourceProductionOrderId], references: [id], onDelete: SetNull)
-  sourceKitCheck        KitCheckResult?  @relation("PurchaseOrderSourceKitCheck", fields: [sourceKitCheckId], references: [id], onDelete: SetNull)
+  sourceProductionOrder ProductionOrder?              @relation("PurchaseOrderSourceProductionOrder", fields: [sourceProductionOrderId], references: [id], onDelete: SetNull)
+  sourceKitCheck        KitCheckResult?               @relation("PurchaseOrderSourceKitCheck", fields: [sourceKitCheckId], references: [id], onDelete: SetNull)
+  shortageSources       PurchaseOrderShortageSource[]
 
   @@index([supplierId])
   @@index([status])
@@ -699,9 +701,35 @@ model PurchaseOrderItem {
   sortOrder            Int      @default(0)
   createdAt            DateTime @default(now())
 
+  shortageSources PurchaseOrderShortageSource[]
+
   @@index([purchaseOrderId])
   @@index([materialId])
   @@map("erp_purchase_order_items")
+}
+
+// 物料级缺料采购来源。活动记录由齐套检查和物料唯一确定；取消或软删除
+// 后置空 isActive，既保留追溯记录，也允许该缺料物料重新生成采购草稿。
+model PurchaseOrderShortageSource {
+  id                  String            @id @default(uuid())
+  purchaseOrderId     String
+  purchaseOrder       PurchaseOrder     @relation(fields: [purchaseOrderId], references: [id], onDelete: Restrict)
+  purchaseOrderItemId String
+  purchaseOrderItem   PurchaseOrderItem @relation(fields: [purchaseOrderItemId], references: [id], onDelete: Restrict)
+  kitCheckId          String
+  kitCheck            KitCheckResult    @relation(fields: [kitCheckId], references: [id], onDelete: Restrict)
+  materialId          String
+  material            Material          @relation(fields: [materialId], references: [id])
+  isActive            Boolean?          @default(true)
+  createdAt           DateTime          @default(now())
+  releasedAt          DateTime?
+
+  @@unique([kitCheckId, materialId, isActive])
+  @@unique([purchaseOrderItemId])
+  @@index([purchaseOrderId])
+  @@index([kitCheckId])
+  @@index([materialId])
+  @@map("erp_purchase_order_shortage_sources")
 }
 
 // ==================== ERP：库存台账 ====================
@@ -1010,7 +1038,8 @@ model KitCheckResult {
   checkedById       String
   createdAt         DateTime        @default(now())
 
-  sourcePurchaseOrders PurchaseOrder[] @relation("PurchaseOrderSourceKitCheck")
+  sourcePurchaseOrders PurchaseOrder[]               @relation("PurchaseOrderSourceKitCheck")
+  shortageSources      PurchaseOrderShortageSource[]
 
   @@index([productionOrderId])
   @@index([warehouseId])

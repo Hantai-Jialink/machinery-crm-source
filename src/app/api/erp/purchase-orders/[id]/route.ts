@@ -3,6 +3,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { getSessionUser, canAccessERP } from "@/lib/permissions";
 import { writeOperationLog } from "@/lib/sales-items";
+import { hasShortageSourceMaterialMismatch, releaseShortageSource, shortageSourceMaterialChangeMessage } from "@/lib/purchase-order-shortage-source";
 
 type PurchaseOrderItemInput = { materialId?: string; quantity?: string | number; unitPrice?: string | number };
 
@@ -90,6 +91,12 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
       });
       const materialById = new Map(materials.map((material) => [material.id, material]));
       if (materialById.size !== items.length) throw new Error("采购明细中存在不存在或已停用的物料");
+      const activeShortageSources = await tx.purchaseOrderShortageSource.findMany({ where: { purchaseOrderId: id, isActive: true }, select: { id: true, materialId: true } });
+      if (activeShortageSources.length > 0) {
+        if (hasShortageSourceMaterialMismatch(activeShortageSources.map((source) => source.materialId), items.map((item) => item.materialId))) {
+          throw new Error(shortageSourceMaterialChangeMessage);
+        }
+      }
 
       const updated = await tx.purchaseOrder.update({
         where: { id },
@@ -101,9 +108,7 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
           remark: String(body.remark || "").trim() || null,
         },
       });
-      await tx.purchaseOrderItem.deleteMany({ where: { purchaseOrderId: id } });
-      await tx.purchaseOrderItem.createMany({
-        data: items.map((item) => {
+      const nextItemData = items.map((item) => {
           const material = materialById.get(item.materialId)!;
           return {
             purchaseOrderId: id,
@@ -116,8 +121,16 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
             amount: item.amount,
             sortOrder: item.sortOrder,
           };
-        }),
-      });
+        });
+      if (activeShortageSources.length > 0) {
+        const replacementItems = await Promise.all(nextItemData.map((item) => tx.purchaseOrderItem.create({ data: item })));
+        const replacementByMaterialId = new Map(replacementItems.map((item) => [item.materialId, item]));
+        await Promise.all(activeShortageSources.map((source) => tx.purchaseOrderShortageSource.update({ where: { id: source.id }, data: { purchaseOrderItemId: replacementByMaterialId.get(source.materialId)!.id } })));
+        await tx.purchaseOrderItem.deleteMany({ where: { id: { in: existing.items.map((item) => item.id) } } });
+      } else {
+        await tx.purchaseOrderItem.deleteMany({ where: { purchaseOrderId: id } });
+        await tx.purchaseOrderItem.createMany({ data: nextItemData });
+      }
       const afterItems = await tx.purchaseOrderItem.findMany({ where: { purchaseOrderId: id }, orderBy: { sortOrder: "asc" } });
       await writeOperationLog(tx, {
         userId: user.id,
@@ -129,11 +142,42 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
       });
     });
   } catch (error) {
-    if (error instanceof Error && ["供应商不存在或已停用", "采购明细中存在不存在或已停用的物料"].includes(error.message)) {
+    if (error instanceof Error && ["供应商不存在或已停用", "采购明细中存在不存在或已停用的物料", shortageSourceMaterialChangeMessage].includes(error.message)) {
       return NextResponse.json({ error: error.message }, { status: 400 });
     }
     throw error;
   }
 
   return NextResponse.json(await loadPurchaseOrder(id));
+}
+
+export async function DELETE(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const user = await getSessionUser();
+  if (!user) return NextResponse.json({ error: "未登录" }, { status: 401 });
+  if (!canAccessERP(user)) return NextResponse.json({ error: "无权限删除采购草稿" }, { status: 403 });
+  const { id } = await params;
+  try {
+    await prisma.$transaction(async (tx) => {
+      const existing = await tx.purchaseOrder.findFirst({ where: { id, deletedAt: null } });
+      if (!existing) throw new Error("采购订单不存在");
+      if (existing.status !== "DRAFT") throw new Error("只有草稿状态的采购订单可以删除");
+      const deletedAt = new Date();
+      const deleted = await tx.purchaseOrder.updateMany({ where: { id, status: "DRAFT", deletedAt: null }, data: { deletedAt } });
+      if (deleted.count !== 1) throw new Error("采购订单已被其他操作更新，请刷新后重试");
+      const releasedSources = await tx.purchaseOrderShortageSource.updateMany({ where: { purchaseOrderId: id, isActive: true }, data: releaseShortageSource(deletedAt) });
+      await writeOperationLog(tx, {
+        userId: user.id,
+        action: "DELETE_PURCHASE_ORDER_DRAFT",
+        entityType: "PurchaseOrder",
+        entityId: id,
+        beforeData: existing,
+        afterData: { deletedAt, releasedShortageSourceCount: releasedSources.count },
+      });
+    });
+  } catch (error) {
+    if (!(error instanceof Error)) throw error;
+    if (error.message === "采购订单不存在") return NextResponse.json({ error: error.message }, { status: 404 });
+    return NextResponse.json({ error: error.message }, { status: 409 });
+  }
+  return NextResponse.json({ success: true });
 }

@@ -11,4 +11,5 @@
 - 已下达工单只能经变更申请和超级管理员审批生成新版本；审批同时保留旧版本/快照、生成新快照并新建齐套记录。
 - 已删除生产进度百分比和开工、暂停、完工等生产状态机，也未引入合同台套分配或数量占用。
 - 数据库迁移只新增生产工单、变更申请、物料快照、齐套记录，以及既有入/出库和采购草稿的可空来源关联字段、索引和外键；尚未在任何数据库执行。
-- 上线前必须先备份数据库，并人工复核 `prisma/migrations/20260713090000_erp_phase4_production_part_a/migration.sql` 与 `prisma/migrations/20260713110000_erp_phase4_purchase_sources/migration.sql`，不得执行 `db:reset`。
+- 上线前必须先备份数据库，并人工复核 `prisma/migrations/20260713090000_erp_phase4_production_part_a/migration.sql`、`prisma/migrations/20260713110000_erp_phase4_purchase_sources/migration.sql` 与 `prisma/migrations/20260713120000_erp_phase4_shortage_purchase_source_guard/migration.sql`，不得执行 `db:reset`。
+- 已新增物料级缺料采购来源唯一约束：同一齐套检查、同一物料仅允许一个活动采购来源；取消或软删除草稿会释放活动占位，历史来源保留。

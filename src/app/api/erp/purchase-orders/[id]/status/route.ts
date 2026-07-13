@@ -3,6 +3,7 @@ import { PurchaseOrderStatus } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { getSessionUser, canAccessERP } from "@/lib/permissions";
 import { writeOperationLog } from "@/lib/sales-items";
+import { releaseShortageSource } from "@/lib/purchase-order-shortage-source";
 
 const ALLOWED_TRANSITIONS: Record<PurchaseOrderStatus, PurchaseOrderStatus[]> = {
   DRAFT: ["ORDERED", "CANCELLED"],
@@ -60,6 +61,9 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         data: { status: targetStatus },
       });
       if (result.count !== 1) throw new Error("采购订单状态已被其他操作更新，请刷新后重试");
+      const releasedSources = targetStatus === "CANCELLED"
+        ? await tx.purchaseOrderShortageSource.updateMany({ where: { purchaseOrderId: id, isActive: true }, data: releaseShortageSource(new Date()) })
+        : { count: 0 };
 
       const after = await tx.purchaseOrder.findUnique({ where: { id } });
       if (!after) throw new Error("采购订单不存在");
@@ -69,7 +73,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         entityType: "PurchaseOrder",
         entityId: id,
         beforeData: { status: existing.status },
-        afterData: { status: after.status },
+        afterData: { status: after.status, releasedShortageSourceCount: releasedSources.count },
       });
     });
     return NextResponse.json(await loadPurchaseOrder(id));

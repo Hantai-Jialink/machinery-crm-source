@@ -26,6 +26,16 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "v1.5.1-phase4",
+    date: "2026-07-13",
+    notes: [
+      "ERP 第四期：新增生产工单、工单物料快照和齐套检查历史。",
+      "已下达工单支持变更审批与版本链，审批通过后保留旧版本并重建快照。",
+      "新增生产领料、退料及库存流水联动，净领料未归零时禁止取消或批准变更。",
+      "齐套缺料可生成可追溯的采购草稿；同一检查同一物料增加数据库级防重复保护。",
+    ],
+  },
+  {
     version: "v1.5.0-partA",
     date: "2026-07-10",
     notes: [

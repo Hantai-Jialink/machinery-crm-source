@@ -3,6 +3,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { getSessionUser, canAccessERP } from "@/lib/permissions";
 import { writeOperationLog } from "@/lib/sales-items";
+import { hasActiveShortageSourceClaim, shortageSourceDuplicateMessage } from "@/lib/purchase-order-shortage-source";
 
 type ShortageLineInput = {
   materialId?: string;
@@ -91,6 +92,11 @@ export async function POST(request: NextRequest) {
           kitCheck = candidate;
           const shortageByMaterial = new Map((candidate.detail as Array<{ materialId?: string; shortageQty?: number }>).map((item) => [item.materialId, Number(item.shortageQty || 0)]));
           if (lines.some((line) => line.quantity.gt(shortageByMaterial.get(line.materialId) || 0))) throw new RequestError("采购数量不能超过该次齐套检查记录的当前缺料数量", 400);
+          const activeSourceClaims = await tx.purchaseOrderShortageSource.findMany({
+            where: { kitCheckId, materialId: { in: lines.map((line) => line.materialId) }, isActive: true },
+            select: { materialId: true },
+          });
+          if (hasActiveShortageSourceClaim(activeSourceClaims)) throw new RequestError(shortageSourceDuplicateMessage, 409);
           const existingDrafts = await tx.purchaseOrder.findMany({
             where: { sourceProductionOrderId: productionOrderId, sourceKitCheckId: kitCheckId, deletedAt: null, status: { in: ["DRAFT", "ORDERED", "PARTIAL_RECEIVED", "RECEIVED"] } },
             select: { id: true, sourceShortageDetail: true },
@@ -99,7 +105,7 @@ export async function POST(request: NextRequest) {
             const source = order.sourceShortageDetail as { lines?: Array<{ materialId?: string }> } | null;
             return Array.isArray(source?.lines) ? source.lines.map((line) => line.materialId).filter((materialId): materialId is string => Boolean(materialId)) : [];
           }));
-          if (lines.some((line) => existingMaterialIds.has(line.materialId))) throw new RequestError("同一工单、同一次齐套检查、同一物料已经存在有效采购草稿或采购单", 409);
+          if (lines.some((line) => existingMaterialIds.has(line.materialId))) throw new RequestError(shortageSourceDuplicateMessage, 409);
         }
         const product = await tx.product.findUnique({
           where: { id: bom.productId },
@@ -185,7 +191,11 @@ export async function POST(request: NextRequest) {
               sortOrder,
             };
           });
-          await tx.purchaseOrderItem.createMany({ data: itemData });
+          const createdItems = await Promise.all(itemData.map((item) => tx.purchaseOrderItem.create({ data: item })));
+          const itemByMaterialId = new Map(createdItems.map((item) => [item.materialId, item]));
+          await tx.purchaseOrderShortageSource.createMany({
+            data: supplierLines.map(({ material }) => ({ purchaseOrderId: created.id, purchaseOrderItemId: itemByMaterialId.get(material.id)!.id, kitCheckId: kitCheck!.id, materialId: material.id, isActive: true })),
+          });
           await writeOperationLog(tx, {
             userId: user.id,
             action: "CREATE_PURCHASE_ORDER_FROM_SHORTAGE",
