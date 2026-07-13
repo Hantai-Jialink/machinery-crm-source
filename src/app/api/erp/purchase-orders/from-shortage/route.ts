@@ -3,7 +3,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { getSessionUser, canAccessERP } from "@/lib/permissions";
 import { writeOperationLog } from "@/lib/sales-items";
-import { hasActiveShortageSourceClaim, shortageSourceDuplicateMessage } from "@/lib/purchase-order-shortage-source";
+import { hasActiveShortageSourceClaim, shortageSourceDuplicateMessage, shortageSourceUniqueConflictResponse, shouldRetryShortagePurchaseCreation } from "@/lib/purchase-order-shortage-source";
 
 type ShortageLineInput = {
   materialId?: string;
@@ -217,7 +217,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(result, { status: 201 });
     } catch (error: any) {
       if (error instanceof RequestError) return NextResponse.json({ error: error.message }, { status: error.status });
-      if ((error?.code === "P2002" || error?.code === "P2034") && attempt < 2) continue;
+      const uniqueConflict = shortageSourceUniqueConflictResponse(error || {});
+      if (uniqueConflict) return NextResponse.json({ error: uniqueConflict.error }, { status: uniqueConflict.status });
+      if (shouldRetryShortagePurchaseCreation(error || {}, attempt)) continue;
       if (error?.code === "P2034") return NextResponse.json({ error: "生成采购建议时发生并发冲突，请重试" }, { status: 409 });
       throw error;
     }
