@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { getSessionUser, canAccessERP } from "@/lib/permissions";
+import { writeOperationLog } from "@/lib/sales-items";
 
 function generateBatchNo(type: string): string {
   const now = new Date();
@@ -79,11 +80,42 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  if (body.items.some((item: any) => !item.materialId || !Number.isFinite(Number(item.quantity)) || Number(item.quantity) <= 0)) {
+    return NextResponse.json({ error: "出库明细必须填写有效物料和大于 0 的数量" }, { status: 400 });
+  }
+
+  const productionOrderId = typeof body.productionOrderId === "string" ? body.productionOrderId.trim() : "";
+  if (productionOrderId && body.type && body.type !== "PRODUCTION") {
+    return NextResponse.json({ error: "关联生产工单的出库类型必须为生产领料" }, { status: 400 });
+  }
+
   const batchNo = generateBatchNo("OUT");
 
   try {
     const stockOut = await prisma.$transaction(
       async (tx) => {
+        if (productionOrderId) {
+          const productionOrder = await tx.productionOrder.findFirst({ where: { id: productionOrderId, deletedAt: null } });
+          if (!productionOrder) throw new Error("生产工单不存在");
+          if (productionOrder.status === "DRAFT" || productionOrder.status === "CANCELLED") throw new Error("当前生产工单不能领料");
+          if (productionOrder.warehouseId !== body.warehouseId) throw new Error("生产领料仓库必须与生产工单仓库一致");
+          const [requiredMaterials, issuedDocuments, returnedDocuments] = await Promise.all([
+            tx.productionOrderMaterial.findMany({ where: { productionOrderId }, select: { materialId: true, requiredQuantity: true } }),
+            tx.stockOut.findMany({ where: { productionOrderId }, include: { items: true } }),
+            tx.stockIn.findMany({ where: { productionOrderId }, include: { items: true } }),
+          ]);
+          const requiredByMaterial = new Map(requiredMaterials.map((item) => [item.materialId, Number(item.requiredQuantity)]));
+          const issuedByMaterial = new Map<string, number>();
+          const returnedByMaterial = new Map<string, number>();
+          for (const document of issuedDocuments) for (const item of document.items) issuedByMaterial.set(item.materialId, (issuedByMaterial.get(item.materialId) || 0) + Number(item.quantity));
+          for (const document of returnedDocuments) for (const item of document.items) returnedByMaterial.set(item.materialId, (returnedByMaterial.get(item.materialId) || 0) + Number(item.quantity));
+          for (const item of body.items) {
+            const required = requiredByMaterial.get(item.materialId);
+            if (required === undefined) throw new Error("领料物料不在该生产工单的物料快照中");
+            if ((issuedByMaterial.get(item.materialId) || 0) - (returnedByMaterial.get(item.materialId) || 0) + Number(item.quantity) > required) throw new Error("领料数量不能超过生产工单的计划用量");
+          }
+        }
+
         // 先检查库存是否充足
         for (const item of body.items) {
           const inventory = await tx.inventory.findUnique({
@@ -114,6 +146,7 @@ export async function POST(request: NextRequest) {
           data: {
             batchNo,
             warehouseId: body.warehouseId,
+            productionOrderId: productionOrderId || null,
             type: body.type || "PRODUCTION",
             remark: body.remark || null,
             createdById: user.id,
@@ -183,8 +216,19 @@ export async function POST(request: NextRequest) {
               afterQty: newQty,
               refType: "StockOut",
               refId: header.id,
+              remark: productionOrderId ? `生产工单领料：${productionOrderId}` : null,
               createdById: user.id,
             },
+          });
+        }
+
+        if (productionOrderId) {
+          await writeOperationLog(tx, {
+            userId: user.id,
+            action: "ISSUE_PRODUCTION_MATERIALS",
+            entityType: "ProductionOrder",
+            entityId: productionOrderId,
+            afterData: { stockOutId: header.id, items: header.items },
           });
         }
 
@@ -198,7 +242,7 @@ export async function POST(request: NextRequest) {
     if (e?.code === "P2034" || /deadlock|serialization/i.test(String(e?.message))) {
       return NextResponse.json({ error: "操作太频繁，请重试" }, { status: 409 });
     }
-    if (e instanceof Error && e.message.includes("库存不足")) {
+    if (e instanceof Error && (e.message.includes("库存不足") || e.message.includes("生产工单") || e.message.includes("领料"))) {
       return NextResponse.json({ error: e.message }, { status: 400 });
     }
     throw e;

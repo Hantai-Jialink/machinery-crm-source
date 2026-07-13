@@ -65,6 +65,7 @@ const navItems: NavItem[] = [
       { href: "/erp/materials", label: "物料管理" },
       { href: "/erp/suppliers", label: "供应商管理" },
       { href: "/erp/purchase-orders", label: "采购订单" },
+      { href: "/erp/production-orders", label: "生产工单" },
       { href: "/erp/bom", label: "整机用料清单" },
       { href: "/erp/warehouse", label: "仓库管理" },
       { href: "/erp/stock-in", label: "入库" },

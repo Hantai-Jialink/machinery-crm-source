@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { getSessionUser, canAccessERP } from "@/lib/permissions";
+import { writeOperationLog } from "@/lib/sales-items";
 import {
   lockAndValidatePurchaseReceipt,
   PurchaseReceiptError,
@@ -132,6 +133,10 @@ export async function POST(request: NextRequest) {
   }
 
   const purchaseOrderId = typeof body.purchaseOrderId === "string" ? body.purchaseOrderId.trim() : "";
+  const productionOrderId = typeof body.productionOrderId === "string" ? body.productionOrderId.trim() : "";
+  if (purchaseOrderId && productionOrderId) {
+    return NextResponse.json({ error: "入库单不能同时关联采购订单和生产工单" }, { status: 400 });
+  }
   const purchaseItems = purchaseOrderId ? normalizePurchaseStockInItems(body.items) : null;
   if (purchaseOrderId && body.type && body.type !== "PURCHASE") {
     return NextResponse.json({ error: "采购订单入库的类型必须为采购入库" }, { status: 400 });
@@ -139,9 +144,15 @@ export async function POST(request: NextRequest) {
   if (purchaseOrderId && !purchaseItems) {
     return NextResponse.json({ error: "采购入库明细必须填写有效数量、单价和采购订单明细关联，且同一采购明细不能重复" }, { status: 400 });
   }
+  if (productionOrderId && body.type && body.type !== "RETURN") {
+    return NextResponse.json({ error: "关联生产工单的入库类型必须为生产退料" }, { status: 400 });
+  }
+  if (productionOrderId && body.items.some((item: any) => !item.materialId || !Number.isFinite(Number(item.quantity)) || Number(item.quantity) <= 0)) {
+    return NextResponse.json({ error: "生产退料明细必须填写有效物料和大于 0 的数量" }, { status: 400 });
+  }
 
   const batchNo = generateBatchNo("IN");
-  const stockInItems = purchaseItems || body.items.map((item: any) => ({
+  const inputStockInItems = purchaseItems || body.items.map((item: any) => ({
     materialId: item.materialId,
     purchaseOrderItemId: null,
     quantity: parseFloat(item.quantity),
@@ -152,6 +163,35 @@ export async function POST(request: NextRequest) {
   try {
     const stockIn = await prisma.$transaction(
       async (tx) => {
+        if (productionOrderId) {
+          const productionOrder = await tx.productionOrder.findFirst({ where: { id: productionOrderId, deletedAt: null } });
+          if (!productionOrder) throw new Error("生产工单不存在");
+          if (productionOrder.status === "CANCELLED") throw new Error("已取消的生产工单不能退料");
+          if (productionOrder.warehouseId !== body.warehouseId) throw new Error("生产退料仓库必须与生产工单仓库一致");
+          const [required, issuedDocuments, returnedDocuments] = await Promise.all([
+            tx.productionOrderMaterial.findMany({ where: { productionOrderId }, select: { materialId: true } }),
+            tx.stockOut.findMany({ where: { productionOrderId }, include: { items: true } }),
+            tx.stockIn.findMany({ where: { productionOrderId }, include: { items: true } }),
+          ]);
+          const requiredIds = new Set(required.map((item) => item.materialId));
+          if (body.items.some((item: any) => !requiredIds.has(item.materialId))) throw new Error("退料物料不在该生产工单的物料快照中");
+          const issuedByMaterial = new Map<string, number>();
+          const returnedByMaterial = new Map<string, number>();
+          for (const document of issuedDocuments) for (const item of document.items) issuedByMaterial.set(item.materialId, (issuedByMaterial.get(item.materialId) || 0) + Number(item.quantity));
+          for (const document of returnedDocuments) for (const item of document.items) returnedByMaterial.set(item.materialId, (returnedByMaterial.get(item.materialId) || 0) + Number(item.quantity));
+          for (const item of body.items) {
+            if (Number(item.quantity) + (returnedByMaterial.get(item.materialId) || 0) > (issuedByMaterial.get(item.materialId) || 0)) {
+              throw new Error("退料数量不能超过该工单已领未退的数量");
+            }
+          }
+        }
+        const stockInItems = productionOrderId
+          ? await Promise.all(inputStockInItems.map(async (item: PurchaseStockInItem) => {
+              const inventory = await tx.inventory.findUnique({ where: { warehouseId_materialId: { warehouseId: body.warehouseId, materialId: item.materialId } }, select: { avgPrice: true } });
+              const unitPrice = Number(item.unitPrice) > 0 ? Number(item.unitPrice) : Number(inventory?.avgPrice || 0);
+              return { ...item, unitPrice, amount: Number(item.quantity) * unitPrice };
+            }))
+          : inputStockInItems;
         let lockedPurchaseOrder: Awaited<ReturnType<typeof lockAndValidatePurchaseReceipt>>["order"] | null = null;
         if (purchaseOrderId && purchaseItems) {
           const purchaseReceiptLines: PurchaseReceiptLine[] = purchaseItems.map((item) => ({
@@ -168,7 +208,8 @@ export async function POST(request: NextRequest) {
             batchNo,
             warehouseId: body.warehouseId,
             purchaseOrderId: purchaseOrderId || null,
-            type: purchaseOrderId ? "PURCHASE" : body.type || "PURCHASE",
+            productionOrderId: productionOrderId || null,
+            type: purchaseOrderId ? "PURCHASE" : productionOrderId ? "RETURN" : body.type || "PURCHASE",
             remark: body.remark || null,
             createdById: user.id,
             items: {
@@ -243,6 +284,7 @@ export async function POST(request: NextRequest) {
               afterQty: newQty,
               refType: "StockIn",
               refId: header.id,
+              remark: productionOrderId ? `生产工单退料：${productionOrderId}` : null,
               createdById: user.id,
             },
           });
@@ -262,6 +304,16 @@ export async function POST(request: NextRequest) {
           });
         }
 
+        if (productionOrderId) {
+          await writeOperationLog(tx, {
+            userId: user.id,
+            action: "RETURN_PRODUCTION_MATERIALS",
+            entityType: "ProductionOrder",
+            entityId: productionOrderId,
+            afterData: { stockInId: header.id, items: header.items },
+          });
+        }
+
         return header;
       },
       { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }
@@ -271,6 +323,9 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     if (error instanceof PurchaseReceiptError) {
       return NextResponse.json({ error: error.message }, { status: error.status });
+    }
+    if (error instanceof Error && (error.message.includes("生产工单") || error.message.includes("退料"))) {
+      return NextResponse.json({ error: error.message }, { status: 400 });
     }
     const prismaError = error as { code?: string; message?: string };
     if (prismaError?.code === "P2034" || /deadlock|serialization/i.test(String(prismaError?.message))) {
