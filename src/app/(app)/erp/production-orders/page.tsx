@@ -4,8 +4,8 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Eye, Plus, Search } from "lucide-react";
 
-const statusLabel: Record<string, string> = { DRAFT: "待排产", ISSUED: "已下达", IN_PROGRESS: "生产中", PAUSED: "已暂停", COMPLETED: "生产完成", SHIPPED: "已发货", CHANGE_PENDING: "变更待审批", CANCELLED: "已取消" };
-const statusColor: Record<string, string> = { DRAFT: "bg-gray-100 text-gray-700", ISSUED: "bg-blue-100 text-blue-700", IN_PROGRESS: "bg-amber-100 text-amber-700", PAUSED: "bg-orange-100 text-orange-700", COMPLETED: "bg-green-100 text-green-700", SHIPPED: "bg-emerald-100 text-emerald-700", CANCELLED: "bg-red-100 text-red-700" };
+const statusLabel: Record<string, string> = { DRAFT: "草稿", ISSUED: "已下达", CHANGE_PENDING: "变更待审批", CANCELLED: "已取消" };
+const statusColor: Record<string, string> = { DRAFT: "bg-gray-100 text-gray-700", ISSUED: "bg-blue-100 text-blue-700", CHANGE_PENDING: "bg-amber-100 text-amber-700", CANCELLED: "bg-red-100 text-red-700" };
 
 export default function ProductionOrdersPage() {
   const [orders, setOrders] = useState<any[]>([]);
@@ -25,7 +25,7 @@ export default function ProductionOrdersPage() {
   useEffect(() => { const timer = window.setTimeout(load, 200); return () => window.clearTimeout(timer); }, [search, status]);
   return <div className="space-y-4">
     <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-      <div><h1 className="text-xl font-semibold text-gray-900">生产工单</h1><p className="mt-1 text-sm text-gray-500">按合同台套或备货机型下达生产任务；下达后固化用料快照并执行齐套检查。</p></div>
+      <div><h1 className="text-xl font-semibold text-gray-900">生产工单</h1><p className="mt-1 text-sm text-gray-500">关联合同或备货机型下达生产任务；下达后固化用料快照并执行齐套检查。</p></div>
       <Link href="/erp/production-orders/new" className="inline-flex items-center gap-1.5 rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-800"><Plus className="h-4 w-4" />新建生产工单</Link>
     </div>
     <div className="flex flex-col gap-3 rounded-xl border border-gray-200 bg-white p-4 sm:flex-row">

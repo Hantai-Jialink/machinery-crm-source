@@ -36,7 +36,7 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
       const existing = await tx.productionOrder.findFirst({ where: { id, deletedAt: null } });
       if (!existing) throw new ProductionOrderRequestError("生产工单不存在", 404);
       if (existing.status !== "DRAFT") throw new ProductionOrderRequestError("仅待排产的生产工单可以编辑", 409);
-      const draft = await buildDraftData(tx, input, id);
+      const draft = await buildDraftData(tx, input);
       const { orderNo: _orderNo, ...updateData } = draft;
       const changed = await tx.productionOrder.updateMany({ where: { id, status: "DRAFT", deletedAt: null }, data: updateData });
       if (changed.count !== 1) throw new ProductionOrderRequestError("生产工单已被其他操作更新，请刷新后重试", 409);
@@ -47,4 +47,24 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
     return errorResponse(error);
   }
   return NextResponse.json(await getProductionOrderDetail(id));
+}
+
+export async function DELETE(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const user = await getSessionUser();
+  if (!user) return NextResponse.json({ error: "未登录" }, { status: 401 });
+  if (!canAccessERP(user)) return NextResponse.json({ error: "无权限删除生产工单" }, { status: 403 });
+  const { id } = await params;
+  try {
+    await prisma.$transaction(async (tx) => {
+      const existing = await tx.productionOrder.findFirst({ where: { id, deletedAt: null } });
+      if (!existing) throw new ProductionOrderRequestError("生产工单不存在", 404);
+      if (existing.status !== "DRAFT") throw new ProductionOrderRequestError("仅待排产工单可以删除", 409);
+      const result = await tx.productionOrder.updateMany({ where: { id, status: "DRAFT", deletedAt: null }, data: { deletedAt: new Date(), isCurrent: false } });
+      if (result.count !== 1) throw new ProductionOrderRequestError("生产工单已被其他操作更新，请刷新后重试", 409);
+      await writeOperationLog(tx, { userId: user.id, action: "DELETE_PRODUCTION_ORDER", entityType: "ProductionOrder", entityId: id, beforeData: existing, afterData: { deletedAt: new Date() } });
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+  } catch (error) {
+    return errorResponse(error);
+  }
+  return NextResponse.json({ success: true });
 }

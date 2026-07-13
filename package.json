@@ -7,6 +7,7 @@
     "build": "next build",
     "start": "node start-standalone.cjs",
     "lint": "eslint",
+    "test": "vitest run",
     "db:migrate": "prisma migrate dev",
     "db:seed": "npx tsx prisma/seed.ts",
     "db:reset": "prisma migrate reset --force"
@@ -41,6 +42,7 @@
     "eslint-config-next": "16.2.6",
     "tailwindcss": "^4",
     "tsx": "^4.19.0",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^4.1.10"
   }
 }

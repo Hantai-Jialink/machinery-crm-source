@@ -52,6 +52,7 @@ export async function POST(request: NextRequest) {
   const productionQuantity = parsePositiveDecimal(body.productionQuantity);
   const warehouseId = body.warehouseId ? String(body.warehouseId) : "";
   const productionOrderId = body.productionOrderId ? String(body.productionOrderId) : "";
+  const kitCheckId = body.kitCheckId ? String(body.kitCheckId) : "";
   const lines = normalizeLines(body.lines);
   if (!bomId || !productionQuantity || !lines) {
     return NextResponse.json({ error: "缺料测算来源、生产台数和有效采购明细为必填项；采购数量需大于 0，且物料不能重复" }, { status: 400 });
@@ -72,21 +73,33 @@ export async function POST(request: NextRequest) {
             select: { id: true, code: true, name: true, spec: true, supplierId: true, standardPrice: true },
           }),
           productionOrderId
-            ? tx.productionOrder.findFirst({ where: { id: productionOrderId, deletedAt: null }, include: { kitCheckResults: { orderBy: { createdAt: "desc" }, take: 1 } } })
+            ? tx.productionOrder.findFirst({ where: { id: productionOrderId, deletedAt: null, isCurrent: true }, include: { kitCheckResults: { orderBy: { createdAt: "desc" }, take: 1 } } })
             : Promise.resolve(null),
         ]);
         if (!bom) throw new RequestError("整机用料清单不存在", 404);
         if (warehouseId && !warehouse) throw new RequestError("测算仓库不存在或已停用", 400);
+        let kitCheck: { id: string; detail: Prisma.JsonValue; status: string } | null = null;
         if (productionOrderId) {
           if (!productionOrder) throw new RequestError("生产工单不存在", 404);
-          if (productionOrder.status === "DRAFT" || productionOrder.status === "CANCELLED") throw new RequestError("当前生产工单不能生成采购建议", 409);
+          if (productionOrder.status !== "ISSUED") throw new RequestError("仅已下达且未进入变更审批的生产工单可以生成采购建议", 409);
           if (productionOrder.bomId !== bomId || productionOrder.warehouseId !== warehouseId || !new Prisma.Decimal(productionOrder.quantity).eq(productionQuantity)) {
             throw new RequestError("采购建议必须使用该生产工单的用料清单、数量和仓库", 400);
           }
-          const latestCheck = productionOrder.kitCheckResults[0];
-          if (!latestCheck || latestCheck.status !== "SHORTAGE" || !Array.isArray(latestCheck.detail)) throw new RequestError("请先执行工单齐套检查，且确认存在缺料后再生成采购建议", 409);
-          const shortageByMaterial = new Map((latestCheck.detail as Array<{ materialId?: string; shortageQty?: number }>).map((item) => [item.materialId, Number(item.shortageQty || 0)]));
-          if (lines.some((line) => line.quantity.gt(shortageByMaterial.get(line.materialId) || 0))) throw new RequestError("采购数量不能超过该工单最近一次齐套检查的缺料数量", 400);
+          if (!kitCheckId) throw new RequestError("请明确选择本次采购草稿对应的齐套检查记录", 400);
+          const candidate = await tx.kitCheckResult.findFirst({ where: { id: kitCheckId, productionOrderId, warehouseId: productionOrder.warehouseId } });
+          if (!candidate || candidate.status !== "SHORTAGE" || !Array.isArray(candidate.detail)) throw new RequestError("指定齐套检查记录不存在或不包含缺料明细", 409);
+          kitCheck = candidate;
+          const shortageByMaterial = new Map((candidate.detail as Array<{ materialId?: string; shortageQty?: number }>).map((item) => [item.materialId, Number(item.shortageQty || 0)]));
+          if (lines.some((line) => line.quantity.gt(shortageByMaterial.get(line.materialId) || 0))) throw new RequestError("采购数量不能超过该次齐套检查记录的当前缺料数量", 400);
+          const existingDrafts = await tx.purchaseOrder.findMany({
+            where: { sourceProductionOrderId: productionOrderId, sourceKitCheckId: kitCheckId, deletedAt: null, status: { in: ["DRAFT", "ORDERED", "PARTIAL_RECEIVED", "RECEIVED"] } },
+            select: { id: true, sourceShortageDetail: true },
+          });
+          const existingMaterialIds = new Set(existingDrafts.flatMap((order) => {
+            const source = order.sourceShortageDetail as { lines?: Array<{ materialId?: string }> } | null;
+            return Array.isArray(source?.lines) ? source.lines.map((line) => line.materialId).filter((materialId): materialId is string => Boolean(materialId)) : [];
+          }));
+          if (lines.some((line) => existingMaterialIds.has(line.materialId))) throw new RequestError("同一工单、同一次齐套检查、同一物料已经存在有效采购草稿或采购单", 409);
         }
         const product = await tx.product.findUnique({
           where: { id: bom.productId },
@@ -135,6 +148,7 @@ export async function POST(request: NextRequest) {
           warehouse: warehouseSource,
           productionOrderId: productionOrder?.id || null,
           productionOrderNo: productionOrder?.orderNo || null,
+          kitCheckId: kitCheck?.id || null,
         };
         const sourceRemark = productionOrder
           ? `由生产工单 ${productionOrder.orderNo} 缺料检查生成（BOM ${bom.version}，生产 ${productionQuantity.toString()} 台，${warehouseSource.name}）`
@@ -151,6 +165,9 @@ export async function POST(request: NextRequest) {
               orderDate: new Date(),
               status: "DRAFT",
               remark: sourceRemark,
+              sourceProductionOrderId: productionOrder?.id || null,
+              sourceKitCheckId: kitCheck?.id || null,
+              sourceShortageDetail: productionOrder && kitCheck ? { kitCheckId: kitCheck.id, lines: supplierLines.map(({ material, quantity }) => ({ materialId: material.id, shortageQty: (kitCheck!.detail as Array<{ materialId?: string; shortageQty?: number }>).find((line) => line.materialId === material.id)?.shortageQty || 0, purchaseQuantity: quantity.toNumber() })) } : Prisma.JsonNull,
               createdById: user.id,
             },
           });

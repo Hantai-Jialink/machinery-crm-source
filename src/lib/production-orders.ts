@@ -11,13 +11,12 @@ export class ProductionOrderRequestError extends Error {
 
 export type ProductionOrderDraftInput = {
   contractId: string | null;
-  contractItemId: string | null;
   productId: string;
   quantity: Prisma.Decimal;
   bomId: string;
+  configuration: Prisma.InputJsonValue | typeof Prisma.JsonNull;
   warehouseId: string | null;
   plannedDate: Date | null;
-  plannedFinishDate: Date | null;
   responsibleId: string | null;
   remark: string | null;
 };
@@ -37,10 +36,7 @@ type ExpandedMaterial = {
 export const productionOrderStatusLabels: Record<ProductionOrderStatus, string> = {
   DRAFT: "待排产",
   ISSUED: "已下达",
-  IN_PROGRESS: "生产中",
-  PAUSED: "已暂停",
-  COMPLETED: "生产完成",
-  SHIPPED: "已发货",
+  CHANGE_PENDING: "变更待审批",
   CANCELLED: "已取消",
 };
 
@@ -59,52 +55,40 @@ export function parseOptionalDate(value: unknown) {
   return Number.isNaN(date.getTime()) ? undefined : date;
 }
 
-export function parseProgress(value: unknown) {
-  if (value === null || value === undefined || value === "") return null;
-  try {
-    const progress = new Prisma.Decimal(String(value));
-    return progress.isFinite() && progress.gte(0) && progress.lte(100) ? progress.toDecimalPlaces(2) : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
 export function normalizeDraftInput(body: Record<string, unknown>): ProductionOrderDraftInput {
   const quantity = parsePositiveQuantity(body.quantity);
   const plannedDate = parseOptionalDate(body.plannedDate);
-  const plannedFinishDate = parseOptionalDate(body.plannedFinishDate);
-  if (!quantity || plannedDate === undefined || plannedFinishDate === undefined) {
+  if (!quantity || plannedDate === undefined) {
     throw new ProductionOrderRequestError("请填写有效的生产数量和计划日期；生产数量必须大于 0");
-  }
-  if (plannedDate && plannedFinishDate && plannedFinishDate < plannedDate) {
-    throw new ProductionOrderRequestError("计划完工日期不能早于计划开工日期");
   }
   const productId = String(body.productId || "").trim();
   const bomId = String(body.bomId || "").trim();
   if (!productId || !bomId) {
     throw new ProductionOrderRequestError("请选择机型和生效的整机用料清单版本");
   }
+  const configuration = body.configuration && typeof body.configuration === "object" && !Array.isArray(body.configuration)
+    ? body.configuration as Prisma.InputJsonValue
+    : Prisma.JsonNull;
   return {
     contractId: String(body.contractId || "").trim() || null,
-    contractItemId: String(body.contractItemId || "").trim() || null,
     productId,
     quantity,
     bomId,
+    configuration,
     warehouseId: String(body.warehouseId || "").trim() || null,
     plannedDate,
-    plannedFinishDate,
     responsibleId: String(body.responsibleId || "").trim() || null,
     remark: String(body.remark || "").trim() || null,
   };
 }
 
 export async function resolveDefaultWarehouse(tx: Prisma.TransactionClient) {
-  const warehouse = await tx.warehouse.findFirst({ where: { isActive: true }, orderBy: { createdAt: "asc" } });
-  if (!warehouse) throw new ProductionOrderRequestError("请先在仓库管理中创建并启用仓库");
+  const warehouse = await tx.warehouse.findFirst({ where: { name: "Dachuan", isActive: true } });
+  if (!warehouse) throw new ProductionOrderRequestError("未找到名称为 Dachuan 的启用仓库，请在工单中手动选择其他仓库");
   return warehouse;
 }
 
-async function loadDraftReferences(tx: Prisma.TransactionClient, input: ProductionOrderDraftInput, existingOrderId?: string) {
+async function loadDraftReferences(tx: Prisma.TransactionClient, input: ProductionOrderDraftInput) {
   const product = await tx.product.findFirst({
     where: { id: input.productId, isActive: true },
     include: { translations: { where: { language: "ZH" }, take: 1 } },
@@ -123,28 +107,16 @@ async function loadDraftReferences(tx: Prisma.TransactionClient, input: Producti
     const responsible = await tx.user.findFirst({ where: { id: input.responsibleId, isActive: true }, select: { id: true } });
     if (!responsible) throw new ProductionOrderRequestError("负责人不存在或已停用", 400);
   }
-  const contract = input.contractId
-    ? await tx.contract.findFirst({ where: { id: input.contractId, deletedAt: null }, select: { id: true, contractNo: true, contractStatus: true, items: { select: { id: true, productId: true, quantity: true } } } })
-    : null;
+  const contract = input.contractId ? await tx.contract.findFirst({ where: { id: input.contractId, deletedAt: null }, select: { id: true, contractNo: true } }) : null;
   if (input.contractId && !contract) throw new ProductionOrderRequestError("关联合同不存在或已删除", 404);
-  if (contract) {
-    if (contract.contractStatus !== "SIGNED") throw new ProductionOrderRequestError("仅已签订合同可以创建生产工单", 409);
-    const contractItem = contract.items.find((item) => item.id === input.contractItemId && item.productId === input.productId);
-    if (!contractItem) throw new ProductionOrderRequestError("请选择该合同中对应的设备台套，且机型必须一致", 400);
-    const allocated = await tx.productionOrder.aggregate({ where: { contractItemId: contractItem.id, deletedAt: null, status: { not: "CANCELLED" }, ...(existingOrderId ? { id: { not: existingOrderId } } : {}) }, _sum: { quantity: true } });
-    if (new Prisma.Decimal(allocated._sum.quantity || 0).add(input.quantity).gt(contractItem.quantity)) throw new ProductionOrderRequestError("该合同设备台套的生产数量不能超过合同数量", 409);
-  } else if (input.contractItemId) {
-    throw new ProductionOrderRequestError("未关联合同时不能填写合同设备台套", 400);
-  }
   return { product, bom, warehouse, contract };
 }
 
-export async function buildDraftData(tx: Prisma.TransactionClient, input: ProductionOrderDraftInput, existingOrderId?: string) {
-  const { product, bom, warehouse, contract } = await loadDraftReferences(tx, input, existingOrderId);
+export async function buildDraftData(tx: Prisma.TransactionClient, input: ProductionOrderDraftInput) {
+  const { product, bom, warehouse, contract } = await loadDraftReferences(tx, input);
   return {
     orderNo: `DRAFT-${randomUUID().slice(0, 8)}`,
     contractId: contract?.id || null,
-    contractItemId: input.contractItemId,
     contractNoSnapshot: contract?.contractNo || null,
     isStockOrder: !contract,
     sequenceInContract: null,
@@ -154,9 +126,9 @@ export async function buildDraftData(tx: Prisma.TransactionClient, input: Produc
     quantity: input.quantity,
     bomId: bom.id,
     bomVersionSnapshot: bom.version,
+    configuration: input.configuration,
     warehouseId: warehouse.id,
     plannedDate: input.plannedDate,
-    plannedFinishDate: input.plannedFinishDate,
     responsibleId: input.responsibleId,
     remark: input.remark,
   };
@@ -164,7 +136,7 @@ export async function buildDraftData(tx: Prisma.TransactionClient, input: Produc
 
 export async function nextSequenceInContract(tx: Prisma.TransactionClient, contractId: string) {
   const last = await tx.productionOrder.findFirst({
-    where: { contractId, deletedAt: null },
+    where: { contractId, deletedAt: null, isCurrent: true },
     orderBy: { sequenceInContract: "desc" },
     select: { sequenceInContract: true },
   });
@@ -180,7 +152,14 @@ export async function nextStockOrderNo(tx: Prisma.TransactionClient) {
 }
 
 export function issuedOrderNo(contractNo: string | null, sequence: number | null, stockOrderNo: string) {
-  return contractNo && sequence ? `MO-${contractNo}-${String(sequence).padStart(2, "0")}` : stockOrderNo;
+  return contractNo && sequence ? `${contractNo}-${String(sequence).padStart(2, "0")}` : stockOrderNo;
+}
+
+export function calculateKitMaterialQuantities(plannedQuantity: Prisma.Decimal.Value, issuedQuantity: Prisma.Decimal.Value, returnedQuantity: Prisma.Decimal.Value, inventoryQuantity: Prisma.Decimal.Value) {
+  const netIssuedQty = Prisma.Decimal.max(new Prisma.Decimal(issuedQuantity).sub(returnedQuantity), new Prisma.Decimal(0));
+  const remainingQty = Prisma.Decimal.max(new Prisma.Decimal(plannedQuantity).sub(netIssuedQty), new Prisma.Decimal(0));
+  const shortageQty = Prisma.Decimal.max(remainingQty.sub(inventoryQuantity), new Prisma.Decimal(0));
+  return { netIssuedQty, remainingQty, shortageQty };
 }
 
 export async function expandBomSnapshot(
@@ -256,10 +235,10 @@ export async function createKitCheckResult(tx: Prisma.TransactionClient, input: 
   for (const document of issuedDocuments) for (const item of document.items) issuedByMaterial.set(item.materialId, (issuedByMaterial.get(item.materialId) || new Prisma.Decimal(0)).add(item.quantity));
   for (const document of returnedDocuments) for (const item of document.items) returnedByMaterial.set(item.materialId, (returnedByMaterial.get(item.materialId) || new Prisma.Decimal(0)).add(item.quantity));
   const detail = materials.map((item) => {
-    const netIssued = (issuedByMaterial.get(item.materialId) || new Prisma.Decimal(0)).sub(returnedByMaterial.get(item.materialId) || new Prisma.Decimal(0));
-    const requiredQty = Prisma.Decimal.max(new Prisma.Decimal(item.requiredQuantity).sub(netIssued), new Prisma.Decimal(0));
+    const quantities = calculateKitMaterialQuantities(item.requiredQuantity, issuedByMaterial.get(item.materialId) || new Prisma.Decimal(0), returnedByMaterial.get(item.materialId) || new Prisma.Decimal(0), availableByMaterial.get(item.materialId) || new Prisma.Decimal(0));
+    const requiredQty = quantities.remainingQty;
     const availableQty = availableByMaterial.get(item.materialId) || new Prisma.Decimal(0);
-    const shortageQty = Prisma.Decimal.max(requiredQty.sub(availableQty), new Prisma.Decimal(0));
+    const shortageQty = quantities.shortageQty;
     return {
       materialId: item.materialId, code: item.materialCodeSnapshot, name: item.materialNameSnapshot, unit: item.unitSnapshot,
       requiredQty: requiredQty.toNumber(), availableQty: availableQty.toNumber(), shortageQty: shortageQty.toNumber(),
@@ -275,15 +254,43 @@ export async function createKitCheckResult(tx: Prisma.TransactionClient, input: 
 }
 
 export async function getProductionOrderDetail(id: string) {
-  const order = await prisma.productionOrder.findFirst({ where: { id, deletedAt: null }, include: { materials: { orderBy: { sortOrder: "asc" } }, kitCheckResults: { orderBy: { createdAt: "desc" } } } });
+  const order = await prisma.productionOrder.findFirst({ where: { id, deletedAt: null }, include: { materials: { orderBy: { sortOrder: "asc" } }, kitCheckResults: { orderBy: { createdAt: "desc" } }, changeRequests: { orderBy: { createdAt: "desc" } } } });
   if (!order) return null;
-  const [contract, product, bom, warehouse, stockOuts, stockIns] = await Promise.all([
+  const versionHistory: Array<{ id: string; orderNo: string; version: number; status: ProductionOrderStatus; isCurrent: boolean; createdAt: Date }> = [{ id: order.id, orderNo: order.orderNo, version: order.version, status: order.status, isCurrent: order.isCurrent, createdAt: order.createdAt }];
+  let predecessorId = order.supersedesId;
+  while (predecessorId) {
+    const predecessor = await prisma.productionOrder.findUnique({ where: { id: predecessorId }, select: { id: true, orderNo: true, version: true, status: true, isCurrent: true, createdAt: true, supersedesId: true } });
+    if (!predecessor) break;
+    versionHistory.unshift({ id: predecessor.id, orderNo: predecessor.orderNo, version: predecessor.version, status: predecessor.status, isCurrent: predecessor.isCurrent, createdAt: predecessor.createdAt });
+    predecessorId = predecessor.supersedesId;
+  }
+  let successorId = versionHistory[versionHistory.length - 1].id;
+  while (successorId) {
+    const successor = await prisma.productionOrder.findUnique({ where: { supersedesId: successorId }, select: { id: true, orderNo: true, version: true, status: true, isCurrent: true, createdAt: true } });
+    if (!successor) break;
+    versionHistory.push(successor);
+    successorId = successor.id;
+  }
+  const [contract, product, bom, warehouse, stockOuts, stockIns, inventories] = await Promise.all([
     order.contractId ? prisma.contract.findFirst({ where: { id: order.contractId, deletedAt: null }, select: { id: true, contractNo: true } }) : null,
     prisma.product.findUnique({ where: { id: order.productId }, select: { id: true, model: true } }),
     prisma.bomHeader.findUnique({ where: { id: order.bomId }, select: { id: true, version: true, isActive: true } }),
     prisma.warehouse.findUnique({ where: { id: order.warehouseId }, select: { id: true, name: true, code: true, isActive: true } }),
     prisma.stockOut.findMany({ where: { productionOrderId: order.id }, include: { items: true }, orderBy: { createdAt: "desc" } }),
     prisma.stockIn.findMany({ where: { productionOrderId: order.id }, include: { items: true }, orderBy: { createdAt: "desc" } }),
+    prisma.inventory.findMany({ where: { warehouseId: order.warehouseId, materialId: { in: order.materials.map((item) => item.materialId) } }, select: { materialId: true, quantity: true } }),
   ]);
-  return { ...order, contract, product, bom, warehouse, stockOuts, stockIns, latestKitCheckResult: order.kitCheckResults[0] || null };
+  const issuedByMaterial = new Map<string, Prisma.Decimal>();
+  const returnedByMaterial = new Map<string, Prisma.Decimal>();
+  for (const document of stockOuts) for (const item of document.items) issuedByMaterial.set(item.materialId, (issuedByMaterial.get(item.materialId) || new Prisma.Decimal(0)).add(item.quantity));
+  for (const document of stockIns) for (const item of document.items) returnedByMaterial.set(item.materialId, (returnedByMaterial.get(item.materialId) || new Prisma.Decimal(0)).add(item.quantity));
+  const inventoryByMaterial = new Map(inventories.map((item) => [item.materialId, new Prisma.Decimal(item.quantity)]));
+  const materialSummary = order.materials.map((item) => {
+    const issuedQty = issuedByMaterial.get(item.materialId) || new Prisma.Decimal(0);
+    const returnedQty = returnedByMaterial.get(item.materialId) || new Prisma.Decimal(0);
+    const netIssuedQty = Prisma.Decimal.max(issuedQty.sub(returnedQty), new Prisma.Decimal(0));
+    const remainingQty = Prisma.Decimal.max(new Prisma.Decimal(item.requiredQuantity).sub(netIssuedQty), new Prisma.Decimal(0));
+    return { materialId: item.materialId, plannedQty: Number(item.requiredQuantity), issuedQty: issuedQty.toNumber(), returnedQty: returnedQty.toNumber(), netIssuedQty: netIssuedQty.toNumber(), remainingQty: remainingQty.toNumber(), inventoryQty: (inventoryByMaterial.get(item.materialId) || new Prisma.Decimal(0)).toNumber() };
+  });
+  return { ...order, contract, product, bom, warehouse, stockOuts, stockIns, materialSummary, versionHistory, latestKitCheckResult: order.kitCheckResults[0] || null };
 }

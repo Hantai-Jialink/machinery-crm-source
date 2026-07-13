@@ -166,7 +166,7 @@ export async function POST(request: NextRequest) {
         if (productionOrderId) {
           const productionOrder = await tx.productionOrder.findFirst({ where: { id: productionOrderId, deletedAt: null } });
           if (!productionOrder) throw new Error("生产工单不存在");
-          if (productionOrder.status === "CANCELLED") throw new Error("已取消的生产工单不能退料");
+          if (productionOrder.status === "DRAFT" || productionOrder.status === "CANCELLED") throw new Error("仅已下达且未取消的生产工单可以退料");
           if (productionOrder.warehouseId !== body.warehouseId) throw new Error("生产退料仓库必须与生产工单仓库一致");
           const [required, issuedDocuments, returnedDocuments] = await Promise.all([
             tx.productionOrderMaterial.findMany({ where: { productionOrderId }, select: { materialId: true } }),

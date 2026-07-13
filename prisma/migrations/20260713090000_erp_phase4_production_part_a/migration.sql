@@ -3,7 +3,6 @@ CREATE TABLE `erp_production_orders` (
     `id` VARCHAR(191) NOT NULL,
     `orderNo` VARCHAR(191) NOT NULL,
     `contractId` VARCHAR(191) NULL,
-    `contractItemId` VARCHAR(191) NULL,
     `contractNoSnapshot` VARCHAR(191) NULL,
     `isStockOrder` BOOLEAN NOT NULL DEFAULT false,
     `sequenceInContract` INTEGER NULL,
@@ -13,12 +12,14 @@ CREATE TABLE `erp_production_orders` (
     `quantity` DECIMAL(10, 2) NOT NULL,
     `bomId` VARCHAR(191) NOT NULL,
     `bomVersionSnapshot` VARCHAR(191) NOT NULL,
+    `configuration` JSON NULL,
     `warehouseId` VARCHAR(191) NOT NULL,
     `plannedDate` DATE NULL,
-    `plannedFinishDate` DATE NULL,
-    `progress` DECIMAL(5, 2) NOT NULL DEFAULT 0,
     `responsibleId` VARCHAR(191) NULL,
-    `status` ENUM('DRAFT', 'ISSUED', 'IN_PROGRESS', 'PAUSED', 'COMPLETED', 'SHIPPED', 'CANCELLED') NOT NULL DEFAULT 'DRAFT',
+    `status` ENUM('DRAFT', 'ISSUED', 'CHANGE_PENDING', 'CANCELLED') NOT NULL DEFAULT 'DRAFT',
+    `version` INTEGER NOT NULL DEFAULT 1,
+    `supersedesId` VARCHAR(191) NULL,
+    `isCurrent` BOOLEAN NOT NULL DEFAULT true,
     `remark` TEXT NULL,
     `createdById` VARCHAR(191) NOT NULL,
     `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
@@ -26,9 +27,8 @@ CREATE TABLE `erp_production_orders` (
     `deletedAt` DATETIME(3) NULL,
 
     UNIQUE INDEX `erp_production_orders_orderNo_key`(`orderNo`),
-    UNIQUE INDEX `erp_production_orders_contractId_sequenceInContract_key`(`contractId`, `sequenceInContract`),
+    UNIQUE INDEX `erp_production_orders_supersedesId_key`(`supersedesId`),
     INDEX `erp_production_orders_contractId_idx`(`contractId`),
-    INDEX `erp_production_orders_contractItemId_idx`(`contractItemId`),
     INDEX `erp_production_orders_productId_idx`(`productId`),
     INDEX `erp_production_orders_warehouseId_idx`(`warehouseId`),
     INDEX `erp_production_orders_status_idx`(`status`),
@@ -36,7 +36,32 @@ CREATE TABLE `erp_production_orders` (
     INDEX `erp_production_orders_createdById_idx`(`createdById`),
     INDEX `erp_production_orders_createdAt_idx`(`createdAt`),
     INDEX `erp_production_orders_deletedAt_idx`(`deletedAt`),
+    INDEX `erp_production_orders_contractId_sequenceInContract_idx`(`contractId`, `sequenceInContract`),
+    INDEX `erp_production_orders_isCurrent_idx`(`isCurrent`),
     PRIMARY KEY (`id`)
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+-- CreateTable
+CREATE TABLE `erp_production_order_change_requests` (
+    `id` VARCHAR(191) NOT NULL,
+    `productionOrderId` VARCHAR(191) NOT NULL,
+    `requesterId` VARCHAR(191) NOT NULL,
+    `approverId` VARCHAR(191) NULL,
+    `status` ENUM('PENDING', 'APPROVED', 'REJECTED') NOT NULL DEFAULT 'PENDING',
+    `reason` TEXT NOT NULL,
+    `approvalRemark` TEXT NULL,
+    `proposedDiff` JSON NOT NULL,
+    `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    `approvedAt` DATETIME(3) NULL,
+    `rejectedAt` DATETIME(3) NULL,
+    `updatedAt` DATETIME(3) NOT NULL,
+
+    INDEX `erp_production_order_change_requests_productionOrderId_idx`(`productionOrderId`),
+    INDEX `erp_production_order_change_requests_requesterId_idx`(`requesterId`),
+    INDEX `erp_production_order_change_requests_approverId_idx`(`approverId`),
+    INDEX `erp_production_order_change_requests_status_idx`(`status`),
+    PRIMARY KEY (`id`),
+    CONSTRAINT `erp_production_order_change_requests_productionOrderId_fkey` FOREIGN KEY (`productionOrderId`) REFERENCES `erp_production_orders`(`id`) ON DELETE CASCADE ON UPDATE CASCADE
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- Existing ERP stock records remain untouched. These nullable fields only link new

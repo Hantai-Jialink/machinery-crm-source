@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
-import { getSessionUser, canAccessERP } from "@/lib/permissions";
+import { getSessionUser, canAccessERP, isSuperAdmin } from "@/lib/permissions";
 import { writeOperationLog } from "@/lib/sales-items";
 
 function generateBatchNo(type: string): string {
@@ -85,6 +85,8 @@ export async function POST(request: NextRequest) {
   }
 
   const productionOrderId = typeof body.productionOrderId === "string" ? body.productionOrderId.trim() : "";
+  const overIssueReason = typeof body.overIssueReason === "string" ? body.overIssueReason.trim() : "";
+  const confirmOverIssue = body.confirmOverIssue === true;
   if (productionOrderId && body.type && body.type !== "PRODUCTION") {
     return NextResponse.json({ error: "关联生产工单的出库类型必须为生产领料" }, { status: 400 });
   }
@@ -97,7 +99,7 @@ export async function POST(request: NextRequest) {
         if (productionOrderId) {
           const productionOrder = await tx.productionOrder.findFirst({ where: { id: productionOrderId, deletedAt: null } });
           if (!productionOrder) throw new Error("生产工单不存在");
-          if (productionOrder.status === "DRAFT" || productionOrder.status === "CANCELLED") throw new Error("当前生产工单不能领料");
+          if (productionOrder.status !== "ISSUED") throw new Error("仅已下达且未进入变更审批的生产工单可以领料");
           if (productionOrder.warehouseId !== body.warehouseId) throw new Error("生产领料仓库必须与生产工单仓库一致");
           const [requiredMaterials, issuedDocuments, returnedDocuments] = await Promise.all([
             tx.productionOrderMaterial.findMany({ where: { productionOrderId }, select: { materialId: true, requiredQuantity: true } }),
@@ -112,7 +114,12 @@ export async function POST(request: NextRequest) {
           for (const item of body.items) {
             const required = requiredByMaterial.get(item.materialId);
             if (required === undefined) throw new Error("领料物料不在该生产工单的物料快照中");
-            if ((issuedByMaterial.get(item.materialId) || 0) - (returnedByMaterial.get(item.materialId) || 0) + Number(item.quantity) > required) throw new Error("领料数量不能超过生产工单的计划用量");
+            const netIssued = (issuedByMaterial.get(item.materialId) || 0) - (returnedByMaterial.get(item.materialId) || 0);
+            if (netIssued + Number(item.quantity) > required) {
+              if (!isSuperAdmin(user) || !confirmOverIssue || !overIssueReason) {
+                throw new Error("领料数量超过剩余需求量；仅超级管理员确认并填写超领原因后才可继续");
+              }
+            }
           }
         }
 
@@ -148,7 +155,7 @@ export async function POST(request: NextRequest) {
             warehouseId: body.warehouseId,
             productionOrderId: productionOrderId || null,
             type: body.type || "PRODUCTION",
-            remark: body.remark || null,
+            remark: productionOrderId && confirmOverIssue ? `${String(body.remark || "").trim()}${body.remark ? "；" : ""}超领原因：${overIssueReason}` : body.remark || null,
             createdById: user.id,
             items: {
               create: body.items.map((item: any, index: number) => ({
@@ -228,7 +235,7 @@ export async function POST(request: NextRequest) {
             action: "ISSUE_PRODUCTION_MATERIALS",
             entityType: "ProductionOrder",
             entityId: productionOrderId,
-            afterData: { stockOutId: header.id, items: header.items },
+            afterData: { stockOutId: header.id, items: header.items, confirmOverIssue, overIssueReason: confirmOverIssue ? overIssueReason : null },
           });
         }
 

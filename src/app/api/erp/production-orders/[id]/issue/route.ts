@@ -5,17 +5,24 @@ import { canAccessERP, getSessionUser } from "@/lib/permissions";
 import { createKitCheckResult, expandBomSnapshot, issuedOrderNo, nextSequenceInContract, nextStockOrderNo, ProductionOrderRequestError } from "@/lib/production-orders";
 import { writeOperationLog } from "@/lib/sales-items";
 
-export async function POST(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const user = await getSessionUser();
   if (!user) return NextResponse.json({ error: "未登录" }, { status: 401 });
   if (!canAccessERP(user)) return NextResponse.json({ error: "无权限下达生产工单" }, { status: 403 });
   const { id } = await params;
+  let body: Record<string, unknown>;
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: "请求数据格式错误" }, { status: 400 });
+  }
   for (let attempt = 0; attempt < 3; attempt += 1) {
     try {
       await prisma.$transaction(async (tx) => {
         const existing = await tx.productionOrder.findFirst({ where: { id, deletedAt: null } });
         if (!existing) throw new ProductionOrderRequestError("生产工单不存在", 404);
         if (existing.status !== "DRAFT") throw new ProductionOrderRequestError("仅待排产的生产工单可以下达", 409);
+        if (existing.isStockOrder && body.confirmStockOrder !== true) throw new ProductionOrderRequestError("备货工单下达前必须明确确认", 400);
         const snapshot = await expandBomSnapshot(tx, { bomId: existing.bomId, productId: existing.productId, quantity: new Prisma.Decimal(existing.quantity) });
         const sequence = existing.contractId ? await nextSequenceInContract(tx, existing.contractId) : null;
         const orderNo = issuedOrderNo(existing.contractNoSnapshot, sequence, await nextStockOrderNo(tx));

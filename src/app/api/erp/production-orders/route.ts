@@ -5,7 +5,7 @@ import { canAccessERP, getSessionUser } from "@/lib/permissions";
 import { buildDraftData, normalizeDraftInput, ProductionOrderRequestError } from "@/lib/production-orders";
 import { writeOperationLog } from "@/lib/sales-items";
 
-const statuses = new Set<ProductionOrderStatus>(["DRAFT", "ISSUED", "IN_PROGRESS", "PAUSED", "COMPLETED", "SHIPPED", "CANCELLED"]);
+const statuses = new Set<ProductionOrderStatus>(["DRAFT", "ISSUED", "CHANGE_PENDING", "CANCELLED"]);
 
 function errorResponse(error: unknown) {
   if (error instanceof ProductionOrderRequestError) return NextResponse.json({ error: error.message }, { status: error.status });
@@ -24,6 +24,7 @@ export async function GET(request: NextRequest) {
   if (status && !statuses.has(status as ProductionOrderStatus)) return NextResponse.json({ error: "生产工单状态参数无效" }, { status: 400 });
   const where: Prisma.ProductionOrderWhereInput = {
     deletedAt: null,
+    isCurrent: true,
     ...(status ? { status: status as ProductionOrderStatus } : {}),
     ...(search ? { OR: [{ orderNo: { contains: search } }, { contractNoSnapshot: { contains: search } }, { productModelSnapshot: { contains: search } }, { productNameSnapshot: { contains: search } }] } : {}),
   };
