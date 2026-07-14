@@ -5,6 +5,9 @@ import { prisma } from "@/lib/db";
 import { getSessionUser, canManageUsers } from "@/lib/permissions";
 import { sanitizeTerritories } from "@/lib/region-data";
 import { writeOperationLog } from "@/lib/sales-items";
+import { roleRequiresRegionScope } from "@/lib/erp-roles";
+
+const VALID_ROLES = ["SUPER_ADMIN", "SALES", "FOREIGN_TRADE", "PURCHASE", "WAREHOUSE"] as const;
 
 const USER_SELECT = {
   id: true,
@@ -52,6 +55,9 @@ export async function POST(request: NextRequest) {
     if (!body.email || !body.password || !body.name || !body.role) {
       return NextResponse.json({ error: "姓名、账号、密码和角色为必填项" }, { status: 400 });
     }
+    if (!VALID_ROLES.includes(body.role)) {
+      return NextResponse.json({ error: "角色无效" }, { status: 400 });
+    }
 
     const account = String(body.email).trim();
     const name = String(body.name).trim();
@@ -66,6 +72,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "该账号已存在，请更换账号" }, { status: 409 });
     }
 
+    const territories = roleRequiresRegionScope(body.role) ? sanitizeTerritories(body.territories) : [];
+    if (roleRequiresRegionScope(body.role) && territories.length === 0) {
+      return NextResponse.json({ error: "销售和外贸销售必须选择负责范围" }, { status: 400 });
+    }
     const hashedPassword = await bcryptjs.hash(body.password, 12);
 
     const newUser = await prisma.$transaction(async (tx) => {
@@ -75,9 +85,9 @@ export async function POST(request: NextRequest) {
           password: hashedPassword,
           name,
           role: body.role,
-          region: body.region || "其他",
-          territories: sanitizeTerritories(body.territories),
-          viewScope: body.viewScope === "ALL" ? "ALL" : "TERRITORY",
+          region: roleRequiresRegionScope(body.role) ? body.region || "其他" : "其他",
+          territories,
+          viewScope: body.role === "SUPER_ADMIN" ? "ALL" : "TERRITORY",
           isActive: true,
         },
         select: USER_SELECT,

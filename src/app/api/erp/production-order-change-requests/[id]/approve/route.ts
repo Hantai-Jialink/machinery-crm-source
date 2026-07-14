@@ -33,7 +33,10 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       }
       const proposed = requestRecord.proposedDiff as ProposedDiff;
       if (!proposed.after) throw new ProductionOrderRequestError("变更申请数据不完整", 400);
-      const draft = await buildDraftData(tx, normalizeDraftInput(proposed.after));
+      const draft = await buildDraftData(tx, normalizeDraftInput(proposed.after), current.id, {
+        allowPlannedDateAfterDelivery: true,
+        allowContractProductChange: true,
+      });
       const snapshot = await expandBomSnapshot(tx, { bomId: draft.bomId, productId: draft.productId, quantity: new Prisma.Decimal(draft.quantity) });
       const nextVersion = current.version + 1;
       const successor = await tx.productionOrder.create({

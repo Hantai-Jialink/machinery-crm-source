@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { getSessionUser, canAccessERP } from "@/lib/permissions";
+import { getSessionUser, canManageMaterialMaster } from "@/lib/permissions";
 
 export async function PATCH(
   request: NextRequest,
@@ -10,7 +10,7 @@ export async function PATCH(
   if (!user) {
     return NextResponse.json({ error: "未登录" }, { status: 401 });
   }
-  if (!canAccessERP(user)) {
+  if (!canManageMaterialMaster(user)) {
     return NextResponse.json({ error: "无权限设置分类预警" }, { status: 403 });
   }
 

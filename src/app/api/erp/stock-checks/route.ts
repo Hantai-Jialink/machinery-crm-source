@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { getSessionUser, canAccessERP } from "@/lib/permissions";
+import { getSessionUser, canAccessERP, canManageInventory } from "@/lib/permissions";
 
 function generateBatchNo(type: string): string {
   const now = new Date();
@@ -14,7 +14,7 @@ export async function GET(request: NextRequest) {
   if (!user) {
     return NextResponse.json({ error: "未登录" }, { status: 401 });
   }
-  if (!canAccessERP(user)) {
+  if (!canManageInventory(user)) {
     return NextResponse.json({ error: "无权限访问 ERP" }, { status: 403 });
   }
 
@@ -60,7 +60,7 @@ export async function POST(request: NextRequest) {
   if (!user) {
     return NextResponse.json({ error: "未登录" }, { status: 401 });
   }
-  if (!canAccessERP(user)) {
+  if (!canManageInventory(user)) {
     return NextResponse.json({ error: "无权限操作盘点" }, { status: 403 });
   }
 

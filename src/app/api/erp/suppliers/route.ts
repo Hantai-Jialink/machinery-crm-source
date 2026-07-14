@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { getSessionUser, canAccessERP } from "@/lib/permissions";
+import { getSessionUser, canAccessERP, canManageSuppliers } from "@/lib/permissions";
 import { writeOperationLog } from "@/lib/sales-items";
 
 function cleanText(value: unknown) {
@@ -48,7 +48,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   const user = await getSessionUser();
   if (!user) return NextResponse.json({ error: "未登录" }, { status: 401 });
-  if (!canAccessERP(user)) return NextResponse.json({ error: "无权限维护供应商" }, { status: 403 });
+  if (!canManageSuppliers(user)) return NextResponse.json({ error: "无权限维护供应商" }, { status: 403 });
 
   const body = await request.json();
   const name = cleanText(body.name);

@@ -1,23 +1,23 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
-import { canAccessERP, getSessionUser } from "@/lib/permissions";
+import { canPublishProductionOrder, getSessionUser } from "@/lib/permissions";
 import { getProductionOrderDetail, ProductionOrderRequestError } from "@/lib/production-orders";
 import { writeOperationLog } from "@/lib/sales-items";
 
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const user = await getSessionUser();
   if (!user) return NextResponse.json({ error: "未登录" }, { status: 401 });
-  if (!canAccessERP(user)) return NextResponse.json({ error: "无权限取消生产工单" }, { status: 403 });
+  if (!canPublishProductionOrder(user)) return NextResponse.json({ error: "无权限取消生产工单" }, { status: 403 });
   const { id } = await params;
   let body: Record<string, unknown>;
   try { body = await request.json(); } catch { return NextResponse.json({ error: "请求数据格式错误" }, { status: 400 }); }
-  if (body.status !== "CANCELLED") return NextResponse.json({ error: "生产工单仅支持取消操作；已下达工单如需修改请提交变更申请" }, { status: 400 });
+  if (body.status !== "CANCELLED") return NextResponse.json({ error: "生产工单仅支持作废操作；已发布工单如需修改请提交变更申请" }, { status: 400 });
   try {
     await prisma.$transaction(async (tx) => {
       const existing = await tx.productionOrder.findFirst({ where: { id, deletedAt: null, isCurrent: true } });
       if (!existing) throw new ProductionOrderRequestError("生产工单不存在", 404);
-      if (existing.status !== "ISSUED") throw new ProductionOrderRequestError("仅已下达工单可以取消", 409);
+      if (existing.status !== "ISSUED") throw new ProductionOrderRequestError("仅已发布工单可以作废", 409);
       const [stockOuts, stockIns] = await Promise.all([
         tx.stockOut.findMany({ where: { productionOrderId: id }, include: { items: true } }),
         tx.stockIn.findMany({ where: { productionOrderId: id }, include: { items: true } }),

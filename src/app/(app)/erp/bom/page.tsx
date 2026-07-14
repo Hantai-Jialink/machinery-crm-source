@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
-import { AlertTriangle, Boxes, Calculator, CheckCircle2, Eye, Pencil, Plus, Search, ShoppingCart, Trash2 } from "lucide-react";
+import { AlertTriangle, ArrowDown, ArrowUp, Boxes, Calculator, CheckCircle2, ChevronDown, ChevronRight, Eye, Pencil, Plus, Search, ShoppingCart, Trash2 } from "lucide-react";
 
 type BomLine = {
   clientKey: string;
@@ -25,10 +25,10 @@ type SelectedShortageRow = {
   quantity: string;
 };
 
-function makeLine(materialId = ""): BomLine {
+function makeLine(materialId = "", parentClientKey = ""): BomLine {
   return {
     clientKey: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
-    parentClientKey: "",
+    parentClientKey,
     materialId,
     quantity: "1",
     level: "1",
@@ -71,7 +71,7 @@ export default function BomPage() {
   const { data: session } = useSession();
   const router = useRouter();
   const userRole = (session?.user as any)?.role;
-  const canEdit = userRole === "SUPER_ADMIN" || userRole === "WAREHOUSE";
+  const canEdit = userRole === "SUPER_ADMIN";
 
   const [boms, setBoms] = useState<any[]>([]);
   const [products, setProducts] = useState<any[]>([]);
@@ -109,21 +109,36 @@ export default function BomPage() {
   const [materialSearch, setMaterialSearch] = useState("");
   const [materialCategoryId, setMaterialCategoryId] = useState("");
   const [selectedMaterialIds, setSelectedMaterialIds] = useState<string[]>([]);
+  const [pickerParentKey, setPickerParentKey] = useState("");
+  const [collapsedKeys, setCollapsedKeys] = useState<Set<string>>(new Set());
 
   const materialMap = useMemo(
     () => new Map(materials.map((material) => [material.id, material])),
     [materials]
   );
-  const selectedMaterialIdSet = useMemo(
-    () => new Set(form.items.map((item) => item.materialId).filter(Boolean)),
-    [form.items]
+  const orderedFormItems = useMemo(() => {
+    const children = new Map<string, BomLine[]>();
+    for (const item of form.items) children.set(item.parentClientKey, [...(children.get(item.parentClientKey) || []), item]);
+    const ordered: BomLine[] = [];
+    const visit = (item: BomLine) => { ordered.push(item); for (const child of children.get(item.clientKey) || []) visit(child); };
+    for (const root of children.get("") || []) visit(root);
+    return ordered.length === form.items.length ? ordered : form.items;
+  }, [form.items]);
+  const addedInPickerTargetSet = useMemo(
+    () => new Set(
+      form.items
+        .filter((item) => item.parentClientKey === pickerParentKey)
+        .map((item) => item.materialId)
+        .filter(Boolean)
+    ),
+    [form.items, pickerParentKey]
   );
   const filteredMaterials = useMemo(() => {
     const query = materialSearch.trim().toLowerCase();
     return materials.filter((material) => {
       if (materialCategoryId && material.categoryId !== materialCategoryId) return false;
       if (!query) return true;
-      const haystack = `${material.code || ""} ${material.drawingNo || ""} ${material.name || ""} ${material.spec || ""}`.toLowerCase();
+      const haystack = `${material.code || ""} ${material.drawingNo || ""} ${material.name || ""} ${material.spec || ""} ${material.category?.name || ""}`.toLowerCase();
       return haystack.includes(query);
     });
   }, [materials, materialSearch, materialCategoryId]);
@@ -189,7 +204,8 @@ export default function BomPage() {
   }, []);
 
   useEffect(() => {
-    loadBoms();
+    const timer = window.setTimeout(() => { void loadBoms(); }, 250);
+    return () => window.clearTimeout(timer);
   }, [search, active, page]);
 
   useEffect(() => {
@@ -205,6 +221,8 @@ export default function BomPage() {
   const openCreate = () => {
     setEditId(null);
     setShowMaterialPicker(false);
+    setPickerParentKey("");
+    setCollapsedKeys(new Set());
     setSelectedMaterialIds([]);
     setForm({
       productId: products[0]?.id || "",
@@ -221,6 +239,8 @@ export default function BomPage() {
     const bom = await res.json();
     setEditId(id);
     setShowMaterialPicker(false);
+    setPickerParentKey("");
+    setCollapsedKeys(new Set());
     setSelectedMaterialIds([]);
     setForm({
       productId: bom.productId || "",
@@ -240,10 +260,15 @@ export default function BomPage() {
 
   const addSelectedMaterials = () => {
     setForm((current) => {
-      const existing = new Set(current.items.map((item) => item.materialId).filter(Boolean));
+      const existing = new Set(
+        current.items
+          .filter((item) => item.parentClientKey === pickerParentKey)
+          .map((item) => item.materialId)
+          .filter(Boolean)
+      );
       const nextLines = selectedMaterialIds
         .filter((materialId) => materialId && !existing.has(materialId))
-        .map((materialId) => makeLine(materialId));
+        .map((materialId) => makeLine(materialId, pickerParentKey));
       return { ...current, items: [...current.items, ...nextLines] };
     });
     setSelectedMaterialIds([]);
@@ -251,10 +276,14 @@ export default function BomPage() {
   };
 
   const removeLine = (index: number) => {
-    setForm((current) => ({
-      ...current,
-      items: current.items.length > 1 ? current.items.filter((_, idx) => idx !== index) : current.items,
-    }));
+    setForm((current) => {
+      const target = current.items[index];
+      const descendants = new Set<string>();
+      const collect = (parentKey: string) => current.items.filter((item) => item.parentClientKey === parentKey).forEach((item) => { descendants.add(item.clientKey); collect(item.clientKey); });
+      collect(target.clientKey);
+      if (descendants.size > 0 && !confirm(`该零件包包含 ${descendants.size} 个子节点，删除后子节点也会移除，是否继续？`)) return current;
+      return { ...current, items: current.items.filter((item) => item.clientKey !== target.clientKey && !descendants.has(item.clientKey)) };
+    });
   };
 
   const updateLine = (index: number, field: keyof BomLine, value: string) => {
@@ -263,6 +292,45 @@ export default function BomPage() {
       items[index] = { ...items[index], [field]: value };
       return { ...current, items };
     });
+  };
+
+  const openMaterialPicker = (parentClientKey = "", onlyPackages = false) => {
+    setPickerParentKey(parentClientKey);
+    setSelectedMaterialIds([]);
+    if (onlyPackages) {
+      const packageCategory = flatCategories.find((category) => category.name.includes("零件包"));
+      setMaterialCategoryId(packageCategory?.id || "");
+    } else setMaterialCategoryId("");
+    setShowMaterialPicker(true);
+  };
+
+  const moveLine = (index: number, direction: -1 | 1) => {
+    setForm((current) => {
+      const target = current.items[index];
+      const siblingIndexes = current.items.map((item, itemIndex) => ({ item, itemIndex })).filter(({ item }) => item.parentClientKey === target.parentClientKey).map(({ itemIndex }) => itemIndex);
+      const siblingPosition = siblingIndexes.indexOf(index);
+      const swapIndex = siblingIndexes[siblingPosition + direction];
+      if (swapIndex === undefined) return current;
+      const items = [...current.items];
+      [items[index], items[swapIndex]] = [items[swapIndex], items[index]];
+      return { ...current, items };
+    });
+  };
+
+  const lineDepth = (line: BomLine) => {
+    const byKey = new Map(form.items.map((item) => [item.clientKey, item]));
+    let depth = 0;
+    let parent = line.parentClientKey;
+    const seen = new Set<string>();
+    while (parent && byKey.has(parent) && !seen.has(parent)) { seen.add(parent); depth += 1; parent = byKey.get(parent)!.parentClientKey; }
+    return depth;
+  };
+
+  const lineVisible = (line: BomLine) => {
+    const byKey = new Map(form.items.map((item) => [item.clientKey, item]));
+    let parent = line.parentClientKey;
+    while (parent && byKey.has(parent)) { if (collapsedKeys.has(parent)) return false; parent = byKey.get(parent)!.parentClientKey; }
+    return true;
   };
 
   const saveBom = async () => {
@@ -751,15 +819,10 @@ export default function BomPage() {
                     <h3 className="text-sm font-semibold text-gray-700">清单明细</h3>
                     <p className="text-xs text-gray-500 mt-0.5">已加入 {form.items.length} 项物料</p>
                   </div>
-                  <button
-                    onClick={() => {
-                      setSelectedMaterialIds([]);
-                      setShowMaterialPicker(true);
-                    }}
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
-                  >
-                    <Plus className="w-4 h-4" />批量选择物料
-                  </button>
+                  <div className="flex flex-wrap gap-2">
+                    <button onClick={() => openMaterialPicker("", true)} className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"><Plus className="w-4 h-4" />新建零件包分组</button>
+                    <button onClick={() => openMaterialPicker()} className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"><Plus className="w-4 h-4" />批量选择物料</button>
+                  </div>
                 </div>
 
                 {form.items.length === 0 ? (
@@ -784,29 +847,24 @@ export default function BomPage() {
                         </tr>
                       </thead>
                       <tbody>
-                        {form.items.map((item, index) => {
+                        {orderedFormItems.map((item) => ({ item, index: form.items.findIndex((candidate) => candidate.clientKey === item.clientKey) })).filter(({ item }) => lineVisible(item)).map(({ item, index }) => {
                           const material = materialMap.get(item.materialId);
+                          const children = form.items.filter((candidate) => candidate.parentClientKey === item.clientKey);
+                          const isGroup = children.length > 0;
+                          const integerUnit = ["件", "个", "台", "套", "包", "组", "根"].includes(material?.unit || "件");
+                          const depth = lineDepth(item);
                           return (
                             <tr key={item.clientKey} className="border-t border-gray-100">
                               <td className="px-3 py-2 font-mono text-xs">{material?.code || "-"}</td>
-                              <td className="px-3 py-2 font-medium text-gray-900">{material?.name || "未选择物料"}</td>
+                              <td className="px-3 py-2 font-medium text-gray-900"><div className="flex items-center gap-1" style={{ paddingLeft: depth * 20 }}>{isGroup ? <button onClick={() => setCollapsedKeys((current) => { const next = new Set(current); if (next.has(item.clientKey)) next.delete(item.clientKey); else next.add(item.clientKey); return next; })}>{collapsedKeys.has(item.clientKey) ? <ChevronRight className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}</button> : <span className="w-5" />}{material?.name || "未选择物料"}{isGroup && <span className="ml-1 rounded bg-blue-50 px-1.5 py-0.5 text-[10px] text-blue-700">虚拟零件包</span>}</div></td>
                               <td className="px-3 py-2 text-gray-600">{material?.category?.name || "-"}</td>
                               <td className="px-3 py-2 text-gray-600">{material?.spec || "-"}</td>
                               <td className="px-3 py-2 text-gray-600">{material?.unit || "件"}</td>
                               <td className="px-3 py-2 text-right">
-                                <input
-                                  type="number"
-                                  min="0"
-                                  step="0.01"
-                                  value={item.quantity}
-                                  onChange={(event) => updateLine(index, "quantity", event.target.value)}
-                                  className="w-28 rounded-lg border border-gray-300 px-3 py-2 text-right text-sm"
-                                />
+                                <div className="inline-flex items-center overflow-hidden rounded-lg border border-gray-300"><button type="button" onClick={() => updateLine(index, "quantity", String(Math.max(1, Number(item.quantity || 1) - (integerUnit ? 1 : 0.01))))} className="px-2 py-2 hover:bg-gray-50">−</button><input type="number" min="1" step={integerUnit ? "1" : "0.01"} value={item.quantity} onChange={(event) => updateLine(index, "quantity", event.target.value)} className="w-20 border-x border-gray-300 px-2 py-2 text-right text-sm outline-none" /><button type="button" onClick={() => updateLine(index, "quantity", String(Number(item.quantity || 0) + (integerUnit ? 1 : 0.01)))} className="px-2 py-2 hover:bg-gray-50">+</button></div>
                               </td>
                               <td className="px-3 py-2 text-center">
-                                <button onClick={() => removeLine(index)} className="text-gray-400 hover:text-red-600">
-                                  <Trash2 className="w-4 h-4" />
-                                </button>
+                                <div className="inline-flex items-center gap-2"><button title="上移" onClick={() => moveLine(index, -1)} className="text-gray-400 hover:text-gray-900"><ArrowUp className="h-4 w-4" /></button><button title="下移" onClick={() => moveLine(index, 1)} className="text-gray-400 hover:text-gray-900"><ArrowDown className="h-4 w-4" /></button><button title="添加子物料" onClick={() => openMaterialPicker(item.clientKey)} className="text-blue-600 hover:text-blue-800"><Plus className="h-4 w-4" /></button><button title="删除" onClick={() => removeLine(index)} className="text-gray-400 hover:text-red-600"><Trash2 className="w-4 h-4" /></button></div>
                               </td>
                             </tr>
                           );
@@ -836,7 +894,7 @@ export default function BomPage() {
                 <div className="flex items-start justify-between gap-4 border-b border-gray-200 p-5">
                   <div>
                     <h3 className="text-base font-semibold text-gray-900">批量选择物料</h3>
-                    <p className="text-xs text-gray-500 mt-1">已选 {selectedMaterialIds.length} 项，已加入清单的物料不会重复加入。</p>
+                    <p className="text-xs text-gray-500 mt-1">已选 {selectedMaterialIds.length} 项；同一层级不重复加入，同一叶子物料可用于不同零件包。</p>
                   </div>
                   <button onClick={() => setShowMaterialPicker(false)} className="text-sm text-gray-500 hover:text-gray-900">关闭</button>
                 </div>
@@ -866,7 +924,7 @@ export default function BomPage() {
                       onClick={() =>
                         setSelectedMaterialIds(
                           filteredMaterials
-                            .filter((material) => !selectedMaterialIdSet.has(material.id))
+                            .filter((material) => !addedInPickerTargetSet.has(material.id))
                             .map((material) => material.id)
                         )
                       }
@@ -891,7 +949,7 @@ export default function BomPage() {
                     </thead>
                     <tbody>
                       {filteredMaterials.map((material) => {
-                        const alreadyAdded = selectedMaterialIdSet.has(material.id);
+                        const alreadyAdded = addedInPickerTargetSet.has(material.id);
                         const checked = selectedMaterialIds.includes(material.id);
                         return (
                           <tr key={material.id} className={`border-t border-gray-100 ${alreadyAdded ? "bg-gray-50 text-gray-400" : ""}`}>

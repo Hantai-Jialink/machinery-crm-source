@@ -1,13 +1,24 @@
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { redirect } from "next/navigation";
+import {
+  canExecuteKitCheck as roleCanExecuteKitCheck,
+  canManageBom as roleCanManageBom,
+  canManageInventory as roleCanManageInventory,
+  canManageMaterialMaster as roleCanManageMaterialMaster,
+  canManageProductionMaterial as roleCanManageProductionMaterial,
+  canManagePurchaseOrders as roleCanManagePurchaseOrders,
+  canManageSuppliers as roleCanManageSuppliers,
+  canPublishProductionOrder as roleCanPublishProductionOrder,
+  canViewERP,
+} from "@/lib/erp-roles";
 
 // 用户负责的省/市范围。cities 为空数组 = 整省;否则仅这些市。
 export type Territory = { province: string; cities: string[] };
 
 export type SessionUser = {
   id: string;
-  role: "SUPER_ADMIN" | "SALES" | "FOREIGN_TRADE" | "WAREHOUSE";
+  role: "SUPER_ADMIN" | "SALES" | "FOREIGN_TRADE" | "PURCHASE" | "WAREHOUSE";
   region: string; // 旧字段,保留兼容,隔离已不再使用
   territories: Territory[]; // 负责的省/市
   viewScope: string; // "TERRITORY"(按分区) | "ALL"(全区域,看全部含外贸)
@@ -166,7 +177,39 @@ export function canManageUsers(user: SessionUser): boolean {
 
 /** 是否可以访问 ERP 模块 */
 export function canAccessERP(user: SessionUser): boolean {
-  return user.role === "SUPER_ADMIN" || user.role === "WAREHOUSE";
+  return canViewERP(user.role);
+}
+
+export function canManageSuppliers(user: SessionUser): boolean {
+  return roleCanManageSuppliers(user.role);
+}
+
+export function canManagePurchaseOrders(user: SessionUser): boolean {
+  return roleCanManagePurchaseOrders(user.role);
+}
+
+export function canManageInventory(user: SessionUser): boolean {
+  return roleCanManageInventory(user.role);
+}
+
+export function canManageMaterialMaster(user: SessionUser): boolean {
+  return roleCanManageMaterialMaster(user.role);
+}
+
+export function canManageBom(user: SessionUser): boolean {
+  return roleCanManageBom(user.role);
+}
+
+export function canPublishProductionOrder(user: SessionUser): boolean {
+  return roleCanPublishProductionOrder(user.role);
+}
+
+export function canExecuteKitCheck(user: SessionUser): boolean {
+  return roleCanExecuteKitCheck(user.role);
+}
+
+export function canManageProductionMaterial(user: SessionUser): boolean {
+  return roleCanManageProductionMaterial(user.role);
 }
 
 /** 是否可以删除客户 */

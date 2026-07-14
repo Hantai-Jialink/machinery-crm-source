@@ -86,5 +86,6 @@ export const ROLE_LABELS: Record<string, string> = {
   SUPER_ADMIN: "超级管理员",
   SALES: "销售",
   FOREIGN_TRADE: "外贸业务",
-  WAREHOUSE: "仓管",
+  PURCHASE: "采购",
+  WAREHOUSE: "仓库管理",
 };

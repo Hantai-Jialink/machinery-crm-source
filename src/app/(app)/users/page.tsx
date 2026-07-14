@@ -4,12 +4,13 @@ import { useEffect, useMemo, useState } from "react";
 import { Edit2, KeyRound, Plus, Trash2, X } from "lucide-react";
 import { ROLE_LABELS } from "@/lib/constants";
 import { TerritoryPicker, summarizeTerritories, type Territory } from "@/components/common/territory-picker";
+import { roleRequiresRegionScope } from "@/lib/erp-roles";
 
 type UserRow = {
   id: string;
   email: string;
   name: string;
-  role: "SUPER_ADMIN" | "SALES" | "FOREIGN_TRADE" | "WAREHOUSE";
+  role: "SUPER_ADMIN" | "SALES" | "FOREIGN_TRADE" | "PURCHASE" | "WAREHOUSE";
   region: string;
   territories?: Territory[];
   viewScope?: string;
@@ -305,14 +306,14 @@ export default function UsersPage() {
             <FormInput label="姓名 *" value={createForm.name} onChange={(value) => setCreateForm({ ...createForm, name: value })} />
             <FormInput label="账号 *" value={createForm.email} onChange={(value) => setCreateForm({ ...createForm, email: value })} />
             <FormInput label="密码 *" type="password" value={createForm.password} onChange={(value) => setCreateForm({ ...createForm, password: value })} />
-            <RoleSelect value={createForm.role} onChange={(value) => setCreateForm({ ...createForm, role: value })} />
+            <RoleSelect value={createForm.role} onChange={(value) => setCreateForm({ ...createForm, role: value, territories: [], viewScope: value === "SUPER_ADMIN" ? "ALL" : "TERRITORY" })} />
           </div>
-          <TerritoryField
+          {roleRequiresRegionScope(createForm.role) && <TerritoryField
             territories={createForm.territories}
             viewScope={createForm.viewScope}
             onTerritories={(t) => setCreateForm({ ...createForm, territories: t })}
             onViewScope={(v) => setCreateForm({ ...createForm, viewScope: v })}
-          />
+          />}
           <div className="flex flex-wrap gap-3">
             <button onClick={handleCreate} disabled={saving} className="px-4 py-2 bg-gray-900 text-white text-sm font-medium rounded-lg hover:bg-gray-800 disabled:opacity-50">
               {saving ? "创建中..." : "创建用户"}
@@ -330,14 +331,14 @@ export default function UsersPage() {
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             <FormInput label="姓名 *" value={editForm.name} onChange={(value) => setEditForm({ ...editForm, name: value })} />
-            <RoleSelect value={editForm.role} onChange={(value) => setEditForm({ ...editForm, role: value })} />
+            <RoleSelect value={editForm.role} onChange={(value) => setEditForm({ ...editForm, role: value, territories: [], viewScope: value === "SUPER_ADMIN" ? "ALL" : "TERRITORY" })} />
           </div>
-          <TerritoryField
+          {roleRequiresRegionScope(editForm.role) && <TerritoryField
             territories={editForm.territories}
             viewScope={editForm.viewScope}
             onTerritories={(t) => setEditForm({ ...editForm, territories: t })}
             onViewScope={(v) => setEditForm({ ...editForm, viewScope: v })}
-          />
+          />}
           <div className="flex flex-wrap gap-3">
             <button onClick={handleEdit} disabled={saving} className="px-4 py-2 bg-gray-900 text-white text-sm font-medium rounded-lg hover:bg-gray-800 disabled:opacity-50">
               {saving ? "保存中..." : "保存修改"}
@@ -397,15 +398,15 @@ export default function UsersPage() {
       )}
 
       <div className="bg-white rounded-xl border border-gray-200 overflow-x-auto">
-        <table className="w-full min-w-[820px]">
+        <table className="w-full min-w-[980px] table-fixed">
           <thead className="bg-gray-50 border-b border-gray-200">
             <tr>
-              <th className="text-left px-4 py-3 text-xs font-medium text-gray-500">姓名</th>
-              <th className="text-left px-4 py-3 text-xs font-medium text-gray-500">账号</th>
-              <th className="text-left px-4 py-3 text-xs font-medium text-gray-500">角色</th>
+              <th className="w-[120px] text-left px-4 py-3 text-xs font-medium text-gray-500">姓名</th>
+              <th className="w-[220px] text-left px-4 py-3 text-xs font-medium text-gray-500">账号</th>
+              <th className="w-[110px] text-left px-4 py-3 text-xs font-medium text-gray-500">角色</th>
               <th className="text-left px-4 py-3 text-xs font-medium text-gray-500">负责范围</th>
-              <th className="text-left px-4 py-3 text-xs font-medium text-gray-500">状态</th>
-              <th className="text-left px-4 py-3 text-xs font-medium text-gray-500">操作</th>
+              <th className="w-[80px] whitespace-nowrap text-left px-4 py-3 text-xs font-medium text-gray-500">状态</th>
+              <th className="w-[220px] whitespace-nowrap text-left px-4 py-3 text-xs font-medium text-gray-500">操作</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
@@ -416,17 +417,17 @@ export default function UsersPage() {
             ) : (
               users.map((target) => (
                 <tr key={target.id} className="hover:bg-gray-50">
-                  <td className="px-4 py-3 text-sm font-medium text-gray-900">{target.name}</td>
-                  <td className="px-4 py-3 text-sm text-gray-600">{target.email}</td>
-                  <td className="px-4 py-3"><span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-700">{ROLE_LABELS[target.role]}</span></td>
-                  <td className="px-4 py-3 text-sm text-gray-600">{summarizeTerritories(target.territories, target.viewScope)}</td>
-                  <td className="px-4 py-3">
-                    <span className={`text-xs px-2 py-0.5 rounded-full ${target.isActive ? "bg-green-50 text-green-700" : "bg-red-50 text-red-700"}`}>
+                  <td className="truncate px-4 py-3 text-sm font-medium text-gray-900">{target.name}</td>
+                  <td className="truncate px-4 py-3 text-sm text-gray-600">{target.email}</td>
+                  <td className="whitespace-nowrap px-4 py-3"><span className="whitespace-nowrap text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-700">{ROLE_LABELS[target.role]}</span></td>
+                  <td className="truncate px-4 py-3 text-sm text-gray-600" title={regionScopeTitle(target)}>{compactRegionScope(target)}</td>
+                  <td className="whitespace-nowrap px-4 py-3">
+                    <span className={`whitespace-nowrap text-xs px-2 py-0.5 rounded-full ${target.isActive ? "bg-green-50 text-green-700" : "bg-red-50 text-red-700"}`}>
                       {target.isActive ? "启用" : "禁用"}
                     </span>
                   </td>
                   <td className="px-4 py-3">
-                    <div className="flex flex-wrap items-center gap-3">
+                    <div className="flex flex-nowrap items-center gap-3 whitespace-nowrap">
                       <button onClick={() => openEdit(target)} className="inline-flex items-center gap-1 text-xs text-gray-600 hover:text-gray-900"><Edit2 className="w-3.5 h-3.5" />编辑</button>
                       <button onClick={() => openResetPassword(target)} className="inline-flex items-center gap-1 text-xs text-gray-600 hover:text-gray-900"><KeyRound className="w-3.5 h-3.5" />重置密码</button>
                       <button onClick={() => toggleActive(target)} disabled={saving} className="text-xs text-gray-600 hover:text-gray-900 disabled:opacity-50">{target.isActive ? "禁用" : "启用"}</button>
@@ -460,10 +461,25 @@ function RoleSelect({ value, onChange }: { value: string; onChange: (value: stri
         <option value="SALES">销售</option>
         <option value="FOREIGN_TRADE">外贸业务</option>
         <option value="SUPER_ADMIN">超级管理员</option>
-        <option value="WAREHOUSE">仓管</option>
+        <option value="PURCHASE">采购</option>
+        <option value="WAREHOUSE">仓库管理</option>
       </select>
     </div>
   );
+}
+
+function regionScopeTitle(user: UserRow) {
+  return roleRequiresRegionScope(user.role) ? summarizeTerritories(user.territories, user.viewScope) : "—";
+}
+
+function compactRegionScope(user: UserRow) {
+  if (!roleRequiresRegionScope(user.role)) return "—";
+  if (user.viewScope === "ALL") return "全区域";
+  const areas = (user.territories || []).flatMap((territory) =>
+    territory.cities?.length ? territory.cities.map((city) => `${territory.province}${city}`) : [territory.province]
+  );
+  if (areas.length === 0) return "未分配";
+  return areas.length > 3 ? `${areas.slice(0, 3).join("、")} 等 ${areas.length} 个地区` : areas.join("、");
 }
 
 function TerritoryField({
@@ -477,23 +493,12 @@ function TerritoryField({
   onTerritories: (t: Territory[]) => void;
   onViewScope: (v: string) => void;
 }) {
-  const all = viewScope === "ALL";
   return (
     <div>
-      <div className="flex items-center justify-between mb-1">
-        <label className="block text-xs font-medium text-gray-600">负责范围 *</label>
-        <label className="flex items-center gap-1.5 text-xs text-gray-700 cursor-pointer">
-          <input
-            type="checkbox"
-            checked={all}
-            onChange={(e) => onViewScope(e.target.checked ? "ALL" : "TERRITORY")}
-          />
-          全区域(可见全部客户,含外贸)
-        </label>
-      </div>
-      <TerritoryPicker value={territories} onChange={onTerritories} disabled={all} />
-      {!all && territories.length === 0 && (
-        <p className="text-[11px] text-amber-600 mt-1">未勾选任何省市 = 该用户看不到任何客户</p>
+      <label className="mb-1 block text-xs font-medium text-gray-600">负责范围 *</label>
+      <TerritoryPicker value={territories} onChange={(next) => { onViewScope("TERRITORY"); onTerritories(next); }} />
+      {viewScope !== "ALL" && territories.length === 0 && (
+        <p className="mt-1 text-[11px] text-amber-600">销售和外贸销售必须选择至少一个负责省市</p>
       )}
     </div>
   );

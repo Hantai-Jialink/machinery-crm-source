@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
-import { getSessionUser, canAccessERP } from "@/lib/permissions";
+import { getSessionUser, canAccessERP, canManageInventory } from "@/lib/permissions";
 
 export async function GET(
   request: NextRequest,
@@ -11,7 +11,7 @@ export async function GET(
   if (!user) {
     return NextResponse.json({ error: "未登录" }, { status: 401 });
   }
-  if (!canAccessERP(user)) {
+  if (!canManageInventory(user)) {
     return NextResponse.json({ error: "无权限访问 ERP" }, { status: 403 });
   }
 
@@ -46,7 +46,7 @@ export async function PUT(
   if (!user) {
     return NextResponse.json({ error: "未登录" }, { status: 401 });
   }
-  if (!canAccessERP(user)) {
+  if (!canManageInventory(user)) {
     return NextResponse.json({ error: "无权限提交盘点" }, { status: 403 });
   }
 
@@ -197,7 +197,7 @@ export async function DELETE(
   if (!user) {
     return NextResponse.json({ error: "未登录" }, { status: 401 });
   }
-  if (!canAccessERP(user)) {
+  if (!canManageInventory(user)) {
     return NextResponse.json({ error: "无权限删除盘点草稿" }, { status: 403 });
   }
 

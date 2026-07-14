@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { PurchaseOrderStatus } from "@prisma/client";
 import { prisma } from "@/lib/db";
-import { getSessionUser, canAccessERP } from "@/lib/permissions";
+import { getSessionUser, canManagePurchaseOrders } from "@/lib/permissions";
 import { writeOperationLog } from "@/lib/sales-items";
 import { releaseShortageSource } from "@/lib/purchase-order-shortage-source";
 
@@ -38,7 +38,7 @@ async function loadPurchaseOrder(id: string) {
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const user = await getSessionUser();
   if (!user) return NextResponse.json({ error: "未登录" }, { status: 401 });
-  if (!canAccessERP(user)) return NextResponse.json({ error: "无权限变更采购订单状态" }, { status: 403 });
+  if (!canManagePurchaseOrders(user)) return NextResponse.json({ error: "无权限变更采购订单状态" }, { status: 403 });
 
   const { id } = await params;
   const body = await request.json();

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { getSessionUser, canAccessERP } from "@/lib/permissions";
+import { getSessionUser, canAccessERP, canManageSuppliers } from "@/lib/permissions";
 import { writeOperationLog } from "@/lib/sales-items";
 
 function cleanText(value: unknown) {
@@ -18,6 +18,7 @@ async function requireErpUser() {
 export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const auth = await requireErpUser();
   if (auth.error) return auth.error;
+  if (!canManageSuppliers(auth.user!)) return NextResponse.json({ error: "无权限维护供应商" }, { status: 403 });
   const { id } = await params;
   const supplier = await prisma.supplier.findFirst({ where: { id, deletedAt: null } });
   if (!supplier) return NextResponse.json({ error: "供应商不存在" }, { status: 404 });
@@ -27,6 +28,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
 export async function PUT(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const auth = await requireErpUser();
   if (auth.error) return auth.error;
+  if (!canManageSuppliers(auth.user!)) return NextResponse.json({ error: "无权限维护供应商" }, { status: 403 });
   const { id } = await params;
   const body = await request.json();
   const existing = await prisma.supplier.findFirst({ where: { id, deletedAt: null } });
@@ -67,6 +69,7 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
 export async function DELETE(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const auth = await requireErpUser();
   if (auth.error) return auth.error;
+  if (!canManageSuppliers(auth.user!)) return NextResponse.json({ error: "无权限维护供应商" }, { status: 403 });
   const { id } = await params;
   const existing = await prisma.supplier.findFirst({ where: { id, deletedAt: null } });
   if (!existing) return NextResponse.json({ error: "供应商不存在" }, { status: 404 });

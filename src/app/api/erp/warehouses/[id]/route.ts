@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { getSessionUser, canAccessERP } from "@/lib/permissions";
+import { getSessionUser, canManageInventory } from "@/lib/permissions";
 
 export async function PUT(
   request: NextRequest,
@@ -10,7 +10,7 @@ export async function PUT(
   if (!user) {
     return NextResponse.json({ error: "未登录" }, { status: 401 });
   }
-  if (!canAccessERP(user)) {
+  if (!canManageInventory(user)) {
     return NextResponse.json({ error: "无权限编辑仓库" }, { status: 403 });
   }
 
@@ -38,7 +38,7 @@ export async function DELETE(
   if (!user) {
     return NextResponse.json({ error: "未登录" }, { status: 401 });
   }
-  if (!canAccessERP(user)) {
+  if (!canManageInventory(user)) {
     return NextResponse.json({ error: "无权限删除仓库" }, { status: 403 });
   }
 

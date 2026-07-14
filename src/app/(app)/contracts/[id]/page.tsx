@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
+import { useSession } from "next-auth/react";
 import { ArrowLeft, Download, Edit, Plus, Trash2 } from "lucide-react";
 import { toProtectedUploadUrl } from "@/lib/upload-urls";
 
@@ -34,6 +35,8 @@ const SHIPMENT_STATUS: Record<string, { label: string; color: string }> = {
 const PAYMENT_METHODS = ["银行转账", "现金", "微信", "支付宝", "承兑", "其他"];
 
 export default function ContractDetailPage() {
+  const { data: session } = useSession();
+  const canCreateProductionOrder = (session?.user as any)?.role === "SUPER_ADMIN";
   const params = useParams();
   const router = useRouter();
   const [contract, setContract] = useState<any>(null);
@@ -180,6 +183,7 @@ export default function ContractDetailPage() {
           <h1 className="text-xl font-semibold text-gray-900">合同 {contract.contractNo}</h1>
           <p className="text-sm text-gray-500">{contract.customer?.companyName}</p>
         </div>
+        {canCreateProductionOrder && contract.contractStatus === "SIGNED" && <Link href={`/erp/production-orders/new?contractId=${contract.id}`} className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"><Plus className="h-4 w-4" />转生产工单</Link>}
         {contract.canEdit ? (
           <Link href={`/contracts/${contract.id}/edit`} className="inline-flex items-center gap-1.5 px-4 py-2 bg-gray-900 text-white text-sm font-medium rounded-lg hover:bg-gray-800">
             <Edit className="w-4 h-4" /> 编辑合同

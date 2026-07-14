@@ -24,12 +24,14 @@ import {
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { canViewERP, ROLE_LABELS } from "@/lib/erp-roles";
 
 type NavChild = {
   href: string;
   label: string;
   adminOnly?: boolean;
   erpOnly?: boolean;
+  roles?: string[];
 };
 
 type NavItem = NavChild & {
@@ -61,18 +63,18 @@ const navItems: NavItem[] = [
     icon: Boxes,
     erpOnly: true,
     children: [
-      { href: "/erp/inventory", label: "库存台账" },
-      { href: "/erp/materials", label: "物料管理" },
-      { href: "/erp/suppliers", label: "供应商管理" },
-      { href: "/erp/purchase-orders", label: "采购订单" },
-      { href: "/erp/bom", label: "整机用料清单" },
-      { href: "/erp/production-orders", label: "生产工单" },
-      { href: "/erp/kit-check-results", label: "齐套检查结果" },
+      { href: "/erp/inventory", label: "库存台账", roles: ["SUPER_ADMIN", "PURCHASE", "WAREHOUSE"] },
+      { href: "/erp/materials", label: "物料管理", roles: ["SUPER_ADMIN", "PURCHASE", "WAREHOUSE"] },
+      { href: "/erp/suppliers", label: "供应商管理", roles: ["SUPER_ADMIN", "PURCHASE"] },
+      { href: "/erp/purchase-orders", label: "采购订单", roles: ["SUPER_ADMIN", "PURCHASE", "WAREHOUSE"] },
+      { href: "/erp/bom", label: "整机用料清单", roles: ["SUPER_ADMIN"] },
+      { href: "/erp/production-orders", label: "生产工单", roles: ["SUPER_ADMIN", "PURCHASE", "WAREHOUSE"] },
+      { href: "/erp/kit-check-results", label: "齐套检查结果", roles: ["SUPER_ADMIN", "PURCHASE", "WAREHOUSE"] },
       { href: "/erp/production-order-change-requests", label: "工单变更审批", adminOnly: true },
-      { href: "/erp/warehouse", label: "仓库管理" },
-      { href: "/erp/stock-in", label: "入库" },
-      { href: "/erp/stock-out", label: "出库" },
-      { href: "/erp/stock-check", label: "盘点" },
+      { href: "/erp/warehouse", label: "仓库管理", roles: ["SUPER_ADMIN", "WAREHOUSE"] },
+      { href: "/erp/stock-in", label: "入库", roles: ["SUPER_ADMIN", "WAREHOUSE"] },
+      { href: "/erp/stock-out", label: "出库", roles: ["SUPER_ADMIN", "WAREHOUSE"] },
+      { href: "/erp/stock-check", label: "盘点", roles: ["SUPER_ADMIN", "WAREHOUSE"] },
     ],
   },
   { href: "/operation-logs", label: "操作日志", icon: History, adminOnly: true },
@@ -91,11 +93,11 @@ export function Sidebar() {
 
   const userRole = (session?.user as any)?.role;
   const userViewScope = (session?.user as any)?.viewScope;
-  const canViewERP = userRole === "SUPER_ADMIN" || userRole === "WAREHOUSE";
+  const canViewErpModule = canViewERP(userRole || "");
   const filteredNavItems = navItems.filter((item) => {
-    if (userRole === "WAREHOUSE") return item.erpOnly === true || item.href === "/settings";
+    if (userRole === "WAREHOUSE" || userRole === "PURCHASE") return item.erpOnly === true || item.href === "/settings";
     if (item.adminOnly && userRole !== "SUPER_ADMIN") return false;
-    if (item.erpOnly && !canViewERP) return false;
+    if (item.erpOnly && !canViewErpModule) return false;
     return true;
   });
 
@@ -111,7 +113,9 @@ export function Sidebar() {
           const Icon = item.icon;
 
           if (item.children) {
-            const visibleChildren = item.children.filter((child) => !child.adminOnly || userRole === "SUPER_ADMIN");
+            const visibleChildren = item.children.filter((child) =>
+              (!child.adminOnly || userRole === "SUPER_ADMIN") && (!child.roles || child.roles.includes(userRole))
+            );
             const groupOpen = openGroups[item.href] ?? false;
             return (
               <div key={item.href}>
@@ -171,7 +175,7 @@ export function Sidebar() {
       <div className="p-4 border-t border-gray-100">
         <div className="mb-3 text-xs text-gray-500">
           <p className="font-medium text-gray-700">{session?.user?.name || session?.user?.email}</p>
-          <p>{userRole === "SUPER_ADMIN" ? "超级管理员" : userRole === "WAREHOUSE" ? "仓管" : userViewScope === "ALL" ? "全区域" : userRole === "FOREIGN_TRADE" ? "外贸业务" : "销售"}</p>
+          <p>{ROLE_LABELS[userRole as keyof typeof ROLE_LABELS] || (userViewScope === "ALL" ? "全区域" : "销售")}</p>
         </div>
         <button
           type="button"

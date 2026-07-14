@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
-import { getSessionUser, canAccessERP, isSuperAdmin } from "@/lib/permissions";
+import { getSessionUser, canAccessERP, canManageInventory, isSuperAdmin } from "@/lib/permissions";
 import { writeOperationLog } from "@/lib/sales-items";
 
 function generateBatchNo(type: string): string {
@@ -62,7 +62,7 @@ export async function POST(request: NextRequest) {
   if (!user) {
     return NextResponse.json({ error: "未登录" }, { status: 401 });
   }
-  if (!canAccessERP(user)) {
+  if (!canManageInventory(user)) {
     return NextResponse.json({ error: "无权限操作出库" }, { status: 403 });
   }
 

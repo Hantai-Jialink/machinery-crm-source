@@ -1,46 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
-import { getSessionUser, canAccessERP } from "@/lib/permissions";
+import { getSessionUser, canAccessERP, canManageBom } from "@/lib/permissions";
 import { writeOperationLog } from "@/lib/sales-items";
-
-type BomLineInput = {
-  clientKey?: string;
-  parentClientKey?: string | null;
-  materialId?: string;
-  quantity?: string | number;
-  level?: string | number | null;
-  sortOrder?: number;
-};
-
-function toPositiveNumber(value: unknown) {
-  const next = Number(value);
-  return Number.isFinite(next) && next > 0 ? next : null;
-}
-
-function normalizeBomItems(items: unknown) {
-  if (!Array.isArray(items)) return [];
-  return items.map((item: BomLineInput, index) => {
-    const quantity = toPositiveNumber(item.quantity);
-    const level = Math.max(1, Math.trunc(Number(item.level || 1)));
-    return {
-      clientKey: item.clientKey || `line-${index}`,
-      parentClientKey: item.parentClientKey || null,
-      materialId: item.materialId || "",
-      quantity,
-      level: Number.isFinite(level) ? level : 1,
-      sortOrder: typeof item.sortOrder === "number" && Number.isFinite(item.sortOrder) ? item.sortOrder : index * 10,
-    };
-  });
-}
-
-function validateBomItems(items: ReturnType<typeof normalizeBomItems>) {
-  if (items.length === 0) return "整机用料清单至少需要一条物料明细";
-  if (items.some((item) => !item.materialId || item.quantity === null)) {
-    return "整机用料清单明细必须选择物料并填写大于 0 的用量";
-  }
-  return null;
-}
+import { BomWriteItem, normalizeBomWriteItems } from "@/lib/bom-items";
 
 async function loadProducts(productIds: string[]) {
   if (productIds.length === 0) return new Map<string, any>();
@@ -62,10 +25,10 @@ async function attachProducts<T extends { productId: string }>(boms: T[]) {
 async function createBomItems(
   tx: Prisma.TransactionClient,
   bomId: string,
-  items: ReturnType<typeof normalizeBomItems>
+  items: BomWriteItem[]
 ) {
   const idByClientKey = new Map<string, string>();
-  for (const item of [...items].sort((a, b) => a.sortOrder - b.sortOrder)) {
+  for (const item of [...items].sort((a, b) => a.level - b.level || a.sortOrder - b.sortOrder)) {
     const parentItemId = item.parentClientKey ? idByClientKey.get(item.parentClientKey) || null : null;
     const created = await tx.bomItem.create({
       data: {
@@ -115,7 +78,10 @@ export async function GET(request: NextRequest) {
   if (productId) where.productId = productId;
   if (active === "1") where.isActive = true;
   if (active === "0") where.isActive = false;
-  if (search) where.productId = { in: matchedProducts.map((product) => product.id) };
+  if (search) where.OR = [
+    { version: { contains: search } },
+    { productId: { in: matchedProducts.map((product) => product.id) } },
+  ];
 
   const [boms, total] = await Promise.all([
     prisma.bomHeader.findMany({
@@ -148,7 +114,7 @@ export async function POST(request: NextRequest) {
   if (!user) {
     return NextResponse.json({ error: "未登录" }, { status: 401 });
   }
-  if (!canAccessERP(user)) {
+  if (!canManageBom(user)) {
     return NextResponse.json({ error: "无权限维护整机用料清单" }, { status: 403 });
   }
 
@@ -165,11 +131,11 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "产品不存在或已停用" }, { status: 404 });
   }
 
-  const items = normalizeBomItems(body.items);
-  const itemError = validateBomItems(items);
-  if (itemError) {
-    return NextResponse.json({ error: itemError }, { status: 400 });
-  }
+  const materialIds = Array.isArray(body.items) ? [...new Set(body.items.map((item: any) => String(item?.materialId || "")).filter(Boolean))] as string[] : [];
+  const materials = await prisma.material.findMany({ where: { id: { in: materialIds }, isActive: true, deletedAt: null }, select: { id: true, unit: true } });
+  let items: BomWriteItem[];
+  try { items = normalizeBomWriteItems(body.items, new Map(materials.map((material) => [material.id, material.unit]))); }
+  catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "用料清单明细无效" }, { status: 400 }); }
 
   const version = String(body.version || "v1.0").trim();
   const duplicated = await prisma.bomHeader.findFirst({

@@ -5,8 +5,9 @@ import { prisma } from "@/lib/db";
 import { getSessionUser, canManageUsers } from "@/lib/permissions";
 import { sanitizeTerritories } from "@/lib/region-data";
 import { writeOperationLog } from "@/lib/sales-items";
+import { roleRequiresRegionScope } from "@/lib/erp-roles";
 
-const VALID_ROLES = ["SUPER_ADMIN", "SALES", "FOREIGN_TRADE", "WAREHOUSE"];
+const VALID_ROLES = ["SUPER_ADMIN", "SALES", "FOREIGN_TRADE", "PURCHASE", "WAREHOUSE"];
 const VALID_REGIONS = ["华北", "华南", "华东", "外贸", "其他"];
 
 const USER_SELECT = {
@@ -103,16 +104,17 @@ export async function PUT(
       updateData.role = body.role;
     }
 
-    if (body.region !== undefined) {
-      updateData.region = String(body.region);
-    }
-
-    if (body.territories !== undefined) {
-      updateData.territories = sanitizeTerritories(body.territories);
-    }
-
-    if (body.viewScope !== undefined) {
-      updateData.viewScope = body.viewScope === "ALL" ? "ALL" : "TERRITORY";
+    const nextRole = String(body.role || targetUser.role);
+    if (roleRequiresRegionScope(nextRole)) {
+      const territories = sanitizeTerritories(body.territories === undefined ? targetUser.territories : body.territories);
+      if (territories.length === 0) return NextResponse.json({ error: "销售和外贸销售必须选择负责范围" }, { status: 400 });
+      updateData.region = body.region === undefined ? targetUser.region : String(body.region);
+      updateData.territories = territories;
+      updateData.viewScope = "TERRITORY";
+    } else {
+      updateData.region = "其他";
+      updateData.territories = [];
+      updateData.viewScope = nextRole === "SUPER_ADMIN" ? "ALL" : "TERRITORY";
     }
 
     if (body.isActive !== undefined) {

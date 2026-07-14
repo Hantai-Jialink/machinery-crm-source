@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
-import { getSessionUser, canAccessERP } from "@/lib/permissions";
+import { getSessionUser, canManageInventory } from "@/lib/permissions";
 import {
   lockPurchaseOrderForUnlink,
   PurchaseReceiptError,
@@ -15,7 +15,7 @@ export async function POST(
 ) {
   const user = await getSessionUser();
   if (!user) return NextResponse.json({ error: "未登录" }, { status: 401 });
-  if (!canAccessERP(user)) return NextResponse.json({ error: "无权限操作入库" }, { status: 403 });
+  if (!canManageInventory(user)) return NextResponse.json({ error: "无权限操作入库" }, { status: 403 });
 
   const { id } = await params;
   try {

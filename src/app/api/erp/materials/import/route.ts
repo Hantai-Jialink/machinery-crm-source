@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import * as XLSX from "xlsx";
 import { prisma } from "@/lib/db";
-import { getSessionUser, canAccessERP } from "@/lib/permissions";
+import { getSessionUser, canManageMaterialMaster } from "@/lib/permissions";
 import { writeOperationLog } from "@/lib/sales-items";
 
 type ImportStatus = "CREATE" | "UPDATE" | "MISSING_CODE" | "ERROR";
@@ -364,7 +364,7 @@ export async function POST(request: NextRequest) {
   if (!user) {
     return NextResponse.json({ error: "未登录" }, { status: 401 });
   }
-  if (!canAccessERP(user)) {
+  if (!canManageMaterialMaster(user)) {
     return NextResponse.json({ error: "无权限导入物料" }, { status: 403 });
   }
 

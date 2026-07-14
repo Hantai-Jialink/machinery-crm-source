@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { getSessionUser, canAccessERP } from "@/lib/permissions";
+import { getSessionUser, canAccessERP, canManageMaterialMaster } from "@/lib/permissions";
 
 async function validateSupplierId(supplierId: unknown) {
   if (!supplierId) return null;
@@ -47,7 +47,7 @@ export async function PUT(
   if (!user) {
     return NextResponse.json({ error: "未登录" }, { status: 401 });
   }
-  if (!canAccessERP(user)) {
+  if (!canManageMaterialMaster(user)) {
     return NextResponse.json({ error: "无权限编辑物料" }, { status: 403 });
   }
 
@@ -93,7 +93,7 @@ export async function DELETE(
   if (!user) {
     return NextResponse.json({ error: "未登录" }, { status: 401 });
   }
-  if (!canAccessERP(user)) {
+  if (!canManageMaterialMaster(user)) {
     return NextResponse.json({ error: "无权限删除物料" }, { status: 403 });
   }
 

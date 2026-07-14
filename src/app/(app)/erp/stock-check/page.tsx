@@ -191,7 +191,7 @@ export default function StockCheckPage() {
         </div>
         <ol className="grid gap-1 sm:grid-cols-2">
           <li>1. 创建盘点单后，系统会自动读取当前库存作为账面数量。</li>
-          <li>2. 仓管员根据实际库存填写实盘数量。</li>
+          <li>2. 仓库管理员根据实际库存填写实盘数量。</li>
           <li>3. 系统自动计算差异数量。</li>
           <li>4. 实盘数量大于账面数量，属于盘盈。</li>
           <li>5. 实盘数量小于账面数量，属于盘亏。</li>

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
-import { getSessionUser, canAccessERP } from "@/lib/permissions";
+import { getSessionUser, canAccessERP, canManagePurchaseOrders } from "@/lib/permissions";
 import { writeOperationLog } from "@/lib/sales-items";
 
 type PurchaseOrderItemInput = {
@@ -107,8 +107,14 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "采购订单状态参数无效" }, { status: 400 });
   }
   const where: any = { deletedAt: null };
+  if (user.role === "WAREHOUSE") where.status = { in: ["ORDERED", "PARTIAL_RECEIVED", "RECEIVED"] };
   if (supplierId) where.supplierId = supplierId;
-  if (status) where.status = status;
+  if (status) {
+    if (user.role === "WAREHOUSE" && !["ORDERED", "PARTIAL_RECEIVED", "RECEIVED"].includes(status)) {
+      return NextResponse.json({ error: "仓库管理只能查看已提交或已批准的采购订单" }, { status: 403 });
+    }
+    where.status = status;
+  }
   if (search) {
     where.OR = [
       { orderNo: { contains: search } },
@@ -152,7 +158,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   const user = await getSessionUser();
   if (!user) return NextResponse.json({ error: "未登录" }, { status: 401 });
-  if (!canAccessERP(user)) return NextResponse.json({ error: "无权限创建采购订单" }, { status: 403 });
+  if (!canManagePurchaseOrders(user)) return NextResponse.json({ error: "无权限创建采购订单" }, { status: 403 });
 
   const body = await request.json();
   const supplierId = String(body.supplierId || "");

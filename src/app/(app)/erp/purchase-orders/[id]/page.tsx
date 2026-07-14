@@ -27,7 +27,7 @@ export default function PurchaseOrderDetailPage() {
   const { data: session } = useSession();
   const orderId = String(params.id || "");
   const isNew = orderId === "new";
-  const canEdit = (session?.user as any)?.role === "SUPER_ADMIN" || (session?.user as any)?.role === "WAREHOUSE";
+  const canEdit = (session?.user as any)?.role === "SUPER_ADMIN" || (session?.user as any)?.role === "PURCHASE";
   const [materials, setMaterials] = useState<any[]>([]);
   const [suppliers, setSuppliers] = useState<any[]>([]);
   const [order, setOrder] = useState<any>(null);

@@ -17,7 +17,7 @@ const emptyForm = {
 
 export default function SuppliersPage() {
   const { data: session } = useSession();
-  const canEdit = (session?.user as any)?.role === "SUPER_ADMIN" || (session?.user as any)?.role === "WAREHOUSE";
+  const canEdit = (session?.user as any)?.role === "SUPER_ADMIN" || (session?.user as any)?.role === "PURCHASE";
   const [suppliers, setSuppliers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");

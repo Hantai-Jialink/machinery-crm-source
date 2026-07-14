@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
-import { getSessionUser, canAccessERP } from "@/lib/permissions";
+import { getSessionUser, canAccessERP, canManagePurchaseOrders } from "@/lib/permissions";
 import { writeOperationLog } from "@/lib/sales-items";
 import { hasShortageSourceMaterialMismatch, releaseShortageSource, shortageSourceMaterialChangeMessage } from "@/lib/purchase-order-shortage-source";
 
@@ -57,13 +57,16 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   const { id } = await params;
   const order = await loadPurchaseOrder(id);
   if (!order) return NextResponse.json({ error: "采购订单不存在" }, { status: 404 });
+  if (user.role === "WAREHOUSE" && !["ORDERED", "PARTIAL_RECEIVED", "RECEIVED"].includes(order.status)) {
+    return NextResponse.json({ error: "仓库管理只能查看已提交或已批准的采购订单" }, { status: 403 });
+  }
   return NextResponse.json(order);
 }
 
 export async function PUT(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const user = await getSessionUser();
   if (!user) return NextResponse.json({ error: "未登录" }, { status: 401 });
-  if (!canAccessERP(user)) return NextResponse.json({ error: "无权限编辑采购订单" }, { status: 403 });
+  if (!canManagePurchaseOrders(user)) return NextResponse.json({ error: "无权限编辑采购订单" }, { status: 403 });
   const { id } = await params;
   const body = await request.json();
   const existing = await loadPurchaseOrder(id);
@@ -154,7 +157,7 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
 export async function DELETE(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const user = await getSessionUser();
   if (!user) return NextResponse.json({ error: "未登录" }, { status: 401 });
-  if (!canAccessERP(user)) return NextResponse.json({ error: "无权限删除采购草稿" }, { status: 403 });
+  if (!canManagePurchaseOrders(user)) return NextResponse.json({ error: "无权限删除采购草稿" }, { status: 403 });
   const { id } = await params;
   try {
     await prisma.$transaction(async (tx) => {

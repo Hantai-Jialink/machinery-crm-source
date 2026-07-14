@@ -14,6 +14,7 @@ enum Role {
   SUPER_ADMIN
   SALES
   FOREIGN_TRADE
+  PURCHASE
   WAREHOUSE
 }
 
@@ -364,6 +365,8 @@ model ContractItem {
   sortOrder            Int              @default(0)
   createdAt            DateTime         @default(now())
   updatedAt            DateTime         @updatedAt
+
+  productionOrders ProductionOrder[]
 
   @@index([contractId])
   @@index([productId])
@@ -943,6 +946,8 @@ model ProductionOrder {
   id                   String                @id @default(uuid())
   orderNo              String                @unique
   contractId           String?
+  contractItemId       String?
+  contractItem         ContractItem?         @relation(fields: [contractItemId], references: [id], onDelete: SetNull)
   contractNoSnapshot   String?
   isStockOrder         Boolean               @default(false)
   sequenceInContract   Int?
@@ -972,6 +977,7 @@ model ProductionOrder {
   sourcePurchaseOrders PurchaseOrder[]                @relation("PurchaseOrderSourceProductionOrder")
 
   @@index([contractId])
+  @@index([contractItemId])
   @@index([productId])
   @@index([warehouseId])
   @@index([status])

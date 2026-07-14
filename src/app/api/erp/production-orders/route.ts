@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Prisma, ProductionOrderStatus } from "@prisma/client";
 import { prisma } from "@/lib/db";
-import { canAccessERP, getSessionUser } from "@/lib/permissions";
+import { canAccessERP, canPublishProductionOrder, getSessionUser } from "@/lib/permissions";
 import { buildDraftData, normalizeDraftInput, ProductionOrderRequestError } from "@/lib/production-orders";
 import { writeOperationLog } from "@/lib/sales-items";
 
@@ -32,13 +32,13 @@ export async function GET(request: NextRequest) {
     prisma.productionOrder.findMany({ where, orderBy: { createdAt: "desc" }, skip: (page - 1) * pageSize, take: pageSize, include: { kitCheckResults: { orderBy: { createdAt: "desc" }, take: 1 } } }),
     prisma.productionOrder.count({ where }),
   ]);
-  return NextResponse.json({ items: items.map(({ kitCheckResults, ...item }) => ({ ...item, latestKitCheckResult: kitCheckResults[0] || null })), pagination: { page, pageSize, total, totalPages: Math.ceil(total / pageSize) } });
+  return NextResponse.json({ items: items.map(({ kitCheckResults, ...item }) => user.role === "PURCHASE" ? ({ id: item.id, orderNo: item.orderNo, productModelSnapshot: item.productModelSnapshot, productNameSnapshot: item.productNameSnapshot, quantity: item.quantity, plannedDate: item.plannedDate, status: item.status, latestKitCheckResult: kitCheckResults[0] || null }) : ({ ...item, latestKitCheckResult: kitCheckResults[0] || null })), pagination: { page, pageSize, total, totalPages: Math.ceil(total / pageSize) } });
 }
 
 export async function POST(request: NextRequest) {
   const user = await getSessionUser();
   if (!user) return NextResponse.json({ error: "未登录" }, { status: 401 });
-  if (!canAccessERP(user)) return NextResponse.json({ error: "无权限创建生产工单" }, { status: 403 });
+  if (!canPublishProductionOrder(user)) return NextResponse.json({ error: "无权限创建生产工单" }, { status: 403 });
   let input;
   try {
     input = normalizeDraftInput(await request.json());

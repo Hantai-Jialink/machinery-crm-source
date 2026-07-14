@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
-import { getSessionUser, canAccessERP } from "@/lib/permissions";
+import { getSessionUser, canManagePurchaseOrders } from "@/lib/permissions";
 import { writeOperationLog } from "@/lib/sales-items";
 import { hasActiveShortageSourceClaim, shortageSourceDuplicateMessage, shortageSourceUniqueConflictResponse, shouldRetryShortagePurchaseCreation } from "@/lib/purchase-order-shortage-source";
 
@@ -46,7 +46,7 @@ function generateOrderNo() {
 export async function POST(request: NextRequest) {
   const user = await getSessionUser();
   if (!user) return NextResponse.json({ error: "未登录" }, { status: 401 });
-  if (!canAccessERP(user)) return NextResponse.json({ error: "无权限创建采购订单" }, { status: 403 });
+  if (!canManagePurchaseOrders(user)) return NextResponse.json({ error: "无权限创建采购订单" }, { status: 403 });
 
   const body = await request.json();
   const bomId = String(body.bomId || "");

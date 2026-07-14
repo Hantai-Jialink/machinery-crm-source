@@ -1,19 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { getSessionUser, canAccessERP } from "@/lib/permissions";
-
-function toPositiveNumber(value: unknown, fallback = 1) {
-  const next = Number(value);
-  return Number.isFinite(next) && next > 0 ? next : fallback;
-}
-
-function addRequired(
-  totals: Map<string, number>,
-  materialId: string,
-  quantity: number
-) {
-  totals.set(materialId, (totals.get(materialId) || 0) + quantity);
-}
+import { flattenBomLeafRequirements } from "@/lib/bom-items";
 
 export async function GET(
   request: NextRequest,
@@ -29,7 +18,10 @@ export async function GET(
 
   const { id } = await params;
   const { searchParams } = new URL(request.url);
-  const machineQty = toPositiveNumber(searchParams.get("quantity"), 1);
+  let machineQty: Prisma.Decimal;
+  try { machineQty = new Prisma.Decimal(searchParams.get("quantity") || 1); }
+  catch { return NextResponse.json({ error: "生产数量必须为大于 0 的有效数字" }, { status: 400 }); }
+  if (!machineQty.isFinite() || !machineQty.gt(0)) return NextResponse.json({ error: "生产数量必须为大于 0 的有效数字" }, { status: 400 });
   const warehouseId = searchParams.get("warehouseId") || "";
 
   const bom = await prisma.bomHeader.findUnique({
@@ -58,33 +50,10 @@ export async function GET(
     return NextResponse.json({ error: "整机用料清单不存在" }, { status: 404 });
   }
 
-  const requiredByMaterial = new Map<string, number>();
-  const childrenByParent = new Map<string, typeof bom.items>();
-  for (const item of bom.items) {
-    if (!item.parentItemId) continue;
-    childrenByParent.set(item.parentItemId, [...(childrenByParent.get(item.parentItemId) || []), item]);
-  }
-
-  const visit = (item: (typeof bom.items)[number], parentRequired: number, seen: Set<string>) => {
-    if (seen.has(item.id)) return;
-    const nextSeen = new Set(seen);
-    nextSeen.add(item.id);
-
-    const requiredQty = parentRequired * Number(item.quantity);
-    addRequired(requiredByMaterial, item.materialId, requiredQty);
-
-    for (const child of childrenByParent.get(item.id) || []) {
-      visit(child, requiredQty, nextSeen);
-    }
-  };
-
-  const childIds = new Set(bom.items.map((item) => item.parentItemId).filter(Boolean));
-  const roots = bom.items.filter((item) => !item.parentItemId || !bom.items.some((candidate) => candidate.id === item.parentItemId));
-  for (const item of roots.length ? roots : bom.items.filter((item) => !childIds.has(item.id))) {
-    visit(item, machineQty, new Set());
-  }
-
-  const materialIds = [...requiredByMaterial.keys()];
+  let leaves;
+  try { leaves = flattenBomLeafRequirements(bom.items, machineQty); }
+  catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "用料清单层级无效" }, { status: 409 }); }
+  const materialIds = leaves.map((leaf) => leaf.materialId);
   const inventories = materialIds.length
     ? await prisma.inventory.findMany({
         where: {
@@ -97,11 +66,11 @@ export async function GET(
       })
     : [];
 
-  const availableByMaterial = new Map<string, number>();
+  const availableByMaterial = new Map<string, Prisma.Decimal>();
   for (const inventory of inventories) {
     availableByMaterial.set(
       inventory.materialId,
-      (availableByMaterial.get(inventory.materialId) || 0) + Number(inventory.quantity)
+      (availableByMaterial.get(inventory.materialId) || new Prisma.Decimal(0)).add(inventory.quantity)
     );
   }
 
@@ -113,30 +82,26 @@ export async function GET(
     ? await prisma.warehouse.findUnique({ where: { id: warehouseId }, select: { id: true, name: true, code: true } })
     : null;
 
-  const rows = bom.items
-    .filter((item) => requiredByMaterial.has(item.materialId))
-    .reduce<any[]>((acc, item) => {
-      if (acc.some((row) => row.material.id === item.materialId)) return acc;
-      const requiredQty = requiredByMaterial.get(item.materialId) || 0;
-      const availableQty = availableByMaterial.get(item.materialId) || 0;
-      const shortageQty = Math.max(0, requiredQty - availableQty);
-      acc.push({
-        material: item.material,
-        requiredQty,
-        availableQty,
-        shortageQty,
-        enough: shortageQty <= 0,
-        estimatedAmount: item.material.standardPrice ? requiredQty * Number(item.material.standardPrice) : null,
-      });
-      return acc;
-    }, [])
-    .sort((a, b) => String(a.material.code || "").localeCompare(String(b.material.code || "")));
+  const itemById = new Map(bom.items.map((item) => [item.id, item]));
+  const rows = leaves.map((leaf) => {
+    const item = itemById.get(leaf.sourceItemId)!;
+    const availableQty = availableByMaterial.get(leaf.materialId) || new Prisma.Decimal(0);
+    const shortageQty = Prisma.Decimal.max(leaf.requiredQuantity.sub(availableQty), new Prisma.Decimal(0));
+    return {
+      material: item.material,
+      requiredQty: leaf.requiredQuantity.toNumber(),
+      availableQty: availableQty.toNumber(),
+      shortageQty: shortageQty.toNumber(),
+      enough: shortageQty.eq(0),
+      estimatedAmount: item.material.standardPrice ? leaf.requiredQuantity.mul(item.material.standardPrice).toNumber() : null,
+    };
+  }).sort((a, b) => String(a.material.code || "").localeCompare(String(b.material.code || "")));
 
   const shortageCount = rows.filter((row) => !row.enough).length;
   return NextResponse.json({
     bom: { ...bom, product },
     warehouse,
-    quantity: machineQty,
+    quantity: machineQty.toNumber(),
     items: rows,
     summary: {
       totalMaterials: rows.length,

@@ -23,9 +23,9 @@ export default auth((req) => {
 
   const role = (req.auth.user as any)?.role;
 
-  // 仓管(WAREHOUSE)硬隔离:只允许 ERP + 系统设置;
+  // 内部 ERP 岗位硬隔离：只允许 ERP + 系统设置；具体写权限由 API 再校验。
   // 其余页面弹回库存台账,其余接口一律 403,防止泄露客户/合同等机密数据。
-  if (role === "WAREHOUSE") {
+  if (role === "WAREHOUSE" || role === "PURCHASE") {
     const warehouseAllowed =
       pathname.startsWith("/erp") ||
       pathname.startsWith("/api/erp") ||
@@ -35,7 +35,7 @@ export default auth((req) => {
       if (pathname.startsWith("/api/")) {
         return NextResponse.json({ error: "无权限访问" }, { status: 403 });
       }
-      return NextResponse.redirect(new URL("/erp/inventory", req.url));
+      return NextResponse.redirect(new URL(role === "PURCHASE" ? "/erp/purchase-orders" : "/erp/inventory", req.url));
     }
   }
 

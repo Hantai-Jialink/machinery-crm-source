@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { calculateKitMaterialQuantities, issuedOrderNo } from "./production-orders";
+import {
+  assertPlannedCompletionDate,
+  calculateKitMaterialQuantities,
+  calculateRemainingContractQuantity,
+  issuedOrderNo,
+} from "./production-orders";
 
 describe("production order numbering", () => {
   it("uses contract number with a two-digit increasing sequence", () => {
@@ -9,6 +14,18 @@ describe("production order numbering", () => {
 
   it("keeps stock order numbers in MOYYYYMMDD-001 form", () => {
     expect(issuedOrderNo(null, null, "MO20260713-001")).toBe("MO20260713-001");
+  });
+});
+
+describe("contract item production limits", () => {
+  it("subtracts every active generated order and never returns a negative remainder", () => {
+    expect(calculateRemainingContractQuantity(5, [2, 1]).toString()).toBe("2");
+    expect(calculateRemainingContractQuantity(5, [3, 3]).toString()).toBe("0");
+  });
+
+  it("rejects a planned completion date after the contract delivery date", () => {
+    expect(() => assertPlannedCompletionDate(new Date("2026-07-20"), new Date("2026-07-20"))).not.toThrow();
+    expect(() => assertPlannedCompletionDate(new Date("2026-07-21"), new Date("2026-07-20"))).toThrow("合同交货日期");
   });
 });
 

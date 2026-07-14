@@ -14,11 +14,13 @@ export async function GET(request: NextRequest) {
   const warehouseId = searchParams.get("warehouseId") || "";
   const from = searchParams.get("from") || "";
   const to = searchParams.get("to") || "";
+  const toExclusive = to ? new Date(`${to}T00:00:00`) : null;
+  if (toExclusive) toExclusive.setDate(toExclusive.getDate() + 1);
   if (status && !Object.values(KitCheckStatus).includes(status as KitCheckStatus)) return NextResponse.json({ error: "齐套状态参数无效" }, { status: 400 });
   const where: Prisma.KitCheckResultWhereInput = {
     ...(status ? { status: status as KitCheckStatus } : {}),
     ...(warehouseId ? { warehouseId } : {}),
-    ...(from || to ? { createdAt: { ...(from ? { gte: new Date(`${from}T00:00:00`) } : {}), ...(to ? { lt: new Date(`${to}T00:00:00`) } : {}) } } : {}),
+    ...(from || to ? { createdAt: { ...(from ? { gte: new Date(`${from}T00:00:00`) } : {}), ...(toExclusive ? { lt: toExclusive } : {}) } } : {}),
     productionOrder: { deletedAt: null, ...(orderNo ? { orderNo: { contains: orderNo } } : {}), ...(product ? { OR: [{ productModelSnapshot: { contains: product } }, { productNameSnapshot: { contains: product } }] } : {}) },
   };
   const results = await prisma.kitCheckResult.findMany({ where, include: { productionOrder: { select: { id: true, orderNo: true, productModelSnapshot: true, productNameSnapshot: true } } }, orderBy: { createdAt: "desc" }, take: 200 });

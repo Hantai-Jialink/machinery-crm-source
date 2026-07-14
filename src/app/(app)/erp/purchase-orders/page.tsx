@@ -12,7 +12,7 @@ function money(value: unknown) { return `¥${Number(value || 0).toLocaleString("
 
 export default function PurchaseOrdersPage() {
   const { data: session } = useSession();
-  const canEdit = (session?.user as any)?.role === "SUPER_ADMIN" || (session?.user as any)?.role === "WAREHOUSE";
+  const canEdit = (session?.user as any)?.role === "SUPER_ADMIN" || (session?.user as any)?.role === "PURCHASE";
   const [orders, setOrders] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
