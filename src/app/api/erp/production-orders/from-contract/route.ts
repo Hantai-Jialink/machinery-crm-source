@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { canPublishProductionOrder, getSessionUser } from "@/lib/permissions";
-import { buildDraftData, normalizeDraftInput, ProductionOrderRequestError } from "@/lib/production-orders";
+import { buildDraftData, normalizeDraftInput, normalizeProductionRequestKey, ProductionOrderRequestError } from "@/lib/production-orders";
 import { writeOperationLog } from "@/lib/sales-items";
 
 export async function POST(request: NextRequest) {
@@ -18,13 +18,32 @@ export async function POST(request: NextRequest) {
   }
   const contractId = String(body.contractId || "").trim();
   const lines = Array.isArray(body.lines) ? body.lines : [];
+  let requestKey: string;
+  try { requestKey = normalizeProductionRequestKey(body.requestKey); }
+  catch (error) { return error instanceof ProductionOrderRequestError ? NextResponse.json({ error: error.message }, { status: error.status }) : NextResponse.json({ error: "请求幂等标识无效" }, { status: 400 }); }
   if (!contractId || lines.length === 0) return NextResponse.json({ error: "请选择合同设备明细" }, { status: 400 });
   if (lines.length > 100) return NextResponse.json({ error: "单次最多生成 100 张生产工单" }, { status: 400 });
 
   try {
-    const orders = await prisma.$transaction(async (tx) => {
+    const transactionResult = await prisma.$transaction(async (tx) => {
+      const sourceRequestKeys = lines.map((_: unknown, index: number) => `${requestKey}:${index}`);
+      const existingOrders = await tx.productionOrder.findMany({ where: { sourceRequestKey: { in: sourceRequestKeys } } });
+      if (existingOrders.length > 0) {
+        const byRequestKey = new Map(existingOrders.map((order) => [order.sourceRequestKey, order]));
+        const replayed = sourceRequestKeys.map((key, index) => {
+          const order = byRequestKey.get(key);
+          const line = lines[index];
+          let sameQuantity = false;
+          try { sameQuantity = Boolean(order?.quantity.eq(new Prisma.Decimal(String(line?.quantity || "")))); } catch { /* invalid replay payload */ }
+          if (!order || order.createdById !== user.id || order.contractId !== contractId || order.contractItemId !== String(line?.contractItemId || "") || !sameQuantity) {
+            throw new ProductionOrderRequestError("批量生产工单幂等标识已用于其他请求", 409);
+          }
+          return order;
+        });
+        return { orders: replayed, replayed: true };
+      }
       const createdOrders = [];
-      for (const line of lines) {
+      for (const [index, line] of lines.entries()) {
         const input = normalizeDraftInput({
           ...line,
           contractId,
@@ -36,7 +55,7 @@ export async function POST(request: NextRequest) {
           remark: body.remark,
         });
         const data = await buildDraftData(tx, input);
-        const created = await tx.productionOrder.create({ data: { ...data, createdById: user.id } });
+        const created = await tx.productionOrder.create({ data: { ...data, sourceRequestKey: sourceRequestKeys[index], createdById: user.id } });
         await writeOperationLog(tx, {
           userId: user.id,
           action: "CREATE_PRODUCTION_ORDER_FROM_CONTRACT_ITEM",
@@ -63,9 +82,9 @@ export async function POST(request: NextRequest) {
           orderNo: order.orderNo,
         })),
       });
-      return createdOrders;
+      return { orders: createdOrders, replayed: false };
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
-    return NextResponse.json({ items: orders }, { status: 201 });
+    return NextResponse.json({ items: transactionResult.orders }, { status: transactionResult.replayed ? 200 : 201 });
   } catch (error: any) {
     if (error instanceof ProductionOrderRequestError) {
       return NextResponse.json({ error: error.message }, { status: error.status });

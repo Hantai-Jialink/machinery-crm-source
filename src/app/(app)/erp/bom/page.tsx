@@ -67,6 +67,10 @@ function quantity(value: unknown) {
   return Number(value || 0).toLocaleString("zh-CN", { maximumFractionDigits: 2 });
 }
 
+function isPackageMaterial(material: any) {
+  return String(material?.category?.name || "").includes("零件包");
+}
+
 export default function BomPage() {
   const { data: session } = useSession();
   const router = useRouter();
@@ -851,6 +855,7 @@ export default function BomPage() {
                           const material = materialMap.get(item.materialId);
                           const children = form.items.filter((candidate) => candidate.parentClientKey === item.clientKey);
                           const isGroup = children.length > 0;
+                          const canHaveChildren = isPackageMaterial(material);
                           const integerUnit = ["件", "个", "台", "套", "包", "组", "根"].includes(material?.unit || "件");
                           const depth = lineDepth(item);
                           return (
@@ -864,7 +869,7 @@ export default function BomPage() {
                                 <div className="inline-flex items-center overflow-hidden rounded-lg border border-gray-300"><button type="button" onClick={() => updateLine(index, "quantity", String(Math.max(1, Number(item.quantity || 1) - (integerUnit ? 1 : 0.01))))} className="px-2 py-2 hover:bg-gray-50">−</button><input type="number" min="1" step={integerUnit ? "1" : "0.01"} value={item.quantity} onChange={(event) => updateLine(index, "quantity", event.target.value)} className="w-20 border-x border-gray-300 px-2 py-2 text-right text-sm outline-none" /><button type="button" onClick={() => updateLine(index, "quantity", String(Number(item.quantity || 0) + (integerUnit ? 1 : 0.01)))} className="px-2 py-2 hover:bg-gray-50">+</button></div>
                               </td>
                               <td className="px-3 py-2 text-center">
-                                <div className="inline-flex items-center gap-2"><button title="上移" onClick={() => moveLine(index, -1)} className="text-gray-400 hover:text-gray-900"><ArrowUp className="h-4 w-4" /></button><button title="下移" onClick={() => moveLine(index, 1)} className="text-gray-400 hover:text-gray-900"><ArrowDown className="h-4 w-4" /></button><button title="添加子物料" onClick={() => openMaterialPicker(item.clientKey)} className="text-blue-600 hover:text-blue-800"><Plus className="h-4 w-4" /></button><button title="删除" onClick={() => removeLine(index)} className="text-gray-400 hover:text-red-600"><Trash2 className="w-4 h-4" /></button></div>
+                                <div className="inline-flex items-center gap-2"><button title="上移" onClick={() => moveLine(index, -1)} className="text-gray-400 hover:text-gray-900"><ArrowUp className="h-4 w-4" /></button><button title="下移" onClick={() => moveLine(index, 1)} className="text-gray-400 hover:text-gray-900"><ArrowDown className="h-4 w-4" /></button>{canHaveChildren && <button title="向零件包添加子物料" onClick={() => openMaterialPicker(item.clientKey)} className="text-blue-600 hover:text-blue-800"><Plus className="h-4 w-4" /></button>}<button title="删除" onClick={() => removeLine(index)} className="text-gray-400 hover:text-red-600"><Trash2 className="w-4 h-4" /></button></div>
                               </td>
                             </tr>
                           );

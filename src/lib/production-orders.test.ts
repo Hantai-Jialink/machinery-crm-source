@@ -4,6 +4,7 @@ import {
   calculateKitMaterialQuantities,
   calculateRemainingContractQuantity,
   issuedOrderNo,
+  normalizeProductionRequestKey,
 } from "./production-orders";
 
 describe("production order numbering", () => {
@@ -18,6 +19,11 @@ describe("production order numbering", () => {
 });
 
 describe("contract item production limits", () => {
+  it("requires a stable server idempotency key for draft creation", () => {
+    expect(normalizeProductionRequestKey("550e8400-e29b-41d4-a716-446655440000")).toBe("550e8400-e29b-41d4-a716-446655440000");
+    expect(() => normalizeProductionRequestKey("short")).toThrow("幂等标识");
+  });
+
   it("subtracts every active generated order and never returns a negative remainder", () => {
     expect(calculateRemainingContractQuantity(5, [2, 1]).toString()).toBe("2");
     expect(calculateRemainingContractQuantity(5, [3, 3]).toString()).toBe("0");

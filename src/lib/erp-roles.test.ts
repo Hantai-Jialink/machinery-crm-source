@@ -6,6 +6,7 @@ import {
   canManageSuppliers,
   canPublishProductionOrder,
   canViewERP,
+  customerBusinessLineForRole,
   roleRequiresRegionScope,
 } from "@/lib/erp-roles";
 
@@ -16,6 +17,11 @@ describe("ERP role policy", () => {
     expect(roleRequiresRegionScope("SUPER_ADMIN")).toBe(false);
     expect(roleRequiresRegionScope("PURCHASE")).toBe(false);
     expect(roleRequiresRegionScope("WAREHOUSE")).toBe(false);
+  });
+
+  it("keeps domestic sales and foreign trade on separate customer business lines", () => {
+    expect(customerBusinessLineForRole("SALES")).toBe("国内销售");
+    expect(customerBusinessLineForRole("FOREIGN_TRADE")).toBe("外贸");
   });
 
   it("keeps purchase and warehouse write capabilities separated", () => {

@@ -33,6 +33,7 @@ export default function ProductionOrderDetailPage() {
   const [issueQty, setIssueQty] = useState<Record<string, string>>({});
   const [returnQty, setReturnQty] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
+  const [draftRequestKey] = useState(() => crypto.randomUUID());
 
   const json = async (url: string, init?: RequestInit) => {
     const response = await fetch(url, init); const data = await response.json();
@@ -40,11 +41,14 @@ export default function ProductionOrderDetailPage() {
     return data;
   };
   const loadReferences = async () => {
-    const [p, b, w, c, u] = await Promise.all([json("/api/erp/products?pageSize=200"), json("/api/erp/boms?pageSize=200"), json("/api/erp/warehouses?pageSize=200"), json("/api/erp/production-contracts"), json("/api/erp/production-users")]);
-    const contractList = Array.isArray(c) ? c : c.items || c.data || [];
+    const requestedContractId = isNew ? new URLSearchParams(window.location.search).get("contractId") || "" : "";
+    const contractSourceUrl = isNew ? "/api/erp/production-contracts" : `/api/erp/production-contracts?excludeOrderId=${encodeURIComponent(id)}`;
+    const [p, b, w, c, u, requestedContracts] = await Promise.all([json("/api/erp/products?pageSize=200"), json("/api/erp/boms?pageSize=200"), json("/api/erp/warehouses?pageSize=200"), json(contractSourceUrl), json("/api/erp/production-users"), requestedContractId ? json(`/api/erp/production-contracts?contractId=${encodeURIComponent(requestedContractId)}`) : Promise.resolve([])]);
+    const recentContracts = Array.isArray(c) ? c : c.items || c.data || [];
+    const selectedContracts = Array.isArray(requestedContracts) ? requestedContracts : requestedContracts.items || requestedContracts.data || [];
+    const contractList = [...new Map([...selectedContracts, ...recentContracts].map((contract: any) => [contract.id, contract])).values()];
     setProducts(Array.isArray(p) ? p : p.items || p.data || []); setBoms(Array.isArray(b) ? b : b.items || b.data || []); setWarehouses(Array.isArray(w) ? w : w.items || w.data || []); setContracts(contractList); setUsers(Array.isArray(u) ? u : u.items || []);
     if (isNew) {
-      const requestedContractId = new URLSearchParams(window.location.search).get("contractId") || "";
       const contract = contractList.find((item: any) => item.id === requestedContractId);
       if (contract) setForm((current) => ({ ...current, contractId: contract.id, plannedDate: day(contract.estimatedShipmentDate) || current.plannedDate }));
     }
@@ -62,7 +66,7 @@ export default function ProductionOrderDetailPage() {
   }, [id, role]);
 
   const persistDraft = async () => {
-    const data = await json(isNew ? "/api/erp/production-orders" : `/api/erp/production-orders/${id}`, { method: isNew ? "POST" : "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(form) });
+    const data = await json(isNew ? "/api/erp/production-orders" : `/api/erp/production-orders/${id}`, { method: isNew ? "POST" : "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(isNew ? { ...form, requestKey: draftRequestKey } : form) });
     return data;
   };
   const saveDraft = async () => {
@@ -78,6 +82,7 @@ export default function ProductionOrderDetailPage() {
       if (stockDraft && !window.confirm("这是备货工单。确认发布后将生成正式工单号并固化物料快照，是否继续？")) return;
       const saved = await persistDraft();
       const orderId = saved.id || id;
+      if (isNew) router.replace(`/erp/production-orders/${orderId}`);
       const issued = await json(`/api/erp/production-orders/${orderId}/issue`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(stockDraft ? { confirmStockOrder: true } : {}) });
       router.replace(`/erp/production-orders/${orderId}`);
       setDetail(issued);
@@ -114,10 +119,10 @@ export default function ProductionOrderDetailPage() {
   };
 
   const activeBoms = boms.filter((bom) => !form.productId || bom.productId === form.productId).filter((bom) => bom.isActive !== false);
-  const batchCreate = async (lines: any[]) => {
+  const batchCreate = async (lines: any[], requestKey: string) => {
     try {
       setSaving(true);
-      const data = await json("/api/erp/production-orders/from-contract", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...form, lines }) });
+      const data = await json("/api/erp/production-orders/from-contract", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...form, lines, requestKey }) });
       alert(`已生成 ${data.items?.length || 0} 张生产工单草稿。`);
       router.replace("/erp/production-orders");
     } catch (error) { alert(error instanceof Error ? error.message : "批量生成失败"); } finally { setSaving(false); }
@@ -142,14 +147,17 @@ export default function ProductionOrderDetailPage() {
       {detail.configuration?.specialRequirements && <p className="mt-3 whitespace-pre-wrap rounded bg-gray-50 p-3 text-sm">特殊配置 / 生产要求：{detail.configuration.specialRequirements}</p>}
       <div className="mt-4 flex flex-wrap gap-2">{detail.status === "ISSUED" && canPublish && <><Link href={`/erp/production-orders/${id}/change`} className="rounded-lg border px-3 py-2 text-sm">申请变更</Link><button onClick={cancelOrder} className="rounded-lg border px-3 py-2 text-sm text-red-700">取消工单</button></>}{detail.status === "ISSUED" && canKitCheck && <button onClick={kitCheck} className="inline-flex items-center gap-1 rounded-lg border px-3 py-2 text-sm"><ClipboardCheck className="h-4 w-4" />执行齐套检查</button>}</div>
     </section>
-    <section className="rounded-xl border border-gray-200 bg-white p-5"><div className="flex justify-between"><h2 className="font-semibold">齐套检查记录</h2><Link href="/erp/kit-check-results" className="text-sm text-blue-700">查看汇总</Link></div>{latest ? <><p className="mt-2 text-sm">最近结果：{latest.status === "SUFFICIENT" ? "库存齐套" : `缺料 ${latest.shortageCount} 项`}；在途采购量仅展示，不影响齐套判断。</p><div className="mt-3 overflow-auto"><table className="w-full min-w-[700px] text-sm"><thead><tr className="text-left text-gray-500"><th>物料编号</th><th>物料名称</th><th>规格 / 图号</th><th>单台用量</th><th>工单数量</th><th>总需求 / 剩余需求</th><th>当前库存</th><th>缺少数量</th><th>结果</th></tr></thead><tbody>{(latest.detail || []).map((item: any) => <tr key={item.materialId} className="border-t"><td className="py-2">{item.code}</td><td>{item.name}</td><td>{item.spec || "—"}</td><td>{item.perUnitQty ?? "—"}</td><td>{item.orderQty ?? Number(detail.quantity)}</td><td>{item.requiredQty}</td><td>{item.availableQty}</td><td className="text-red-600">{item.shortageQty}</td><td>{Number(item.shortageQty) > 0 ? "缺料" : "齐套"}</td></tr>)}</tbody></table></div>{latest.status === "SHORTAGE" && canPurchase && <button onClick={() => generatePurchase(latest)} className="mt-3 inline-flex items-center gap-1 rounded-lg border px-3 py-2 text-sm"><ShoppingCart className="h-4 w-4" />按建议生成采购草稿</button>}</> : <p className="mt-2 text-sm text-gray-500">尚未执行齐套检查。</p>}</section>
+    <section className="rounded-xl border border-gray-200 bg-white p-5"><div className="flex justify-between"><h2 className="font-semibold">齐套检查记录</h2><Link href="/erp/kit-check-results" className="text-sm text-blue-700">查看汇总</Link></div>{latest ? <><p className="mt-2 text-sm">最近结果：{latest.status === "SUFFICIENT" ? "库存齐套" : `缺料 ${latest.shortageCount} 项`}；在途采购量仅展示，不影响齐套判断。</p><div className="mt-3 overflow-auto"><table className="w-full min-w-[760px] text-sm"><thead><tr className="text-left text-gray-500"><th>物料编号</th><th>物料名称</th><th>规格 / 图号</th><th>单台用量</th><th>工单数量</th><th>总需求量</th><th>剩余需求量</th><th>当前库存</th><th>缺少数量</th><th>结果</th></tr></thead><tbody>{(latest.detail || []).map((item: any) => <tr key={item.materialId} className="border-t"><td className="py-2">{item.code}</td><td>{item.name}</td><td>{item.spec || "—"}</td><td>{item.perUnitQty ?? "—"}</td><td>{item.orderQty ?? Number(detail.quantity)}</td><td>{item.totalRequiredQty ?? item.requiredQty}</td><td>{item.remainingRequiredQty ?? item.requiredQty}</td><td>{item.availableQty}</td><td className="text-red-600">{item.shortageQty}</td><td>{Number(item.shortageQty) > 0 ? "缺料" : "齐套"}</td></tr>)}</tbody></table></div>{latest.status === "SHORTAGE" && canPurchase && <button onClick={() => generatePurchase(latest)} className="mt-3 inline-flex items-center gap-1 rounded-lg border px-3 py-2 text-sm"><ShoppingCart className="h-4 w-4" />按建议生成采购草稿</button>}</> : <p className="mt-2 text-sm text-gray-500">尚未执行齐套检查。</p>}</section>
     <section className="rounded-xl border border-gray-200 bg-white p-5"><h2 className="font-semibold">工单物料快照与生产领退料</h2><div className="mt-3 overflow-auto"><table className="w-full min-w-[900px] text-sm"><thead><tr className="text-left text-gray-500"><th>物料</th><th>计划</th><th>累计领料</th><th>累计退料</th><th>净领料</th><th>剩余需求</th><th>当前库存</th>{canInventory && <><th>本次领料</th><th>本次退料</th></>}</tr></thead><tbody>{detail.materials.map((item: any) => { const sum = detail.materialSummary?.find((value: any) => value.materialId === item.materialId) || {}; return <tr key={item.id} className="border-t"><td className="py-2">{item.materialCodeSnapshot} {item.materialNameSnapshot}</td><td>{sum.plannedQty}</td><td>{sum.issuedQty}</td><td>{sum.returnedQty}</td><td>{sum.netIssuedQty}</td><td>{sum.remainingQty}</td><td>{sum.inventoryQty}</td>{canInventory && <><td><input type="number" min="0" step="0.01" value={issueQty[item.materialId] || ""} onChange={(event) => setIssueQty({ ...issueQty, [item.materialId]: event.target.value })} className="w-20 rounded border p-1" /></td><td><input type="number" min="0" step="0.01" value={returnQty[item.materialId] || ""} onChange={(event) => setReturnQty({ ...returnQty, [item.materialId]: event.target.value })} className="w-20 rounded border p-1" /></td></>}</tr>; })}</tbody></table></div>{canInventory && <div className="mt-3 flex gap-2"><button onClick={() => materialMovement("issue")} disabled={detail.status !== "ISSUED"} className="inline-flex items-center gap-1 rounded-lg bg-gray-900 px-3 py-2 text-sm text-white disabled:opacity-40"><PackageMinus className="h-4 w-4" />确认领料</button><button onClick={() => materialMovement("return")} disabled={detail.status === "CANCELLED"} className="inline-flex items-center gap-1 rounded-lg border px-3 py-2 text-sm disabled:opacity-40"><PackagePlus className="h-4 w-4" />确认退料</button></div>}</section>
     <section className="rounded-xl border border-gray-200 bg-white p-5"><h2 className="font-semibold">版本与变更审批记录</h2><div className="mt-2 text-sm">{(detail.versionHistory || []).map((item: any) => <span key={item.id} className="mr-3">V{item.version} {item.orderNo} {item.isCurrent ? "（当前）" : ""}</span>)}</div><div className="mt-3 space-y-2 text-sm">{(detail.changeRequests || []).map((item: any) => <div key={item.id} className="rounded border p-2">{item.status}：{item.reason}{item.approvalRemark ? `；审批说明：${item.approvalRemark}` : ""}</div>)}</div></section>
   </div>;
 }
 
 function DraftForm({ form, setForm, products, boms, warehouses, contracts, users, saving, isNew, onSave, onPublish, onBatchCreate, onDelete }: any) {
-  const [selectedLines, setSelectedLines] = useState<Record<string, { quantity: string; bomId: string }>>({});
+  const [batchRequestKey] = useState(() => crypto.randomUUID());
+  const [selectedLines, setSelectedLines] = useState<Record<string, { quantity: string; bomId: string }>>(() =>
+    form.contractItemId ? { [form.contractItemId]: { quantity: form.quantity, bomId: form.bomId } } : {}
+  );
   const selectedContract = contracts.find((contract: any) => contract.id === form.contractId);
   const contractItems = selectedContract?.items || [];
   const field = (key: keyof Form, value: string) => setForm((current: Form) => ({ ...current, [key]: value }));
@@ -198,7 +206,7 @@ function DraftForm({ form, setForm, products, boms, warehouses, contracts, users
       <p className="mt-1 text-sm text-gray-500">合同明细只带入生产信息，不显示任何客户资料。未选仓库时优先使用启用的 Dachuan 仓库。</p>
       <div className="mt-5 grid gap-4 sm:grid-cols-2">
         <label className="text-sm">关联合同
-          <select value={form.contractId} onChange={(event) => chooseContract(event.target.value)} disabled={!isNew} className="mt-1 w-full rounded border p-2 disabled:bg-gray-50">
+          <select value={form.contractId} onChange={(event) => chooseContract(event.target.value)} className="mt-1 w-full rounded border p-2">
             <option value="">备货生产</option>{contracts.map((item: any) => <option key={item.id} value={item.id}>{item.contractNo}</option>)}
           </select>
         </label>
@@ -210,7 +218,7 @@ function DraftForm({ form, setForm, products, boms, warehouses, contracts, users
           <tbody>{contractItems.map((item: any) => {
             const selected = selectedLines[item.id];
             return <tr key={item.id} className="border-t">
-              <td className="p-3"><input type="checkbox" checked={Boolean(selected)} disabled={!item.canGenerate || !isNew} onChange={(event) => toggleItem(item, event.target.checked)} /></td>
+              <td className="p-3"><input type="checkbox" checked={Boolean(selected)} disabled={!item.canGenerate && !selected} onChange={(event) => toggleItem(item, event.target.checked)} /></td>
               <td>{item.productNameSnapshot}</td><td>{item.productModelSnapshot}</td><td className="text-right">{item.quantity}</td><td className="text-right">{item.generatedQuantity}</td>
               <td className="text-right">{selected ? <input type="number" min="0.01" max={item.remainingQuantity} step="0.01" value={selected.quantity} onChange={(event) => { const quantity = event.target.value; setSelectedLines({ ...selectedLines, [item.id]: { ...selected, quantity } }); if (form.contractItemId === item.id) field("quantity", quantity); }} className="w-24 rounded border p-1 text-right" /> : item.remainingQuantity}</td>
               <td className="p-3">{selected ? <select value={selected.bomId} onChange={(event) => { const bomId = event.target.value; setSelectedLines({ ...selectedLines, [item.id]: { ...selected, bomId } }); if (form.contractItemId === item.id) field("bomId", bomId); }} className="rounded border p-1"><option value="">请选择</option>{(item.boms || []).map((bom: any) => <option key={bom.id} value={bom.id}>{bom.version}</option>)}</select> : item.disabledReason || `${item.boms?.length || 0} 个生效版本`}</td>
@@ -236,7 +244,7 @@ function DraftForm({ form, setForm, products, boms, warehouses, contracts, users
       <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
         <div>{onDelete && <button onClick={onDelete} className="inline-flex items-center gap-1 rounded border border-red-200 px-3 py-2 text-sm text-red-700"><Trash2 className="h-4 w-4" />删除草稿</button>}</div>
         <div className="flex flex-wrap gap-2">
-          {isNew && selectedContract && <button onClick={() => onBatchCreate(batchLines)} disabled={saving || selectedCount === 0 || batchLines.some((line: any) => !line.bomId || Number(line.quantity) <= 0)} className="rounded border px-4 py-2 text-sm disabled:opacity-40">批量生成草稿（{selectedCount}）</button>}
+          {isNew && selectedContract && <button onClick={() => onBatchCreate(batchLines, batchRequestKey)} disabled={saving || selectedCount === 0 || batchLines.some((line: any) => !line.bomId || Number(line.quantity) <= 0)} className="rounded border px-4 py-2 text-sm disabled:opacity-40">批量生成草稿（{selectedCount}）</button>}
           <button onClick={onSave} disabled={saving || (selectedContract && selectedCount !== 1)} className="inline-flex items-center gap-1 rounded border px-4 py-2 text-sm disabled:opacity-40"><Save className="h-4 w-4" />保存草稿</button>
           <button onClick={onPublish} disabled={saving || (selectedContract && selectedCount !== 1)} className="rounded bg-gray-900 px-4 py-2 text-sm text-white disabled:opacity-40">发布工单</button>
         </div>

@@ -32,13 +32,18 @@ export function parseBomQuantity(value: unknown, unit: string): Prisma.Decimal |
     const quantity = new Prisma.Decimal(String(value ?? ""));
     if (!quantity.isFinite() || !quantity.gt(0)) return null;
     if (INTEGER_BOM_UNITS.has(unit.trim()) && !quantity.isInteger()) return null;
-    return quantity.toDecimalPlaces(4);
+    const storedQuantity = quantity.toDecimalPlaces(2);
+    return storedQuantity.gt(0) ? storedQuantity : null;
   } catch {
     return null;
   }
 }
 
-export function normalizeBomWriteItems(rawItems: unknown, unitByMaterial: Map<string, string>): BomWriteItem[] {
+export function normalizeBomWriteItems(
+  rawItems: unknown,
+  unitByMaterial: Map<string, string>,
+  packageMaterialIds: Set<string>
+): BomWriteItem[] {
   if (!Array.isArray(rawItems) || rawItems.length === 0) throw new Error("整机用料清单至少需要一条物料明细");
   const base = rawItems.map((raw: any, index) => ({
     clientKey: String(raw?.clientKey || raw?.id || `line-${index}`).trim(),
@@ -49,10 +54,23 @@ export function normalizeBomWriteItems(rawItems: unknown, unitByMaterial: Map<st
   }));
   const byKey = new Map(base.map((item) => [item.clientKey, item]));
   if (byKey.size !== base.length) throw new Error("整机用料清单明细标识重复");
+  const siblingMaterials = new Set<string>();
   for (const item of base) {
     if (!item.materialId || !unitByMaterial.has(item.materialId)) throw new Error("整机用料清单中存在无效或已停用物料");
     if (item.parentClientKey && !byKey.has(item.parentClientKey)) throw new Error("整机用料清单存在无效父级");
     if (item.parentClientKey === item.clientKey) throw new Error("整机用料清单存在循环父子关系");
+    const siblingMaterialKey = `${item.parentClientKey || "ROOT"}:${item.materialId}`;
+    if (siblingMaterials.has(siblingMaterialKey)) throw new Error("同一层级不能重复加入相同物料");
+    siblingMaterials.add(siblingMaterialKey);
+  }
+  const parentKeys = new Set(base.map((item) => item.parentClientKey).filter(Boolean));
+  for (const item of base) {
+    if (parentKeys.has(item.clientKey) && !packageMaterialIds.has(item.materialId)) {
+      throw new Error("只有归入零件包分类的物料可以作为虚拟分组并添加子物料");
+    }
+    if (packageMaterialIds.has(item.materialId) && !parentKeys.has(item.clientKey)) {
+      throw new Error("虚拟零件包至少需要包含一个子物料");
+    }
   }
 
   const levels = new Map<string, number>();

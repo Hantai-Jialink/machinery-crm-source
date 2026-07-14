@@ -14,6 +14,7 @@ export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const search = searchParams.get("search")?.trim() || "";
   const contractId = searchParams.get("contractId")?.trim() || "";
+  const excludeOrderId = searchParams.get("excludeOrderId")?.trim() || "";
   const contracts = await prisma.contract.findMany({
     where: {
       deletedAt: null,
@@ -53,6 +54,7 @@ export async function GET(request: NextRequest) {
             deletedAt: null,
             isCurrent: true,
             status: { not: "CANCELLED" },
+            ...(excludeOrderId ? { id: { not: excludeOrderId } } : {}),
           },
           _sum: { quantity: true },
         })
@@ -66,6 +68,7 @@ export async function GET(request: NextRequest) {
             deletedAt: null,
             isCurrent: true,
             status: { not: "CANCELLED" },
+            ...(excludeOrderId ? { id: { not: excludeOrderId } } : {}),
           },
           _sum: { quantity: true },
         })

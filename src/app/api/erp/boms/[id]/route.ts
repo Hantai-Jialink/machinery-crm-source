@@ -127,9 +127,9 @@ export async function PUT(
   }
 
   const materialIds = Array.isArray(body.items) ? [...new Set(body.items.map((item: any) => String(item?.materialId || "")).filter(Boolean))] as string[] : [];
-  const materials = await prisma.material.findMany({ where: { id: { in: materialIds }, isActive: true, deletedAt: null }, select: { id: true, unit: true } });
+  const materials = await prisma.material.findMany({ where: { id: { in: materialIds }, isActive: true, deletedAt: null }, select: { id: true, unit: true, category: { select: { name: true } } } });
   let items: BomWriteItem[];
-  try { items = normalizeBomWriteItems(body.items, new Map(materials.map((material) => [material.id, material.unit]))); }
+  try { items = normalizeBomWriteItems(body.items, new Map(materials.map((material) => [material.id, material.unit])), new Set(materials.filter((material) => material.category.name.includes("零件包")).map((material) => material.id))); }
   catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "用料清单明细无效" }, { status: 400 }); }
 
   const isActive = body.isActive !== false;

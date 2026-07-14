@@ -6,6 +6,17 @@ ALTER TABLE `users`
 ALTER TABLE `erp_production_orders`
   ADD COLUMN `contractItemId` VARCHAR(191) NULL;
 
+-- Nullable for existing orders; new UI/API requests use it as an idempotency key.
+ALTER TABLE `erp_production_orders`
+  ADD COLUMN `sourceRequestKey` VARCHAR(191) NULL;
+
+CREATE UNIQUE INDEX `uq_po_source_request`
+  ON `erp_production_orders`(`sourceRequestKey`);
+
+-- Existing kit checks stay unchanged; new executions record the frozen BOM version.
+ALTER TABLE `erp_kit_check_results`
+  ADD COLUMN `bomVersionSnapshot` VARCHAR(191) NULL;
+
 CREATE INDEX `idx_po_contract_item`
   ON `erp_production_orders`(`contractItemId`);
 

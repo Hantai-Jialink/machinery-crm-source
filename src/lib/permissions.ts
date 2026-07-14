@@ -11,6 +11,7 @@ import {
   canManageSuppliers as roleCanManageSuppliers,
   canPublishProductionOrder as roleCanPublishProductionOrder,
   canViewERP,
+  customerBusinessLineForRole,
 } from "@/lib/erp-roles";
 
 // 用户负责的省/市范围。cities 为空数组 = 整省;否则仅这些市。
@@ -97,9 +98,9 @@ export function isSuperAdmin(user: SessionUser): boolean {
   return user.role === "SUPER_ADMIN";
 }
 
-/** 是否可以看到全部数据(超级管理员 或 全区域)——含外贸客户 */
+/** 只有超级管理员可以跨业务线和跨区域查看全部客户。 */
 export function canSeeAllData(user: SessionUser): boolean {
-  return user.role === "SUPER_ADMIN" || user.viewScope === "ALL";
+  return user.role === "SUPER_ADMIN";
 }
 
 /** 某个(省, 市)是否落在用户负责范围内 */
@@ -124,7 +125,7 @@ export function matchesTerritory(
  */
 export function customerIsolationWhere(user: SessionUser): any {
   if (canSeeAllData(user)) return {};
-  const out: any = { businessLine: "国内销售" };
+  const out: any = { businessLine: customerBusinessLineForRole(user.role) };
   const territories = user.territories || [];
   if (territories.length === 0) {
     out.id = "__NO_ACCESS__";
@@ -161,7 +162,8 @@ export function canAccessCustomer(
 ): boolean {
   if (!customer) return false;
   if (canSeeAllData(user)) return true;
-  if ((customer.businessLine || "国内销售") !== "国内销售") return false; // 销售看不到外贸客户
+  const expectedBusinessLine = customerBusinessLineForRole(user.role);
+  if ((customer.businessLine || "国内销售") !== expectedBusinessLine) return false;
   return matchesTerritory(user.territories, customer.province, customer.city);
 }
 

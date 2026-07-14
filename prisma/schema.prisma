@@ -947,7 +947,8 @@ model ProductionOrder {
   orderNo              String                @unique
   contractId           String?
   contractItemId       String?
-  contractItem         ContractItem?         @relation(fields: [contractItemId], references: [id], onDelete: SetNull)
+  contractItem         ContractItem?         @relation(fields: [contractItemId], references: [id], onDelete: SetNull, map: "fk_po_contract_item")
+  sourceRequestKey     String?               @unique(map: "uq_po_source_request")
   contractNoSnapshot   String?
   isStockOrder         Boolean               @default(false)
   sequenceInContract   Int?
@@ -977,7 +978,7 @@ model ProductionOrder {
   sourcePurchaseOrders PurchaseOrder[]                @relation("PurchaseOrderSourceProductionOrder")
 
   @@index([contractId])
-  @@index([contractItemId])
+  @@index([contractItemId], map: "idx_po_contract_item")
   @@index([productId])
   @@index([warehouseId])
   @@index([status])
@@ -1033,16 +1034,17 @@ model ProductionOrderChangeRequest {
 }
 
 model KitCheckResult {
-  id                String          @id @default(uuid())
-  productionOrderId String
-  productionOrder   ProductionOrder @relation(fields: [productionOrderId], references: [id], onDelete: Cascade)
-  warehouseId       String
-  status            KitCheckStatus
-  shortageCount     Int             @default(0)
-  totalMaterials    Int             @default(0)
-  detail            Json
-  checkedById       String
-  createdAt         DateTime        @default(now())
+  id                 String          @id @default(uuid())
+  productionOrderId  String
+  productionOrder    ProductionOrder @relation(fields: [productionOrderId], references: [id], onDelete: Cascade)
+  warehouseId        String
+  bomVersionSnapshot String?
+  status             KitCheckStatus
+  shortageCount      Int             @default(0)
+  totalMaterials     Int             @default(0)
+  detail             Json
+  checkedById        String
+  createdAt          DateTime        @default(now())
 
   sourcePurchaseOrders PurchaseOrder[]               @relation("PurchaseOrderSourceKitCheck")
   shortageSources      PurchaseOrderShortageSource[]

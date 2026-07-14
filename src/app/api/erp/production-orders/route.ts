@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { Prisma, ProductionOrderStatus } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { canAccessERP, canPublishProductionOrder, getSessionUser } from "@/lib/permissions";
-import { buildDraftData, normalizeDraftInput, ProductionOrderRequestError } from "@/lib/production-orders";
+import { buildDraftData, normalizeDraftInput, normalizeProductionRequestKey, ProductionOrderRequestError } from "@/lib/production-orders";
 import { writeOperationLog } from "@/lib/sales-items";
 
 const statuses = new Set<ProductionOrderStatus>(["DRAFT", "ISSUED", "CHANGE_PENDING", "CANCELLED"]);
@@ -40,21 +40,30 @@ export async function POST(request: NextRequest) {
   if (!user) return NextResponse.json({ error: "未登录" }, { status: 401 });
   if (!canPublishProductionOrder(user)) return NextResponse.json({ error: "无权限创建生产工单" }, { status: 403 });
   let input;
+  let requestKey: string;
   try {
-    input = normalizeDraftInput(await request.json());
+    const body = await request.json();
+    input = normalizeDraftInput(body);
+    requestKey = normalizeProductionRequestKey(body.requestKey);
   } catch (error) {
     if (error instanceof SyntaxError) return NextResponse.json({ error: "请求数据格式错误" }, { status: 400 });
     return errorResponse(error);
   }
   for (let attempt = 0; attempt < 3; attempt += 1) {
     try {
-      const order = await prisma.$transaction(async (tx) => {
+      const result = await prisma.$transaction(async (tx) => {
+        const existing = await tx.productionOrder.findUnique({ where: { sourceRequestKey: requestKey } });
+        if (existing) {
+          const sameRequest = existing.createdById === user.id && existing.contractId === input.contractId && existing.contractItemId === input.contractItemId && existing.productId === input.productId && existing.quantity.eq(input.quantity);
+          if (!sameRequest) throw new ProductionOrderRequestError("生产工单幂等标识已用于其他请求", 409);
+          return { order: existing, replayed: true };
+        }
         const data = await buildDraftData(tx, input);
-        const created = await tx.productionOrder.create({ data: { ...data, createdById: user.id } });
+        const created = await tx.productionOrder.create({ data: { ...data, sourceRequestKey: requestKey, createdById: user.id } });
         await writeOperationLog(tx, { userId: user.id, action: "CREATE_PRODUCTION_ORDER", entityType: "ProductionOrder", entityId: created.id, afterData: created });
-        return created;
+        return { order: created, replayed: false };
       }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
-      return NextResponse.json(order, { status: 201 });
+      return NextResponse.json(result.order, { status: result.replayed ? 200 : 201 });
     } catch (error: any) {
       if ((error?.code === "P2002" || error?.code === "P2034") && attempt < 2) continue;
       return errorResponse(error);

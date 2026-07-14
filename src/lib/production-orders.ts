@@ -62,6 +62,14 @@ export function parseOptionalDate(value: unknown) {
   return Number.isNaN(date.getTime()) ? undefined : date;
 }
 
+export function normalizeProductionRequestKey(value: unknown) {
+  const requestKey = String(value || "").trim();
+  if (!/^[A-Za-z0-9_-]{16,100}$/.test(requestKey)) {
+    throw new ProductionOrderRequestError("生产工单请求缺少有效的幂等标识");
+  }
+  return requestKey;
+}
+
 export function normalizeDraftInput(body: Record<string, unknown>): ProductionOrderDraftInput {
   const quantity = parsePositiveQuantity(body.quantity);
   const plannedDate = parseOptionalDate(body.plannedDate);
@@ -122,6 +130,8 @@ async function assertContractItemCapacity(
         select: {
           id: true,
           contractNo: true,
+          contractStatus: true,
+          deletedAt: true,
           estimatedShipmentDate: true,
           salesUser: { select: { id: true, name: true, email: true } },
         },
@@ -129,6 +139,9 @@ async function assertContractItemCapacity(
     },
   });
   if (!contractItem) throw new ProductionOrderRequestError("合同设备明细不存在或不属于所选合同", 404);
+  if (contractItem.contract.deletedAt || contractItem.contract.contractStatus !== "SIGNED") {
+    throw new ProductionOrderRequestError("只能从有效且已签订的合同生成或发布生产工单", 409);
+  }
   const sameProductItems = await tx.contractItem.findMany({
     where: { contractId: input.contractId, productId: contractItem.productId },
     select: { id: true },
@@ -355,7 +368,7 @@ export async function expandBomSnapshot(
 }
 
 export async function createKitCheckResult(tx: Prisma.TransactionClient, input: { productionOrderId: string; checkedById: string }) {
-  const order = await tx.productionOrder.findFirst({ where: { id: input.productionOrderId, deletedAt: null }, select: { id: true, warehouseId: true, status: true, quantity: true } });
+  const order = await tx.productionOrder.findFirst({ where: { id: input.productionOrderId, deletedAt: null }, select: { id: true, warehouseId: true, status: true, quantity: true, bomVersionSnapshot: true } });
   if (!order) throw new ProductionOrderRequestError("生产工单不存在", 404);
   if (order.status !== "ISSUED") throw new ProductionOrderRequestError("只有已发布且未作废的生产工单可以执行齐套检查", 409);
   const materials = await tx.productionOrderMaterial.findMany({ where: { productionOrderId: order.id }, orderBy: { sortOrder: "asc" } });
@@ -394,7 +407,7 @@ export async function createKitCheckResult(tx: Prisma.TransactionClient, input: 
   });
   const shortageCount = detail.filter((item) => item.shortageQty > 0).length;
   const result = await tx.kitCheckResult.create({
-    data: { productionOrderId: order.id, warehouseId: order.warehouseId, status: shortageCount ? KitCheckStatus.SHORTAGE : KitCheckStatus.SUFFICIENT, shortageCount, totalMaterials: detail.length, detail, checkedById: input.checkedById },
+    data: { productionOrderId: order.id, warehouseId: order.warehouseId, bomVersionSnapshot: order.bomVersionSnapshot, status: shortageCount ? KitCheckStatus.SHORTAGE : KitCheckStatus.SUFFICIENT, shortageCount, totalMaterials: detail.length, detail, checkedById: input.checkedById },
   });
   await writeOperationLog(tx, { userId: input.checkedById, action: "CHECK_PRODUCTION_ORDER_KIT", entityType: "ProductionOrder", entityId: order.id, afterData: { result } });
   return result;

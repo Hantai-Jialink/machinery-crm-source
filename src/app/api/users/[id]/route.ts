@@ -105,16 +105,25 @@ export async function PUT(
     }
 
     const nextRole = String(body.role || targetUser.role);
-    if (roleRequiresRegionScope(nextRole)) {
-      const territories = sanitizeTerritories(body.territories === undefined ? targetUser.territories : body.territories);
-      if (territories.length === 0) return NextResponse.json({ error: "销售和外贸销售必须选择负责范围" }, { status: 400 });
-      updateData.region = body.region === undefined ? targetUser.region : String(body.region);
-      updateData.territories = territories;
-      updateData.viewScope = "TERRITORY";
-    } else {
-      updateData.region = "其他";
-      updateData.territories = [];
-      updateData.viewScope = nextRole === "SUPER_ADMIN" ? "ALL" : "TERRITORY";
+    const existingTerritories = sanitizeTerritories(targetUser.territories);
+    const submittedTerritories = body.territories === undefined ? existingTerritories : sanitizeTerritories(body.territories);
+    const roleChanged = body.role !== undefined && body.role !== targetUser.role;
+    const territoriesChanged = JSON.stringify(submittedTerritories) !== JSON.stringify(existingTerritories);
+    const regionChanged = body.region !== undefined && String(body.region) !== targetUser.region;
+    const viewScopeChanged = body.viewScope !== undefined && String(body.viewScope) !== targetUser.viewScope;
+    const scopeWasSubmitted = roleChanged || territoriesChanged || regionChanged || viewScopeChanged;
+    if (scopeWasSubmitted) {
+      if (roleRequiresRegionScope(nextRole)) {
+        const territories = submittedTerritories;
+        if (territories.length === 0) return NextResponse.json({ error: "销售和外贸销售必须选择负责范围" }, { status: 400 });
+        updateData.region = body.region === undefined ? targetUser.region : String(body.region);
+        updateData.territories = territories;
+        updateData.viewScope = "TERRITORY";
+      } else {
+        updateData.region = "其他";
+        updateData.territories = [];
+        updateData.viewScope = nextRole === "SUPER_ADMIN" ? "ALL" : "TERRITORY";
+      }
     }
 
     if (body.isActive !== undefined) {

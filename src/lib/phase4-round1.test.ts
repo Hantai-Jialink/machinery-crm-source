@@ -11,6 +11,8 @@ describe("phase 4 round 1 migration safety", () => {
   it("adds only the compatible procurement role and nullable contract item link", () => {
     expect(migration).toContain("'PURCHASE'");
     expect(migration).toContain("ADD COLUMN `contractItemId` VARCHAR(191) NULL");
+    expect(migration).toContain("ADD COLUMN `bomVersionSnapshot` VARCHAR(191) NULL");
+    expect(migration).toContain("UNIQUE INDEX `uq_po_source_request`");
     expect(migration).toContain("ON DELETE SET NULL");
     expect(migration).not.toMatch(/\b(DROP\s+(TABLE|COLUMN)|DELETE\s+FROM|TRUNCATE|RESET)\b/i);
   });
@@ -48,6 +50,11 @@ describe("production order information boundary", () => {
     expect(route).toContain("BATCH_CREATE_PRODUCTION_ORDERS_FROM_CONTRACT");
   });
 
+  it("does not count the contract draft itself while reopening it for edit", () => {
+    expect(read("src/app/api/erp/production-contracts/route.ts")).toContain("excludeOrderId");
+    expect(read("src/app/(app)/erp/production-orders/[id]/page.tsx")).toContain("excludeOrderId=");
+  });
+
   it("includes unlinked legacy orders only when their contract item is unambiguous", () => {
     const service = read("src/lib/production-orders.ts");
     expect(service).toContain("canResolveLegacyOrders");
@@ -63,6 +70,7 @@ describe("draft publication and BOM write guards", () => {
     expect(page).toContain("保存草稿");
     expect(page).toContain("发布工单");
     expect(page).toContain("是否立即执行齐套检查");
+    expect(page).toContain("if (isNew) router.replace(`/erp/production-orders/${orderId}`)");
   });
 
   it("publishes without silently running a kit check and blocks duplicate publication", () => {
@@ -91,5 +99,11 @@ describe("role enforcement", () => {
     expect(read("src/app/api/users/route.ts")).toContain("roleRequiresRegionScope");
     expect(read("src/app/api/users/[id]/route.ts")).toContain("roleRequiresRegionScope");
     expect(read("src/app/(app)/users/page.tsx")).toContain("roleRequiresRegionScope");
+  });
+
+  it("blocks sales from ERP routes and gives internal roles page allowlists", () => {
+    const middleware = read("src/middleware.ts");
+    expect(middleware).toContain("rolePages");
+    expect(middleware).toContain('role === "SALES" || role === "FOREIGN_TRADE"');
   });
 });

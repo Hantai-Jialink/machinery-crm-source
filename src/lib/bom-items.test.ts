@@ -6,6 +6,7 @@ describe("BOM quantities", () => {
     expect(parseBomQuantity("1.5", "件")).toBeNull();
     expect(parseBomQuantity("2", "件")?.toString()).toBe("2");
     expect(parseBomQuantity("1.5", "kg")?.toString()).toBe("1.5");
+    expect(parseBomQuantity("0.001", "kg")).toBeNull();
     expect(parseBomQuantity("0", "m")).toBeNull();
     expect(parseBomQuantity("NaN", "m")).toBeNull();
   });
@@ -16,13 +17,33 @@ describe("BOM write validation", () => {
     const items = normalizeBomWriteItems([
       { clientKey: "package", materialId: "package", quantity: "1", sortOrder: 0 },
       { clientKey: "relay", parentClientKey: "package", materialId: "relay", quantity: "4", sortOrder: 10 },
-    ], new Map([["package", "包"], ["relay", "个"]]));
+    ], new Map([["package", "包"], ["relay", "个"]]), new Set(["package"]));
     expect(items.map((item) => [item.clientKey, item.level])).toEqual([["package", 1], ["relay", 2]]);
 
     expect(() => normalizeBomWriteItems([
       { clientKey: "a", parentClientKey: "b", materialId: "package", quantity: "1" },
       { clientKey: "b", parentClientKey: "a", materialId: "relay", quantity: "1" },
-    ], new Map([["package", "包"], ["relay", "个"]]))).toThrow("循环");
+    ], new Map([["package", "包"], ["relay", "个"]]), new Set(["package", "relay"]))).toThrow("循环");
+  });
+
+  it("rejects turning a normal stock material into a virtual package", () => {
+    expect(() => normalizeBomWriteItems([
+      { clientKey: "motor", materialId: "motor", quantity: "1" },
+      { clientKey: "bolt", parentClientKey: "motor", materialId: "bolt", quantity: "4" },
+    ], new Map([["motor", "台"], ["bolt", "个"]]), new Set())).toThrow("零件包分类");
+  });
+
+  it("does not save an empty package as an inventory leaf", () => {
+    expect(() => normalizeBomWriteItems([
+      { clientKey: "package", materialId: "package", quantity: "1" },
+    ], new Map([["package", "包"]]), new Set(["package"]))).toThrow("至少需要包含一个子物料");
+  });
+
+  it("rejects duplicate material under the same parent", () => {
+    expect(() => normalizeBomWriteItems([
+      { clientKey: "bolt-1", materialId: "bolt", quantity: "1" },
+      { clientKey: "bolt-2", materialId: "bolt", quantity: "1" },
+    ], new Map([["bolt", "个"]]), new Set())).toThrow("同一层级");
   });
 });
 

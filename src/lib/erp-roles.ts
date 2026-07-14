@@ -15,6 +15,10 @@ export function roleRequiresRegionScope(role: string): boolean {
   return (REGION_SCOPED_ROLES as readonly string[]).includes(role);
 }
 
+export function customerBusinessLineForRole(role: string): "国内销售" | "外贸" {
+  return role === "FOREIGN_TRADE" ? "外贸" : "国内销售";
+}
+
 export function canViewERP(role: string): boolean {
   return (ERP_ROLES as readonly string[]).includes(role);
 }

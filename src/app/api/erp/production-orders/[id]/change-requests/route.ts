@@ -1,14 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
-import { canAccessERP, canPublishProductionOrder, getSessionUser } from "@/lib/permissions";
+import { canPublishProductionOrder, getSessionUser, isSuperAdmin } from "@/lib/permissions";
 import { buildDraftData, normalizeDraftInput, ProductionOrderRequestError } from "@/lib/production-orders";
 import { toPlainJson, writeOperationLog } from "@/lib/sales-items";
 
 export async function GET(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const user = await getSessionUser();
   if (!user) return NextResponse.json({ error: "未登录" }, { status: 401 });
-  if (!canAccessERP(user)) return NextResponse.json({ error: "无权限访问 ERP" }, { status: 403 });
+  if (!isSuperAdmin(user)) return NextResponse.json({ error: "无权限查看工单变更记录" }, { status: 403 });
   const { id } = await params;
   return NextResponse.json(await prisma.productionOrderChangeRequest.findMany({ where: { productionOrderId: id }, orderBy: { createdAt: "desc" } }));
 }
