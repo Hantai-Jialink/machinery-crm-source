@@ -512,8 +512,13 @@ jobs:
             return null;
           }
 
-          const unauthenticated = await expectRequest(null, "/api/erp/materials", {}, 401);
-          assert(unauthenticated.data?.error, "Protected API did not return an authentication error");
+          const unauthenticated = await expectRequest(null, "/api/erp/materials", {}, [401, 302, 307]);
+          if (unauthenticated.status === 401) {
+            assert(unauthenticated.data?.error, "Protected API did not return an authentication error");
+          } else {
+            const location = unauthenticated.response.headers.get("location") || "";
+            assert(location.includes("/login"), `Protected API redirected to unexpected location: ${location}`);
+          }
 
           const loginPage = await expectRequest(null, "/login", {}, 200);
           const staticMatch = loginPage.text.match(/\/_next\/static\/[^"' ]+/);
