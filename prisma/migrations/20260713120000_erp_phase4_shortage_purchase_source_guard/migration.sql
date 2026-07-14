@@ -11,7 +11,7 @@ CREATE TABLE `erp_purchase_order_shortage_sources` (
     `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
     `releasedAt` DATETIME(3) NULL,
 
-    UNIQUE INDEX `erp_purchase_order_shortage_sources_kitCheckId_materialId_isActive_key`(`kitCheckId`, `materialId`, `isActive`),
+    UNIQUE INDEX `erp_po_shortage_src_kit_mat_active_uq`(`kitCheckId`, `materialId`, `isActive`),
     UNIQUE INDEX `erp_purchase_order_shortage_sources_purchaseOrderItemId_key`(`purchaseOrderItemId`),
     INDEX `erp_purchase_order_shortage_sources_purchaseOrderId_idx`(`purchaseOrderId`),
     INDEX `erp_purchase_order_shortage_sources_kitCheckId_idx`(`kitCheckId`),

@@ -8,7 +8,12 @@ const sql = readFileSync(migrationPath, "utf8");
 
 describe("purchase shortage source database guard", () => {
   it("uses kit check, material, and active marker as the unique database key", () => {
-    expect(sql).toContain("UNIQUE INDEX `erp_purchase_order_shortage_sources_kitCheckId_materialId_isActive_key`(`kitCheckId`, `materialId`, `isActive`)");
+    const uniqueIndexName = "erp_po_shortage_src_kit_mat_active_uq";
+
+    expect(uniqueIndexName.length).toBeLessThanOrEqual(64);
+    expect(sql).toContain(
+      `UNIQUE INDEX \`${uniqueIndexName}\`(\`kitCheckId\`, \`materialId\`, \`isActive\`)`,
+    );
     expect(sql).toContain("`purchaseOrderItemId` VARCHAR(191) NOT NULL");
   });
 
