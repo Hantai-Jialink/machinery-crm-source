@@ -727,7 +727,7 @@ model PurchaseOrderShortageSource {
   createdAt           DateTime          @default(now())
   releasedAt          DateTime?
 
-  @@unique([kitCheckId, materialId, isActive])
+  @@unique([kitCheckId, materialId, isActive], map: "erp_po_shortage_src_kit_mat_active_uq")
   @@unique([purchaseOrderItemId])
   @@index([purchaseOrderId])
   @@index([kitCheckId])
