@@ -105,7 +105,9 @@ jobs:
           mkdir -p "$PKG_DIR/prisma"
           cp -a prisma/schema.prisma "$PKG_DIR/prisma/schema.prisma"
           if [[ -d prisma/migrations ]]; then
-            cp -a prisma/migrations "$PKG_DIR/prisma/migrations"
+            rm -rf "$PKG_DIR/prisma/migrations"
+            mkdir -p "$PKG_DIR/prisma/migrations"
+            cp -a prisma/migrations/. "$PKG_DIR/prisma/migrations/"
           fi
 
           mkdir -p "$PKG_DIR/node_modules"
@@ -209,6 +211,39 @@ jobs:
           test -f "$PKG_DIR/.next/standalone/server.js" || test -f "$PKG_DIR/server.js"
           test -d "$PKG_DIR/.next/static"
           test -f "$PKG_DIR/prisma/schema.prisma"
+          test ! -d "$PKG_DIR/prisma/migrations/migrations"
+
+          SOURCE_MIGRATION_COUNT="$(
+            find prisma/migrations \
+              -mindepth 1 -maxdepth 1 -type d | wc -l
+          )"
+          PACKAGE_MIGRATION_COUNT="$(
+            find "$PKG_DIR/prisma/migrations" \
+              -mindepth 1 -maxdepth 1 -type d | wc -l
+          )"
+          echo "源码migration数量：$SOURCE_MIGRATION_COUNT"
+          echo "包内migration数量：$PACKAGE_MIGRATION_COUNT"
+          if [[ "$SOURCE_MIGRATION_COUNT" -ne 15 ]]; then
+            echo "源码migration数量不是预期的15：$SOURCE_MIGRATION_COUNT"
+            exit 1
+          fi
+          if [[ "$SOURCE_MIGRATION_COUNT" -ne "$PACKAGE_MIGRATION_COUNT" ]]; then
+            echo "Migration数量不一致：源码=$SOURCE_MIGRATION_COUNT，包内=$PACKAGE_MIGRATION_COUNT"
+            exit 1
+          fi
+          while IFS= read -r migration_dir; do
+            if [[ ! -f "$migration_dir/migration.sql" ]]; then
+              echo "无效migration目录：$migration_dir"
+              exit 1
+            fi
+          done < <(
+            find "$PKG_DIR/prisma/migrations" \
+              -mindepth 1 -maxdepth 1 -type d -print
+          )
+          echo "包内migration名称："
+          find "$PKG_DIR/prisma/migrations" \
+            -mindepth 1 -maxdepth 1 -type d \
+            -printf '%f\n' | sort
           find "$PKG_DIR/node_modules/.prisma/client" -name 'libquery_engine-*' -print -quit >/dev/null
           test -z "$(find "$PKG_DIR" -type l -print -quit)"
           PKG_DIR="$PKG_DIR" node <<'NODE'
@@ -248,6 +283,27 @@ jobs:
           test -f "$VERIFY_APP/server.js"
           test -f "$VERIFY_APP/start-standalone.cjs"
           test -d "$VERIFY_APP/.next/static"
+          test ! -d "$VERIFY_APP/prisma/migrations/migrations"
+          VERIFY_MIGRATION_COUNT="$(
+            find "$VERIFY_APP/prisma/migrations" \
+              -mindepth 1 -maxdepth 1 -type d | wc -l
+          )"
+          echo "解压后migration数量：$VERIFY_MIGRATION_COUNT"
+          if [[ "$VERIFY_MIGRATION_COUNT" -ne "$SOURCE_MIGRATION_COUNT" ]]; then
+            echo "解压后migration数量错误：$VERIFY_MIGRATION_COUNT"
+            exit 1
+          fi
+          while IFS= read -r migration_dir; do
+            if [[ ! -f "$migration_dir/migration.sql" ]]; then
+              echo "解压后发现无migration.sql目录：$migration_dir"
+              exit 1
+            fi
+          done < <(
+            find "$VERIFY_APP/prisma/migrations" \
+              -mindepth 1 -maxdepth 1 -type d -print
+          )
+          test -f "$VERIFY_APP/prisma/migrations/20260714100000_erp_phase4_round1_roles_contract_item/migration.sql"
+          test -f "$VERIFY_APP/prisma/migrations/20260714130000_reconcile_legacy_schema_history/migration.sql"
           test -f "$VERIFY_APP/.next/server/app/(app)/erp/bom/page.js"
           test -f "$VERIFY_APP/.next/server/app/api/erp/boms/route.js"
           test -f "$VERIFY_APP/.next/server/app/api/erp/boms/[id]/route.js"
