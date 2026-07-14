@@ -34,12 +34,12 @@ jobs:
           --health-retries=20
 
     env:
-      EXPECTED_SOURCE_SHA: b9efa1360afb81298334c209334ab9c9b8715d64
-      EXPECTED_RUN_ID: "29313576213"
-      EXPECTED_ARTIFACT_ID: "8303052405"
+      EXPECTED_SOURCE_SHA: 4cb5ec37d981283625e6c55357b63edb31d651a6
+      EXPECTED_RUN_ID: "29315902681"
+      EXPECTED_ARTIFACT_ID: "8303947747"
       EXPECTED_ARTIFACT_NAME: machinery-crm-prebuilt-standalone
-      EXPECTED_ZIP_SHA256: ae119760047b760c0d0840a2825896d98554e9e4f09bd4a6fc57f2d1f13a441b
-      EXPECTED_TAR_SHA256: 13033198778a5a7078e874c32d38465736d78601fab0174b07c9fd72fda8e28b
+      EXPECTED_ZIP_SHA256: 04870a6909a2e765ce05046f553edbd9dd0469215ad5332528addb6ba13cd15
+      EXPECTED_TAR_SHA256: 4c0fae272f0305b2e6d2bf8dbcf50eb6382db4021c6a28aaab653d29b53dc2ff
       DATABASE_URL: mysql://root:phase4_test_only@127.0.0.1:3306/machinery_crm_phase4_test
       AUTH_SECRET: phase4-artifact-smoke-test-secret
       AUTH_URL: http://127.0.0.1:3000
@@ -144,9 +144,14 @@ jobs:
           test -f "$APP_DIR/node_modules/prisma/build/index.js"
           find "$APP_DIR/node_modules/.prisma/client" -type f -name 'libquery_engine-*.so.node' -print -quit | grep -q .
           test -z "$(find "$APP_DIR" -type f \( -name '*windows*' -o -name 'query_engine*.dll.node' \) -print -quit)"
+          test ! -d "$APP_DIR/prisma/migrations/migrations"
           test -f "$APP_DIR/prisma/migrations/20260714100000_erp_phase4_round1_roles_contract_item/migration.sql"
           test -f "$APP_DIR/prisma/migrations/20260714130000_reconcile_legacy_schema_history/migration.sql"
-          test "$(find "$APP_DIR/prisma/migrations" -mindepth 1 -maxdepth 1 -type d -name '20*' | wc -l)" -eq 15
+          mapfile -t migration_dirs < <(find "$APP_DIR/prisma/migrations" -mindepth 1 -maxdepth 1 -type d -print)
+          test "${#migration_dirs[@]}" -eq 15
+          for migration_dir in "${migration_dirs[@]}"; do
+            test -f "$migration_dir/migration.sql"
+          done
 
           if find "$APP_DIR" -type l -print -quit | grep -q .; then
             echo "Candidate package contains symbolic links" >&2
