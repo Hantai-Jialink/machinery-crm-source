@@ -1,0 +1,731 @@
+name: 验证 ERP 第四期候选 Artifact（Linux + MySQL 5.7）
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - codex/erp-phase4-artifact-linux-smoke
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: validate-phase4-artifact-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    services:
+      mysql:
+        image: mysql:5.7
+        env:
+          MYSQL_ROOT_PASSWORD: phase4_test_only
+          MYSQL_DATABASE: machinery_crm_phase4_test
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -pphase4_test_only"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=20
+
+    env:
+      EXPECTED_SOURCE_SHA: b9efa1360afb81298334c209334ab9c9b8715d64
+      EXPECTED_RUN_ID: "29313576213"
+      EXPECTED_ARTIFACT_ID: "8303052405"
+      EXPECTED_ARTIFACT_NAME: machinery-crm-prebuilt-standalone
+      EXPECTED_ZIP_SHA256: ae119760047b760c0d0840a2825896d98554e9e4f09bd4a6fc57f2d1f13a441b
+      EXPECTED_TAR_SHA256: 13033198778a5a7078e874c32d38465736d78601fab0174b07c9fd72fda8e28b
+      DATABASE_URL: mysql://root:phase4_test_only@127.0.0.1:3306/machinery_crm_phase4_test
+      AUTH_SECRET: phase4-artifact-smoke-test-secret
+      AUTH_URL: http://127.0.0.1:3000
+      NEXTAUTH_URL: http://127.0.0.1:3000
+      PORT: "3000"
+      HOSTNAME: 127.0.0.1
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: 检出临时验证分支
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 确认验证分支只新增工作流
+        run: |
+          set -Eeuo pipefail
+          git merge-base --is-ancestor "$EXPECTED_SOURCE_SHA" HEAD
+          mapfile -t changed_files < <(git diff --name-only "$EXPECTED_SOURCE_SHA" HEAD)
+          printf 'Validation branch files:\n%s\n' "${changed_files[*]}"
+          test "${#changed_files[@]}" -eq 1
+          test "${changed_files[0]}" = ".github/workflows/validate-phase4-artifact.yml"
+
+      - name: 安装 Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: 下载并锁定精确 Artifact
+        run: |
+          set -Eeuo pipefail
+          smoke_dir="$RUNNER_TEMP/phase4-artifact-smoke"
+          download_dir="$smoke_dir/download"
+          extract_dir="$smoke_dir/extracted"
+          mkdir -p "$download_dir" "$extract_dir"
+
+          artifact_json="$smoke_dir/artifact.json"
+          run_json="$smoke_dir/run.json"
+          curl -fsSL --retry 3 \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/artifacts/$EXPECTED_ARTIFACT_ID" \
+            -o "$artifact_json"
+          curl -fsSL --retry 3 \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/runs/$EXPECTED_RUN_ID" \
+            -o "$run_json"
+
+          jq -e --argjson id "$EXPECTED_ARTIFACT_ID" --arg name "$EXPECTED_ARTIFACT_NAME" \
+            --argjson run "$EXPECTED_RUN_ID" --arg sha "$EXPECTED_SOURCE_SHA" \
+            '.id == $id and .name == $name and .expired == false and .workflow_run.id == $run and .workflow_run.head_sha == $sha' \
+            "$artifact_json" >/dev/null
+          jq -e --argjson id "$EXPECTED_RUN_ID" --arg sha "$EXPECTED_SOURCE_SHA" \
+            '.id == $id and .head_sha == $sha and .status == "completed" and .conclusion == "success"' \
+            "$run_json" >/dev/null
+
+          artifact_zip="$download_dir/machinery-crm-prebuilt-standalone.zip"
+          curl -fsSL --retry 3 \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/artifacts/$EXPECTED_ARTIFACT_ID/zip" \
+            -o "$artifact_zip"
+          echo "$EXPECTED_ZIP_SHA256  $artifact_zip" | sha256sum --check --strict
+
+          unzip -q "$artifact_zip" -d "$download_dir/artifact"
+          mapfile -t tarballs < <(find "$download_dir/artifact" -maxdepth 1 -type f -name '*.tar.gz' -print)
+          test "${#tarballs[@]}" -eq 1
+          candidate_tar="${tarballs[0]}"
+          echo "$EXPECTED_TAR_SHA256  $candidate_tar" | sha256sum --check --strict
+
+          tar -xzf "$candidate_tar" -C "$extract_dir"
+          mapfile -t app_dirs < <(find "$extract_dir" -mindepth 1 -maxdepth 1 -type d -print)
+          test "${#app_dirs[@]}" -eq 1
+          app_dir="${app_dirs[0]}"
+
+          echo "SMOKE_DIR=$smoke_dir" >> "$GITHUB_ENV"
+          echo "APP_DIR=$app_dir" >> "$GITHUB_ENV"
+          echo "SEED_JSON=$smoke_dir/seed.json" >> "$GITHUB_ENV"
+          echo "APP_LOG=$smoke_dir/application.log" >> "$GITHUB_ENV"
+          echo "SMOKE_RESULT=$smoke_dir/smoke-result.json" >> "$GITHUB_ENV"
+          echo "ARTIFACT_ZIP=$artifact_zip" >> "$GITHUB_ENV"
+          echo "CANDIDATE_TAR=$candidate_tar" >> "$GITHUB_ENV"
+
+          printf 'Artifact %s (%s) from run %s and commit %s verified.\n' \
+            "$EXPECTED_ARTIFACT_NAME" "$EXPECTED_ARTIFACT_ID" "$EXPECTED_RUN_ID" "$EXPECTED_SOURCE_SHA"
+
+      - name: 检查候选包独立运行结构
+        run: |
+          set -Eeuo pipefail
+          test -f "$APP_DIR/server.js"
+          test -f "$APP_DIR/start-standalone.cjs"
+          test -f "$APP_DIR/package.json"
+          test -f "$APP_DIR/prisma/schema.prisma"
+          test -d "$APP_DIR/prisma/migrations"
+          test -d "$APP_DIR/.next/static"
+          test -d "$APP_DIR/node_modules/.prisma/client"
+          test -f "$APP_DIR/node_modules/prisma/build/index.js"
+          find "$APP_DIR/node_modules/.prisma/client" -type f -name 'libquery_engine-*.so.node' -print -quit | grep -q .
+          test -z "$(find "$APP_DIR" -type f \( -name '*windows*' -o -name 'query_engine*.dll.node' \) -print -quit)"
+          test -f "$APP_DIR/prisma/migrations/20260714100000_erp_phase4_round1_roles_contract_item/migration.sql"
+          test -f "$APP_DIR/prisma/migrations/20260714130000_reconcile_legacy_schema_history/migration.sql"
+          test "$(find "$APP_DIR/prisma/migrations" -mindepth 1 -maxdepth 1 -type d -name '20*' | wc -l)" -eq 15
+
+          if find "$APP_DIR" -type l -print -quit | grep -q .; then
+            echo "Candidate package contains symbolic links" >&2
+            exit 1
+          fi
+
+          printf 'Candidate root: %s\n' "$APP_DIR"
+          find "$APP_DIR/node_modules/.prisma/client" -type f -name 'libquery_engine-*.so.node' -printf '%f\n' | sort -u
+
+      - name: 使用候选包 Prisma CLI 执行 MySQL 5.7 migration
+        run: |
+          set -Eeuo pipefail
+          cd "$APP_DIR"
+          node node_modules/prisma/build/index.js -v | tee "$SMOKE_DIR/prisma-version.log"
+          node node_modules/prisma/build/index.js migrate deploy \
+            --schema=prisma/schema.prisma | tee "$SMOKE_DIR/migrate-deploy.log"
+          node node_modules/prisma/build/index.js migrate status \
+            --schema=prisma/schema.prisma | tee "$SMOKE_DIR/migrate-status.log"
+          grep -q 'Database schema is up to date' "$SMOKE_DIR/migrate-status.log"
+
+      - name: 生成临时账号密码
+        run: |
+          set -Eeuo pipefail
+          smoke_password="$(openssl rand -hex 24)"
+          echo "::add-mask::$smoke_password"
+          if ! command -v htpasswd >/dev/null 2>&1; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq apache2-utils
+          fi
+          smoke_password_hash="$(htpasswd -bnBC 12 '' "$smoke_password" | tr -d ':\n')"
+          smoke_password_hash="${smoke_password_hash/\$2y\$/\$2b\$}"
+          echo "::add-mask::$smoke_password_hash"
+          echo "SMOKE_PASSWORD=$smoke_password" >> "$GITHUB_ENV"
+          echo "SMOKE_PASSWORD_HASH=$smoke_password_hash" >> "$GITHUB_ENV"
+
+      - name: 使用候选包 Prisma Client 建立最小测试数据
+        run: |
+          set -Eeuo pipefail
+          seed_script="$SMOKE_DIR/seed.mjs"
+          cat > "$seed_script" <<'NODE'
+          import fs from "node:fs";
+          import path from "node:path";
+          import { createRequire } from "node:module";
+
+          const candidateRequire = createRequire(path.join(process.env.APP_DIR, "package.json"));
+          const { PrismaClient, Prisma } = candidateRequire("@prisma/client");
+          const prisma = new PrismaClient();
+
+          const assert = (condition, message) => {
+            if (!condition) throw new Error(message);
+          };
+
+          try {
+            const versionRows = await prisma.$queryRawUnsafe("SELECT VERSION() AS version");
+            const mysqlVersion = String(versionRows[0]?.version || "");
+            assert(mysqlVersion.startsWith("5.7."), `Expected MySQL 5.7, received ${mysqlVersion}`);
+
+            const migrations = await prisma.$queryRawUnsafe(
+              "SELECT migration_name, finished_at, rolled_back_at FROM _prisma_migrations ORDER BY started_at"
+            );
+            assert(migrations.length === 15, `Expected 15 migrations, received ${migrations.length}`);
+            assert(migrations.every((row) => row.finished_at && !row.rolled_back_at), "Found failed or rolled-back migration");
+            const migrationNames = new Set(migrations.map((row) => row.migration_name));
+            assert(migrationNames.has("20260714100000_erp_phase4_round1_roles_contract_item"), "Round 1 migration is missing");
+            assert(migrationNames.has("20260714130000_reconcile_legacy_schema_history"), "Reconcile migration is missing");
+
+            const indexRows = await prisma.$queryRawUnsafe(
+              "SELECT MAX(CHAR_LENGTH(INDEX_NAME)) AS max_length FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = DATABASE()"
+            );
+            const constraintRows = await prisma.$queryRawUnsafe(
+              "SELECT MAX(CHAR_LENGTH(CONSTRAINT_NAME)) AS max_length FROM information_schema.TABLE_CONSTRAINTS WHERE TABLE_SCHEMA = DATABASE()"
+            );
+            const maxIndexLength = Number(indexRows[0]?.max_length || 0);
+            const maxConstraintLength = Number(constraintRows[0]?.max_length || 0);
+            assert(maxIndexLength <= 64, `Index name exceeds 64 characters: ${maxIndexLength}`);
+            assert(maxConstraintLength <= 64, `Constraint name exceeds 64 characters: ${maxConstraintLength}`);
+
+            const suffix = process.env.GITHUB_RUN_ID;
+            const commonUser = {
+              password: process.env.SMOKE_PASSWORD_HASH,
+              region: "其他",
+              territories: [],
+              viewScope: "TERRITORY",
+              isActive: true,
+            };
+            const superAdmin = await prisma.user.create({
+              data: { ...commonUser, email: `phase4.super.${suffix}@test.invalid`, name: "Phase4 Super", role: "SUPER_ADMIN", viewScope: "ALL" },
+            });
+            const purchaseUser = await prisma.user.create({
+              data: { ...commonUser, email: `phase4.purchase.${suffix}@test.invalid`, name: "Phase4 Purchase", role: "PURCHASE" },
+            });
+            const warehouseUser = await prisma.user.create({
+              data: { ...commonUser, email: `phase4.warehouse.${suffix}@test.invalid`, name: "Phase4 Warehouse", role: "WAREHOUSE" },
+            });
+            const salesUser = await prisma.user.create({
+              data: {
+                ...commonUser,
+                email: `phase4.sales.${suffix}@test.invalid`,
+                name: "Phase4 Sales",
+                role: "SALES",
+                region: "山东省",
+                territories: [{ province: "山东省", cities: ["滕州市"] }],
+              },
+            });
+            const foreignTradeUser = await prisma.user.create({
+              data: {
+                ...commonUser,
+                email: `phase4.foreign.${suffix}@test.invalid`,
+                name: "Phase4 Foreign",
+                role: "FOREIGN_TRADE",
+                region: "国外",
+                territories: [{ province: "国外", cities: [] }],
+              },
+            });
+
+            const product = await prisma.product.create({
+              data: {
+                model: `PH4-CLOUD-${suffix}`,
+                category: "隔离验证设备",
+                productType: "MAIN",
+                translations: { create: { language: "ZH", name: "第四期云端隔离验证设备" } },
+              },
+            });
+            const warehouse = await prisma.warehouse.create({
+              data: { name: "Dachuan", code: `PH4-WH-${suffix}`, isActive: true },
+            });
+            const normalCategory = await prisma.materialCategory.create({
+              data: { name: "普通物料", code: `PH4-NORMAL-${suffix}` },
+            });
+            const packageCategory = await prisma.materialCategory.create({
+              data: { name: "零件包", code: `PH4-PACKAGE-${suffix}` },
+            });
+            const level1 = await prisma.material.create({
+              data: { code: `PH4-L1-${suffix}`, name: "一级零件包", categoryId: packageCategory.id, unit: "件" },
+            });
+            const level2 = await prisma.material.create({
+              data: { code: `PH4-L2-${suffix}`, name: "二级零件包", categoryId: packageCategory.id, unit: "件" },
+            });
+            const leaf = await prisma.material.create({
+              data: { code: `PH4-LEAF-${suffix}`, name: "汇总叶子物料", categoryId: normalCategory.id, unit: "件", standardPrice: new Prisma.Decimal(10) },
+            });
+            const bom = await prisma.bomHeader.create({
+              data: { productId: product.id, version: `v-cloud-${suffix}`, isActive: true },
+            });
+            const rootPackage = await prisma.bomItem.create({
+              data: { bomId: bom.id, materialId: level1.id, quantity: new Prisma.Decimal(2), level: 1, sortOrder: 0 },
+            });
+            const childPackage = await prisma.bomItem.create({
+              data: { bomId: bom.id, materialId: level2.id, quantity: new Prisma.Decimal(3), level: 2, parentItemId: rootPackage.id, sortOrder: 1 },
+            });
+            await prisma.bomItem.create({
+              data: { bomId: bom.id, materialId: leaf.id, quantity: new Prisma.Decimal(4), level: 3, parentItemId: childPackage.id, sortOrder: 2 },
+            });
+            await prisma.bomItem.create({
+              data: { bomId: bom.id, materialId: leaf.id, quantity: new Prisma.Decimal(5), level: 2, parentItemId: rootPackage.id, sortOrder: 3 },
+            });
+            await prisma.inventory.create({
+              data: {
+                warehouseId: warehouse.id,
+                materialId: leaf.id,
+                quantity: new Prisma.Decimal(10),
+                totalAmount: new Prisma.Decimal(100),
+                avgPrice: new Prisma.Decimal(10),
+              },
+            });
+            const supplier = await prisma.supplier.create({
+              data: { name: `Phase4 Supplier ${suffix}`, isActive: true },
+            });
+            const customer = await prisma.customer.create({
+              data: {
+                companyName: `Phase4 Customer ${suffix}`,
+                contactName: "Sensitive Contact",
+                phone: "13800000000",
+                province: "山东省",
+                city: "滕州市",
+                region: "山东省",
+                businessLine: "国内销售",
+                address: "SMOKE-SECRET-ADDRESS",
+                customerSource: "隔离验证",
+                customerType: "END_USER",
+                customerLevel: "A",
+                assignedUserId: salesUser.id,
+              },
+            });
+            const deliveryDate = new Date();
+            deliveryDate.setUTCDate(deliveryDate.getUTCDate() + 30);
+            const contract = await prisma.contract.create({
+              data: {
+                contractNo: `PH4-CLOUD-CONTRACT-${suffix}`,
+                signedDate: new Date(),
+                estimatedShipmentDate: deliveryDate,
+                customerId: customer.id,
+                salesUserId: salesUser.id,
+                productId: product.id,
+                equipmentName: "第四期云端隔离验证设备",
+                equipmentModel: product.model,
+                amount: new Prisma.Decimal(100000),
+                contractStatus: "SIGNED",
+                createdById: superAdmin.id,
+              },
+            });
+            const contractItem = await prisma.contractItem.create({
+              data: {
+                contractId: contract.id,
+                productId: product.id,
+                itemType: "MAIN",
+                productNameSnapshot: "第四期云端隔离验证设备",
+                productModelSnapshot: product.model,
+                contractPrice: new Prisma.Decimal(100000),
+                quantity: 2,
+                sortOrder: 0,
+              },
+            });
+
+            const seed = {
+              mysqlVersion,
+              migrationCount: migrations.length,
+              maxIndexLength,
+              maxConstraintLength,
+              accounts: {
+                superAdmin: { email: superAdmin.email, role: "SUPER_ADMIN" },
+                purchase: { email: purchaseUser.email, role: "PURCHASE" },
+                warehouse: { email: warehouseUser.email, role: "WAREHOUSE" },
+                sales: { email: salesUser.email, role: "SALES" },
+                foreignTrade: { email: foreignTradeUser.email, role: "FOREIGN_TRADE" },
+              },
+              ids: {
+                productId: product.id,
+                warehouseId: warehouse.id,
+                normalCategoryId: normalCategory.id,
+                leafMaterialId: leaf.id,
+                bomId: bom.id,
+                supplierId: supplier.id,
+                contractId: contract.id,
+                contractItemId: contractItem.id,
+                warehouseUserId: warehouseUser.id,
+              },
+              plannedDate: deliveryDate.toISOString().slice(0, 10),
+              expected: { requiredQuantity: 34, inventoryQuantity: 10, shortageQuantity: 24 },
+            };
+            fs.writeFileSync(process.env.SEED_JSON, JSON.stringify(seed, null, 2));
+            console.log(JSON.stringify({ mysqlVersion, migrationCount: migrations.length, maxIndexLength, maxConstraintLength }));
+          } finally {
+            await prisma.$disconnect();
+          }
+          NODE
+          node "$seed_script"
+
+      - name: 从候选包启动 Standalone 应用
+        run: |
+          set -Eeuo pipefail
+          cd "$APP_DIR"
+          node start-standalone.cjs > "$APP_LOG" 2>&1 &
+          app_pid=$!
+          echo "APP_PID=$app_pid" >> "$GITHUB_ENV"
+
+          status=""
+          for _ in {1..30}; do
+            status="$(curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:3000/login || true)"
+            if [[ "$status" == "200" || "$status" == "302" || "$status" == "307" ]]; then
+              break
+            fi
+            if ! kill -0 "$app_pid" 2>/dev/null; then
+              cat "$APP_LOG"
+              exit 1
+            fi
+            sleep 1
+          done
+          test "$status" = "200"
+          printf 'Standalone ready with /login HTTP %s\n' "$status"
+
+      - name: 真实登录、页面、业务和权限烟测
+        run: |
+          set -Eeuo pipefail
+          smoke_script="$SMOKE_DIR/http-smoke.mjs"
+          cat > "$smoke_script" <<'NODE'
+          import fs from "node:fs";
+
+          const baseUrl = "http://127.0.0.1:3000";
+          const seed = JSON.parse(fs.readFileSync(process.env.SEED_JSON, "utf8"));
+
+          const assert = (condition, message) => {
+            if (!condition) throw new Error(message);
+          };
+
+          class CookieJar {
+            constructor() { this.cookies = new Map(); }
+            absorb(headers) {
+              const values = typeof headers.getSetCookie === "function"
+                ? headers.getSetCookie()
+                : [headers.get("set-cookie")].filter(Boolean);
+              for (const value of values) {
+                const pair = value.split(";", 1)[0];
+                const index = pair.indexOf("=");
+                if (index > 0) this.cookies.set(pair.slice(0, index), pair.slice(index + 1));
+              }
+            }
+            header() { return [...this.cookies.entries()].map(([key, value]) => `${key}=${value}`).join("; "); }
+          }
+
+          async function rawRequest(jar, pathname, options = {}) {
+            const headers = new Headers(options.headers || {});
+            if (jar?.header()) headers.set("cookie", jar.header());
+            const response = await fetch(`${baseUrl}${pathname}`, { ...options, headers, redirect: "manual" });
+            jar?.absorb(response.headers);
+            const text = await response.text();
+            let data = null;
+            if (text) {
+              try { data = JSON.parse(text); } catch { data = null; }
+            }
+            return { response, status: response.status, text, data };
+          }
+
+          async function expectRequest(jar, pathname, options, expectedStatuses) {
+            const result = await rawRequest(jar, pathname, options);
+            const allowed = Array.isArray(expectedStatuses) ? expectedStatuses : [expectedStatuses];
+            if (!allowed.includes(result.status)) {
+              throw new Error(`${options?.method || "GET"} ${pathname} returned ${result.status}: ${result.text.slice(0, 500)}`);
+            }
+            return result;
+          }
+
+          async function login(account) {
+            const jar = new CookieJar();
+            const csrf = await expectRequest(jar, "/api/auth/csrf", {}, 200);
+            assert(csrf.data?.csrfToken, `CSRF token missing for ${account.role}`);
+            const form = new URLSearchParams({
+              csrfToken: csrf.data.csrfToken,
+              email: account.email,
+              password: process.env.SMOKE_PASSWORD,
+              callbackUrl: `${baseUrl}/dashboard`,
+              redirect: "false",
+            });
+            await expectRequest(jar, "/api/auth/callback/credentials", {
+              method: "POST",
+              headers: { "content-type": "application/x-www-form-urlencoded" },
+              body: form,
+            }, [200, 302, 303]);
+            const session = await expectRequest(jar, "/api/auth/session", {}, 200);
+            assert(session.data?.user?.role === account.role, `Real login failed for ${account.role}`);
+            return jar;
+          }
+
+          function findForbiddenKey(value, path = "root") {
+            if (!value || typeof value !== "object") return null;
+            if (Array.isArray(value)) {
+              for (let index = 0; index < value.length; index += 1) {
+                const found = findForbiddenKey(value[index], `${path}[${index}]`);
+                if (found) return found;
+              }
+              return null;
+            }
+            for (const [key, child] of Object.entries(value)) {
+              if (/customer|phone|address|invoice|tax/i.test(key)) return `${path}.${key}`;
+              const found = findForbiddenKey(child, `${path}.${key}`);
+              if (found) return found;
+            }
+            return null;
+          }
+
+          const unauthenticated = await expectRequest(null, "/api/erp/materials", {}, 401);
+          assert(unauthenticated.data?.error, "Protected API did not return an authentication error");
+
+          const loginPage = await expectRequest(null, "/login", {}, 200);
+          const staticMatch = loginPage.text.match(/\/_next\/static\/[^"' ]+/);
+          assert(staticMatch, "No static asset found in login HTML");
+          await expectRequest(null, staticMatch[0], {}, 200);
+
+          const superJar = await login(seed.accounts.superAdmin);
+          const purchaseJar = await login(seed.accounts.purchase);
+          const warehouseJar = await login(seed.accounts.warehouse);
+          const salesJar = await login(seed.accounts.sales);
+          const foreignJar = await login(seed.accounts.foreignTrade);
+
+          const pages = [
+            "/dashboard",
+            "/users",
+            "/erp/materials",
+            "/erp/bom",
+            "/erp/production-orders",
+            "/erp/kit-check-results",
+            "/erp/purchase-orders",
+          ];
+          for (const page of pages) {
+            const result = await expectRequest(superJar, page, { headers: { accept: "text/html" } }, 200);
+            assert(!/Internal Server Error/i.test(result.text), `${page} contains a server error`);
+          }
+
+          const contractResult = await expectRequest(
+            superJar,
+            `/api/erp/production-contracts?contractId=${encodeURIComponent(seed.ids.contractId)}`,
+            {},
+            200
+          );
+          assert(Array.isArray(contractResult.data) && contractResult.data.length === 1, "Contract production source missing");
+          const forbiddenPath = findForbiddenKey(contractResult.data);
+          assert(!forbiddenPath, `Contract production source leaked sensitive key ${forbiddenPath}`);
+          const contractText = JSON.stringify(contractResult.data);
+          assert(!contractText.includes("13800000000") && !contractText.includes("SMOKE-SECRET-ADDRESS"), "Contract source leaked sensitive values");
+
+          const requestKey = `phase4-smoke-${process.env.GITHUB_RUN_ID}`;
+          const createPayload = {
+            contractId: seed.ids.contractId,
+            requestKey,
+            lines: [{
+              contractItemId: seed.ids.contractItemId,
+              productId: seed.ids.productId,
+              quantity: 1,
+              bomId: seed.ids.bomId,
+            }],
+            warehouseId: seed.ids.warehouseId,
+            plannedDate: seed.plannedDate,
+            responsibleId: seed.ids.warehouseUserId,
+            specialRequirements: "Cloud artifact smoke test",
+            remark: "Temporary runner data",
+          };
+          const firstCreate = await expectRequest(superJar, "/api/erp/production-orders/from-contract", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify(createPayload),
+          }, 201);
+          const order = firstCreate.data?.items?.[0];
+          assert(order?.id && order.status === "DRAFT", "Contract-to-order draft creation failed");
+
+          const replay = await expectRequest(superJar, "/api/erp/production-orders/from-contract", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify(createPayload),
+          }, 200);
+          assert(replay.data?.items?.[0]?.id === order.id, "Idempotent replay returned a different order");
+          const orderList = await expectRequest(superJar, "/api/erp/production-orders?pageSize=100", {}, 200);
+          const duplicateCount = orderList.data.items.filter((item) => item.sourceRequestKey === `${requestKey}:0`).length;
+          assert(duplicateCount === 1, `Idempotent request created ${duplicateCount} orders`);
+
+          const inventoryBeforeResult = await expectRequest(
+            superJar,
+            `/api/erp/inventory?warehouseId=${encodeURIComponent(seed.ids.warehouseId)}&pageSize=100`,
+            {},
+            200
+          );
+          const inventoryBefore = Number(inventoryBeforeResult.data.items.find((item) => item.materialId === seed.ids.leafMaterialId)?.quantity);
+          assert(inventoryBefore === seed.expected.inventoryQuantity, `Unexpected initial inventory ${inventoryBefore}`);
+
+          const issued = await expectRequest(superJar, `/api/erp/production-orders/${order.id}/issue`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: "{}",
+          }, 200);
+          assert(issued.data.status === "ISSUED", "Issued order is not in pending-kit-check state");
+          assert(Array.isArray(issued.data.materials) && issued.data.materials.length === 1, "BOM leaves were not aggregated");
+          assert(Number(issued.data.materials[0].requiredQuantity) === seed.expected.requiredQuantity, "Multi-level BOM multiplication is incorrect");
+
+          const firstKit = await expectRequest(superJar, `/api/erp/production-orders/${order.id}/kit-check`, { method: "POST" }, 201);
+          const secondKit = await expectRequest(superJar, `/api/erp/production-orders/${order.id}/kit-check`, { method: "POST" }, 201);
+          for (const result of [firstKit.data, secondKit.data]) {
+            assert(result.status === "SHORTAGE", "Kit check status should be shortage");
+            assert(Array.isArray(result.detail) && result.detail.length === 1, "Kit check did not aggregate the leaf material");
+            assert(Number(result.detail[0].totalRequiredQty) === seed.expected.requiredQuantity, "Kit check required quantity is incorrect");
+            assert(Number(result.detail[0].shortageQty) === seed.expected.shortageQuantity, "Kit check shortage quantity is incorrect");
+          }
+
+          const kitHistory = await expectRequest(
+            superJar,
+            `/api/erp/kit-check-results?orderNo=${encodeURIComponent(issued.data.orderNo)}`,
+            {},
+            200
+          );
+          assert(kitHistory.data.items.filter((item) => item.productionOrderId === order.id).length === 2, "Two independent kit-check history records were not retained");
+          const inventoryAfterResult = await expectRequest(
+            superJar,
+            `/api/erp/inventory?warehouseId=${encodeURIComponent(seed.ids.warehouseId)}&pageSize=100`,
+            {},
+            200
+          );
+          const inventoryAfter = Number(inventoryAfterResult.data.items.find((item) => item.materialId === seed.ids.leafMaterialId)?.quantity);
+          assert(inventoryAfter === inventoryBefore, "Kit check changed inventory quantity");
+
+          await expectRequest(purchaseJar, "/api/erp/purchase-orders", {}, 200);
+          await expectRequest(purchaseJar, "/api/erp/production-orders", {}, 200);
+          await expectRequest(purchaseJar, "/api/erp/kit-check-results", {}, 200);
+          const procurementView = await expectRequest(purchaseJar, `/api/erp/production-orders/${order.id}`, {}, 200);
+          assert(!findForbiddenKey(procurementView.data), "Purchase production view leaked customer data");
+          await expectRequest(purchaseJar, "/api/erp/stock-in", {
+            method: "POST", headers: { "content-type": "application/json" }, body: "{}",
+          }, 403);
+          await expectRequest(purchaseJar, "/api/erp/boms", {
+            method: "POST", headers: { "content-type": "application/json" }, body: "{}",
+          }, 403);
+          await expectRequest(purchaseJar, "/api/users", {}, 403);
+
+          const purchasePayload = {
+            supplierId: seed.ids.supplierId,
+            orderDate: new Date().toISOString(),
+            items: [{ materialId: seed.ids.leafMaterialId, quantity: 1, unitPrice: 10 }],
+          };
+          const createdPurchase = await expectRequest(purchaseJar, "/api/erp/purchase-orders", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify(purchasePayload),
+          }, 201);
+
+          await expectRequest(warehouseJar, "/api/erp/purchase-orders", {}, 200);
+          await expectRequest(warehouseJar, "/api/erp/purchase-orders", {
+            method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(purchasePayload),
+          }, 403);
+          await expectRequest(warehouseJar, `/api/erp/purchase-orders/${createdPurchase.data.id}`, {
+            method: "PUT", headers: { "content-type": "application/json" }, body: "{}",
+          }, 403);
+          for (const endpoint of ["/api/erp/inventory", "/api/erp/stock-in", "/api/erp/stock-out", "/api/erp/stock-checks"]) {
+            await expectRequest(warehouseJar, endpoint, {}, 200);
+          }
+
+          await expectRequest(salesJar, "/api/erp/materials", {}, 403);
+          await expectRequest(foreignJar, "/api/erp/materials", {}, 403);
+
+          const summary = {
+            login: ["SUPER_ADMIN", "PURCHASE", "WAREHOUSE", "SALES", "FOREIGN_TRADE"],
+            pages,
+            contractOrder: { id: order.id, orderNo: issued.data.orderNo, duplicateCount },
+            bom: { requiredQuantity: seed.expected.requiredQuantity, aggregatedLeafCount: issued.data.materials.length },
+            kitCheck: { historyCount: 2, shortageQuantity: seed.expected.shortageQuantity, inventoryBefore, inventoryAfter },
+            permissions: {
+              purchase: "read allowed; inventory/BOM/users writes denied",
+              warehouse: "purchase read allowed; purchase create/edit denied; inventory endpoints allowed",
+              sales: "ERP denied",
+              foreignTrade: "ERP denied",
+            },
+          };
+          fs.writeFileSync(process.env.SMOKE_RESULT, JSON.stringify(summary, null, 2));
+          console.log(JSON.stringify(summary));
+          NODE
+          node "$smoke_script"
+
+      - name: 检查应用日志和独立运行边界
+        run: |
+          set -Eeuo pipefail
+          test -f "$SMOKE_RESULT"
+          test -f "$APP_LOG"
+          if grep -E 'PrismaClientInitializationError|Cannot find module|MODULE_NOT_FOUND|Unknown column|does not exist|unhandledRejection' "$APP_LOG"; then
+            echo "Fatal runtime error found in application log" >&2
+            exit 1
+          fi
+          test "$(readlink -f "$APP_DIR")" != "$(readlink -f "$GITHUB_WORKSPACE")"
+          test ! -e "$GITHUB_WORKSPACE/node_modules"
+          printf 'Candidate package ran independently from %s\n' "$APP_DIR"
+          cat "$SMOKE_RESULT"
+
+      - name: 写入验证摘要
+        if: success()
+        run: |
+          {
+            echo '## ERP 第四期候选 Artifact 云端隔离验证'
+            echo
+            echo "- Artifact: $EXPECTED_ARTIFACT_NAME ($EXPECTED_ARTIFACT_ID)"
+            echo "- Source run: $EXPECTED_RUN_ID"
+            echo "- Source commit: $EXPECTED_SOURCE_SHA"
+            echo "- ZIP SHA256: $EXPECTED_ZIP_SHA256"
+            echo "- tar.gz SHA256: $EXPECTED_TAR_SHA256"
+            echo '- Runtime: Ubuntu latest + MySQL 5.7 service'
+            echo '- Result: migrate deploy/status, real login, protected pages, production order, kit checks and permission matrix all passed'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: 失败时输出诊断日志
+        if: failure()
+        run: |
+          echo '=== migrate deploy ==='
+          test -f "$SMOKE_DIR/migrate-deploy.log" && cat "$SMOKE_DIR/migrate-deploy.log" || true
+          echo '=== migrate status ==='
+          test -f "$SMOKE_DIR/migrate-status.log" && cat "$SMOKE_DIR/migrate-status.log" || true
+          echo '=== application ==='
+          test -f "$APP_LOG" && cat "$APP_LOG" || true
+          echo '=== mysql service ==='
+          mysql_container="$(docker ps --filter ancestor=mysql:5.7 --format '{{.ID}}' | head -n 1)"
+          test -n "$mysql_container" && docker logs "$mysql_container" || true
+
+      - name: 停止候选应用
+        if: always()
+        run: |
+          if [[ -n "${APP_PID:-}" ]] && kill -0 "$APP_PID" 2>/dev/null; then
+            kill "$APP_PID" || true
+            wait "$APP_PID" || true
+          fi
