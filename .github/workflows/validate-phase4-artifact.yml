@@ -38,7 +38,7 @@ jobs:
       EXPECTED_RUN_ID: "29315902681"
       EXPECTED_ARTIFACT_ID: "8303947747"
       EXPECTED_ARTIFACT_NAME: machinery-crm-prebuilt-standalone
-      EXPECTED_ZIP_SHA256: 04870a6909a2e765ce05046f553edbd9dd0469215ad5332528addb6ba13cd15
+      EXPECTED_ZIP_SHA256: 04870a6909a2e765ce05046f553edbd9dd0469215ad5332528addbd6ba13cd15
       EXPECTED_TAR_SHA256: 4c0fae272f0305b2e6d2bf8dbcf50eb6382db4021c6a28aaab653d29b53dc2ff
       DATABASE_URL: mysql://root:phase4_test_only@127.0.0.1:3306/machinery_crm_phase4_test
       AUTH_SECRET: phase4-artifact-smoke-test-secret
