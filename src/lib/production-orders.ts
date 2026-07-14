@@ -10,6 +10,13 @@ export class ProductionOrderRequestError extends Error {
   }
 }
 
+export function isProductionOrderConcurrencyConflict(error: unknown) {
+  const prismaError = error as { code?: string; meta?: { code?: string | number } } | null;
+  return prismaError?.code === "P2002" ||
+    prismaError?.code === "P2034" ||
+    (prismaError?.code === "P2010" && String(prismaError.meta?.code) === "1213");
+}
+
 export type ProductionOrderDraftInput = {
   contractId: string | null;
   contractItemId: string | null;

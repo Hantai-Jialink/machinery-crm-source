@@ -3,6 +3,7 @@ import {
   assertPlannedCompletionDate,
   calculateKitMaterialQuantities,
   calculateRemainingContractQuantity,
+  isProductionOrderConcurrencyConflict,
   issuedOrderNo,
   normalizeProductionRequestKey,
 } from "./production-orders";
@@ -19,6 +20,12 @@ describe("production order numbering", () => {
 });
 
 describe("contract item production limits", () => {
+  it("recognizes MySQL 5.7 deadlocks wrapped by Prisma raw queries", () => {
+    expect(isProductionOrderConcurrencyConflict({ code: "P2010", meta: { code: "1213" } })).toBe(true);
+    expect(isProductionOrderConcurrencyConflict({ code: "P2010", meta: { code: "1062" } })).toBe(false);
+    expect(isProductionOrderConcurrencyConflict(new Error("unrelated"))).toBe(false);
+  });
+
   it("requires a stable server idempotency key for draft creation", () => {
     expect(normalizeProductionRequestKey("550e8400-e29b-41d4-a716-446655440000")).toBe("550e8400-e29b-41d4-a716-446655440000");
     expect(() => normalizeProductionRequestKey("short")).toThrow("幂等标识");

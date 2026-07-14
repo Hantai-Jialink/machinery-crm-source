@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { canPublishProductionOrder, getSessionUser } from "@/lib/permissions";
-import { buildDraftData, normalizeDraftInput, normalizeProductionRequestKey, ProductionOrderRequestError } from "@/lib/production-orders";
+import { buildDraftData, isProductionOrderConcurrencyConflict, normalizeDraftInput, normalizeProductionRequestKey, ProductionOrderRequestError } from "@/lib/production-orders";
 import { writeOperationLog } from "@/lib/sales-items";
 
 export async function POST(request: NextRequest) {
@@ -89,7 +89,7 @@ export async function POST(request: NextRequest) {
     if (error instanceof ProductionOrderRequestError) {
       return NextResponse.json({ error: error.message }, { status: error.status });
     }
-    if (error?.code === "P2002" || error?.code === "P2034") {
+    if (isProductionOrderConcurrencyConflict(error)) {
       return NextResponse.json({ error: "合同设备数量已被其他操作占用，请刷新后重试" }, { status: 409 });
     }
     throw error;
