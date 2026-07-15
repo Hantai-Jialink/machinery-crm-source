@@ -4,6 +4,9 @@ import { describe, expect, it } from "vitest";
 
 const buildWorkflow = readFileSync(resolve(process.cwd(), ".github/workflows/build-standalone.yml"), "utf8");
 const validationWorkflow = readFileSync(resolve(process.cwd(), ".github/workflows/validate-phase4-artifact.yml"), "utf8");
+const middleware = readFileSync(resolve(process.cwd(), "src/middleware.ts"), "utf8");
+const reminderCronRoute = readFileSync(resolve(process.cwd(), "src/app/api/erp/delivery-reminders/run/route.ts"), "utf8");
+const kitCronRoute = readFileSync(resolve(process.cwd(), "src/app/api/erp/kit-rechecks/process/route.ts"), "utf8");
 const rollback = readFileSync(resolve(process.cwd(), "prisma/migrations/20260715100000_erp_phase4_procurement_delivery/rollback.sql"), "utf8");
 
 describe("phase 4 release audit guards", () => {
@@ -18,6 +21,13 @@ describe("phase 4 release audit guards", () => {
     expect(buildWorkflow).toContain('test ! -e "$VERIFY_APP/.env"');
     expect(buildWorkflow).toContain('test ! -d "$VERIFY_APP/src/app/uploads"');
     expect(buildWorkflow).toContain('UPLOAD_DIR="$PERSISTENT_UPLOADS"');
+  });
+
+  it("lets only the exact cron endpoints reach their own secret checks", () => {
+    expect(middleware).toContain('"/api/erp/delivery-reminders/run"');
+    expect(middleware).toContain('"/api/erp/kit-rechecks/process"');
+    expect(reminderCronRoute).toContain("ERP_CRON_SECRET");
+    expect(kitCronRoute).toContain("ERP_CRON_SECRET");
   });
 
   it("keeps rollback explicit and forbids database-wide destructive statements", () => {

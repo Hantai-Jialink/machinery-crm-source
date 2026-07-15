@@ -3,10 +3,15 @@ import { NextResponse } from "next/server";
 
 export default auth((req) => {
   const { pathname } = req.nextUrl;
+  const cronApiRoutes = new Set([
+    "/api/erp/delivery-reminders/run",
+    "/api/erp/kit-rechecks/process",
+  ]);
 
   if (
     pathname.startsWith("/login") ||
     pathname.startsWith("/api/auth") ||
+    cronApiRoutes.has(pathname) ||
     pathname.startsWith("/_next") ||
     pathname.startsWith("/favicon") ||
     pathname === "/logo.png" ||
