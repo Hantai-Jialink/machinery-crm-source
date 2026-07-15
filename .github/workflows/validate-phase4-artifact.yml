@@ -2,9 +2,11 @@ name: 验证 ERP 第四期候选 Artifact（Linux + MySQL 5.7）
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - codex/erp-phase4-artifact-linux-smoke
+    inputs:
+      build_run_id:
+        description: "成功的 standalone 构建 Run ID"
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -34,18 +36,16 @@ jobs:
           --health-retries=20
 
     env:
-      EXPECTED_SOURCE_SHA: 4cb5ec37d981283625e6c55357b63edb31d651a6
-      EXPECTED_RUN_ID: "29315902681"
-      EXPECTED_ARTIFACT_ID: "8303947747"
       EXPECTED_ARTIFACT_NAME: machinery-crm-prebuilt-standalone
-      EXPECTED_ZIP_SHA256: 04870a6909a2e765ce05046f553edbd9dd0469215ad5332528addbd6ba13cd15
-      EXPECTED_TAR_SHA256: 4c0fae272f0305b2e6d2bf8dbcf50eb6382db4021c6a28aaab653d29b53dc2ff
+      BUILD_RUN_ID: ${{ inputs.build_run_id }}
       DATABASE_URL: mysql://root:phase4_test_only@127.0.0.1:3306/machinery_crm_phase4_test
       AUTH_SECRET: phase4-artifact-smoke-test-secret
       AUTH_URL: http://127.0.0.1:3000
       NEXTAUTH_URL: http://127.0.0.1:3000
       PORT: "3000"
       HOSTNAME: 127.0.0.1
+      ERP_CRON_SECRET: phase4-isolated-cron-secret
+      UPLOAD_DIR: ${{ runner.temp }}/phase4-persistent-uploads
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     defaults:
@@ -58,14 +58,17 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: 确认验证分支只新增工作流
+      - name: 锁定当前提交和成功的构建 Run
         run: |
           set -Eeuo pipefail
-          git merge-base --is-ancestor "$EXPECTED_SOURCE_SHA" HEAD
-          mapfile -t changed_files < <(git diff --name-only "$EXPECTED_SOURCE_SHA" HEAD)
-          printf 'Validation branch files:\n%s\n' "${changed_files[*]}"
-          test "${#changed_files[@]}" -eq 1
-          test "${changed_files[0]}" = ".github/workflows/validate-phase4-artifact.yml"
+          run_json="$RUNNER_TEMP/build-run.json"
+          curl -fsSL --retry 3 \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/runs/$BUILD_RUN_ID" \
+            -o "$run_json"
+          jq -e --arg sha "$GITHUB_SHA" '.head_sha == $sha and .status == "completed" and .conclusion == "success"' "$run_json" >/dev/null
+          echo "EXPECTED_SOURCE_SHA=$GITHUB_SHA" >> "$GITHUB_ENV"
 
       - name: 安装 Node.js 20
         uses: actions/setup-node@v4
@@ -80,40 +83,27 @@ jobs:
           extract_dir="$smoke_dir/extracted"
           mkdir -p "$download_dir" "$extract_dir"
 
-          artifact_json="$smoke_dir/artifact.json"
-          run_json="$smoke_dir/run.json"
+          artifacts_json="$smoke_dir/artifacts.json"
           curl -fsSL --retry 3 \
             -H "Authorization: Bearer $GITHUB_TOKEN" \
             -H "Accept: application/vnd.github+json" \
-            "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/artifacts/$EXPECTED_ARTIFACT_ID" \
-            -o "$artifact_json"
-          curl -fsSL --retry 3 \
-            -H "Authorization: Bearer $GITHUB_TOKEN" \
-            -H "Accept: application/vnd.github+json" \
-            "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/runs/$EXPECTED_RUN_ID" \
-            -o "$run_json"
-
-          jq -e --argjson id "$EXPECTED_ARTIFACT_ID" --arg name "$EXPECTED_ARTIFACT_NAME" \
-            --argjson run "$EXPECTED_RUN_ID" --arg sha "$EXPECTED_SOURCE_SHA" \
-            '.id == $id and .name == $name and .expired == false and .workflow_run.id == $run and .workflow_run.head_sha == $sha' \
-            "$artifact_json" >/dev/null
-          jq -e --argjson id "$EXPECTED_RUN_ID" --arg sha "$EXPECTED_SOURCE_SHA" \
-            '.id == $id and .head_sha == $sha and .status == "completed" and .conclusion == "success"' \
-            "$run_json" >/dev/null
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/runs/$BUILD_RUN_ID/artifacts" \
+            -o "$artifacts_json"
+          artifact_id="$(jq -er --arg name "$EXPECTED_ARTIFACT_NAME" '[.artifacts[] | select(.name == $name and .expired == false)] | if length == 1 then .[0].id else error("artifact count must be one") end' "$artifacts_json")"
 
           artifact_zip="$download_dir/machinery-crm-prebuilt-standalone.zip"
           curl -fsSL --retry 3 \
             -H "Authorization: Bearer $GITHUB_TOKEN" \
             -H "Accept: application/vnd.github+json" \
-            "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/artifacts/$EXPECTED_ARTIFACT_ID/zip" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/artifacts/$artifact_id/zip" \
             -o "$artifact_zip"
-          echo "$EXPECTED_ZIP_SHA256  $artifact_zip" | sha256sum --check --strict
+          zip_sha256="$(sha256sum "$artifact_zip" | awk '{print $1}')"
 
           unzip -q "$artifact_zip" -d "$download_dir/artifact"
           mapfile -t tarballs < <(find "$download_dir/artifact" -maxdepth 1 -type f -name '*.tar.gz' -print)
           test "${#tarballs[@]}" -eq 1
           candidate_tar="${tarballs[0]}"
-          echo "$EXPECTED_TAR_SHA256  $candidate_tar" | sha256sum --check --strict
+          tar_sha256="$(sha256sum "$candidate_tar" | awk '{print $1}')"
 
           tar -xzf "$candidate_tar" -C "$extract_dir"
           mapfile -t app_dirs < <(find "$extract_dir" -mindepth 1 -maxdepth 1 -type d -print)
@@ -127,9 +117,14 @@ jobs:
           echo "SMOKE_RESULT=$smoke_dir/smoke-result.json" >> "$GITHUB_ENV"
           echo "ARTIFACT_ZIP=$artifact_zip" >> "$GITHUB_ENV"
           echo "CANDIDATE_TAR=$candidate_tar" >> "$GITHUB_ENV"
+          echo "ARTIFACT_ID=$artifact_id" >> "$GITHUB_ENV"
+          echo "ZIP_SHA256=$zip_sha256" >> "$GITHUB_ENV"
+          echo "TAR_SHA256=$tar_sha256" >> "$GITHUB_ENV"
+          echo "TAR_NAME=$(basename "$candidate_tar")" >> "$GITHUB_ENV"
 
           printf 'Artifact %s (%s) from run %s and commit %s verified.\n' \
-            "$EXPECTED_ARTIFACT_NAME" "$EXPECTED_ARTIFACT_ID" "$EXPECTED_RUN_ID" "$EXPECTED_SOURCE_SHA"
+            "$EXPECTED_ARTIFACT_NAME" "$artifact_id" "$BUILD_RUN_ID" "$EXPECTED_SOURCE_SHA"
+          printf 'ZIP SHA256: %s\ntar.gz SHA256: %s\n' "$zip_sha256" "$tar_sha256"
 
       - name: 检查候选包独立运行结构
         run: |
@@ -145,13 +140,24 @@ jobs:
           find "$APP_DIR/node_modules/.prisma/client" -type f -name 'libquery_engine-*.so.node' -print -quit | grep -q .
           test -z "$(find "$APP_DIR" -type f \( -name '*windows*' -o -name 'query_engine*.dll.node' \) -print -quit)"
           test ! -d "$APP_DIR/prisma/migrations/migrations"
-          test -f "$APP_DIR/prisma/migrations/20260714100000_erp_phase4_round1_roles_contract_item/migration.sql"
-          test -f "$APP_DIR/prisma/migrations/20260714130000_reconcile_legacy_schema_history/migration.sql"
+          test ! -e "$APP_DIR/.env"
+          test ! -d "$APP_DIR/src/app/uploads"
           mapfile -t migration_dirs < <(find "$APP_DIR/prisma/migrations" -mindepth 1 -maxdepth 1 -type d -print)
-          test "${#migration_dirs[@]}" -eq 15
+          mapfile -t source_migration_dirs < <(find "$GITHUB_WORKSPACE/prisma/migrations" -mindepth 1 -maxdepth 1 -type d -print)
+          test "${#migration_dirs[@]}" -eq "${#source_migration_dirs[@]}"
           for migration_dir in "${migration_dirs[@]}"; do
             test -f "$migration_dir/migration.sql"
           done
+          migration_manifest() {
+            local root="$1"
+            while IFS= read -r relative_path; do
+              printf '%s  %s\n' "$(sha256sum "$root/$relative_path" | awk '{print $1}')" "$relative_path"
+            done < <(find "$root" -mindepth 2 -maxdepth 2 -type f -name migration.sql -printf '%P\n' | sort)
+          }
+          migration_manifest "$GITHUB_WORKSPACE/prisma/migrations" > "$SMOKE_DIR/source-migrations.sha256"
+          migration_manifest "$APP_DIR/prisma/migrations" > "$SMOKE_DIR/artifact-migrations.sha256"
+          diff -u "$SMOKE_DIR/source-migrations.sha256" "$SMOKE_DIR/artifact-migrations.sha256"
+          echo "EXPECTED_MIGRATION_COUNT=${#source_migration_dirs[@]}" >> "$GITHUB_ENV"
 
           if find "$APP_DIR" -type l -print -quit | grep -q .; then
             echo "Candidate package contains symbolic links" >&2
@@ -171,6 +177,72 @@ jobs:
           node node_modules/prisma/build/index.js migrate status \
             --schema=prisma/schema.prisma | tee "$SMOKE_DIR/migrate-status.log"
           grep -q 'Database schema is up to date' "$SMOKE_DIR/migrate-status.log"
+
+      - name: 验证带历史采购库存工单数据的增量升级
+        run: |
+          set -Eeuo pipefail
+          upgrade_url="mysql://root:phase4_test_only@127.0.0.1:3306/machinery_crm_phase4_upgrade"
+          create_script="$SMOKE_DIR/create-upgrade-db.mjs"
+          cat > "$create_script" <<'NODE'
+          import path from "node:path";
+          import { createRequire } from "node:module";
+          const require = createRequire(path.join(process.env.APP_DIR, "package.json"));
+          const { PrismaClient } = require("@prisma/client");
+          const admin = new PrismaClient();
+          try { await admin.$executeRawUnsafe("CREATE DATABASE machinery_crm_phase4_upgrade CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"); } finally { await admin.$disconnect(); }
+          NODE
+          node "$create_script"
+
+          upgrade_prisma="$SMOKE_DIR/upgrade-prisma"
+          cp -a "$APP_DIR/prisma" "$upgrade_prisma"
+          rm -rf "$upgrade_prisma/migrations/20260715100000_erp_phase4_procurement_delivery"
+          DATABASE_URL="$upgrade_url" node "$APP_DIR/node_modules/prisma/build/index.js" migrate deploy --schema="$upgrade_prisma/schema.prisma"
+
+          seed_upgrade="$SMOKE_DIR/seed-upgrade.mjs"
+          cat > "$seed_upgrade" <<'NODE'
+          import path from "node:path";
+          import { createRequire } from "node:module";
+          const require = createRequire(path.join(process.env.APP_DIR, "package.json"));
+          const { PrismaClient } = require("@prisma/client");
+          const prisma = new PrismaClient({ datasources: { db: { url: process.env.UPGRADE_DATABASE_URL } } });
+          try {
+            await prisma.$executeRawUnsafe("INSERT INTO erp_material_categories (id,name,code,createdAt) VALUES ('legacy-cat','历史分类','LEGACY-CAT',NOW(3))");
+            await prisma.$executeRawUnsafe("INSERT INTO erp_warehouses (id,name,code,isActive,createdAt) VALUES ('legacy-wh','历史仓库','LEGACY-WH',1,NOW(3))");
+            await prisma.$executeRawUnsafe("INSERT INTO erp_materials (id,code,name,categoryId,unit,standardPrice,safetyStock,isActive,createdAt,updatedAt) VALUES ('legacy-mat','LEGACY-MAT','历史采购物料','legacy-cat','件',10,5,1,NOW(3),NOW(3))");
+            await prisma.$executeRawUnsafe("INSERT INTO erp_inventories (id,warehouseId,materialId,quantity,totalAmount,avgPrice,createdAt,updatedAt) VALUES ('legacy-inv','legacy-wh','legacy-mat',7,70,10,NOW(3),NOW(3))");
+            await prisma.$executeRawUnsafe("INSERT INTO erp_suppliers (id,name,isActive,createdAt,updatedAt) VALUES ('legacy-supplier','历史供应商',1,NOW(3),NOW(3))");
+            await prisma.$executeRawUnsafe("INSERT INTO erp_purchase_orders (id,orderNo,supplierId,supplierNameSnapshot,orderDate,status,createdById,createdAt,updatedAt) VALUES ('legacy-po','LEGACY-PO','legacy-supplier','历史供应商',NOW(3),'PARTIAL_RECEIVED','legacy-user',NOW(3),NOW(3))");
+            await prisma.$executeRawUnsafe("INSERT INTO erp_purchase_order_items (id,purchaseOrderId,materialId,materialCodeSnapshot,materialNameSnapshot,quantity,unitPrice,amount,receivedQuantity,sortOrder,createdAt) VALUES ('legacy-po-item','legacy-po','legacy-mat','LEGACY-MAT','历史采购物料',10,10,100,3,0,NOW(3))");
+            await prisma.$executeRawUnsafe("INSERT INTO erp_production_orders (id,orderNo,isStockOrder,productId,productModelSnapshot,productNameSnapshot,quantity,bomId,bomVersionSnapshot,warehouseId,plannedDate,status,version,isCurrent,createdById,createdAt,updatedAt) VALUES ('legacy-prod','LEGACY-PROD',1,'legacy-product','LEGACY-MODEL','历史备货工单',1,'legacy-bom','v1','legacy-wh',CURRENT_DATE,'ISSUED',1,1,'legacy-user',NOW(3),NOW(3))");
+          } finally { await prisma.$disconnect(); }
+          NODE
+          UPGRADE_DATABASE_URL="$upgrade_url" node "$seed_upgrade"
+
+          DATABASE_URL="$upgrade_url" node "$APP_DIR/node_modules/prisma/build/index.js" migrate deploy --schema="$APP_DIR/prisma/schema.prisma" | tee "$SMOKE_DIR/upgrade-migrate.log"
+          verify_upgrade="$SMOKE_DIR/verify-upgrade.mjs"
+          cat > "$verify_upgrade" <<'NODE'
+          import path from "node:path";
+          import { createRequire } from "node:module";
+          const require = createRequire(path.join(process.env.APP_DIR, "package.json"));
+          const { PrismaClient } = require("@prisma/client");
+          const prisma = new PrismaClient({ datasources: { db: { url: process.env.UPGRADE_DATABASE_URL } } });
+          const assert = (condition, message) => { if (!condition) throw new Error(message); };
+          try {
+            const material = await prisma.material.findUnique({ where: { id: "legacy-mat" } });
+            const inventory = await prisma.inventory.findUnique({ where: { id: "legacy-inv" } });
+            const order = await prisma.purchaseOrder.findUnique({ where: { id: "legacy-po" } });
+            const item = await prisma.purchaseOrderItem.findUnique({ where: { id: "legacy-po-item" } });
+            const production = await prisma.productionOrder.findUnique({ where: { id: "legacy-prod" } });
+            assert(material && Number(material.safetyStock) === 5 && material.safetyStockEnabled === false && material.autoPurchaseDraftEnabled === false, "Material defaults or legacy safety stock changed");
+            assert(inventory && Number(inventory.quantity) === 7, "Historical inventory changed during migration");
+            assert(order?.status === "PARTIAL_RECEIVED" && Number(item?.receivedQuantity) === 3 && item?.deliveryStatus === "NOT_DELIVERED", "Historical purchase data or new defaults are incorrect");
+            assert(production?.status === "ISSUED" && production.kitCheckRequired === true && production.kitCheckStatus === "NOT_CHECKED", "Historical production order or kit defaults are incorrect");
+            const migrations = await prisma.$queryRawUnsafe("SELECT migration_name FROM _prisma_migrations WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL");
+            assert(migrations.length === Number(process.env.EXPECTED_MIGRATION_COUNT), "Upgrade database migration count mismatch");
+            console.log(JSON.stringify({ historicalInventory: Number(inventory.quantity), historicalReceived: Number(item.receivedQuantity), materialSafetyStock: Number(material.safetyStock), migrationCount: migrations.length }));
+          } finally { await prisma.$disconnect(); }
+          NODE
+          UPGRADE_DATABASE_URL="$upgrade_url" node "$verify_upgrade" | tee "$SMOKE_DIR/upgrade-result.json"
 
       - name: 生成临时账号密码
         run: |
@@ -212,11 +284,13 @@ jobs:
             const migrations = await prisma.$queryRawUnsafe(
               "SELECT migration_name, finished_at, rolled_back_at FROM _prisma_migrations ORDER BY started_at"
             );
-            assert(migrations.length === 15, `Expected 15 migrations, received ${migrations.length}`);
+            const expectedMigrationCount = Number(process.env.EXPECTED_MIGRATION_COUNT);
+            assert(migrations.length === expectedMigrationCount, `Expected ${expectedMigrationCount} migrations, received ${migrations.length}`);
             assert(migrations.every((row) => row.finished_at && !row.rolled_back_at), "Found failed or rolled-back migration");
             const migrationNames = new Set(migrations.map((row) => row.migration_name));
             assert(migrationNames.has("20260714100000_erp_phase4_round1_roles_contract_item"), "Round 1 migration is missing");
             assert(migrationNames.has("20260714130000_reconcile_legacy_schema_history"), "Reconcile migration is missing");
+            assert(migrationNames.has("20260715100000_erp_phase4_procurement_delivery"), "Procurement delivery migration is missing");
 
             const indexRows = await prisma.$queryRawUnsafe(
               "SELECT MAX(CHAR_LENGTH(INDEX_NAME)) AS max_length FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = DATABASE()"
@@ -291,7 +365,7 @@ jobs:
               data: { code: `PH4-L2-${suffix}`, name: "二级零件包", categoryId: packageCategory.id, unit: "件" },
             });
             const leaf = await prisma.material.create({
-              data: { code: `PH4-LEAF-${suffix}`, name: "汇总叶子物料", categoryId: normalCategory.id, unit: "件", standardPrice: new Prisma.Decimal(10) },
+              data: { code: `PH4-LEAF-${suffix}`, name: "汇总叶子物料", categoryId: normalCategory.id, unit: "件", standardPrice: new Prisma.Decimal(10), autoPurchaseDraftEnabled: true },
             });
             const bom = await prisma.bomHeader.create({
               data: { productId: product.id, version: `v-cloud-${suffix}`, isActive: true },
@@ -379,6 +453,8 @@ jobs:
                 foreignTrade: { email: foreignTradeUser.email, role: "FOREIGN_TRADE" },
               },
               ids: {
+                superAdminId: superAdmin.id,
+                purchaseUserId: purchaseUser.id,
                 productId: product.id,
                 warehouseId: warehouse.id,
                 normalCategoryId: normalCategory.id,
@@ -403,6 +479,9 @@ jobs:
       - name: 从候选包启动 Standalone 应用
         run: |
           set -Eeuo pipefail
+          mkdir -p "$UPLOAD_DIR"
+          printf 'persistent upload marker\n' > "$UPLOAD_DIR/restart-marker.txt"
+          test "$(readlink -f "$UPLOAD_DIR")" != "$(readlink -f "$APP_DIR")"
           cd "$APP_DIR"
           node start-standalone.cjs > "$APP_LOG" 2>&1 &
           app_pid=$!
@@ -690,6 +769,187 @@ jobs:
           NODE
           node "$smoke_script"
 
+      - name: 验证采购数量、月度计划、权限、附件、提醒和齐套队列
+        run: |
+          set -Eeuo pipefail
+          audit_script="$SMOKE_DIR/release-audit.mjs"
+          cat > "$audit_script" <<'NODE'
+          import fs from "node:fs";
+          import path from "node:path";
+          import { createRequire } from "node:module";
+
+          const baseUrl = "http://127.0.0.1:3000";
+          const seed = JSON.parse(fs.readFileSync(process.env.SEED_JSON, "utf8"));
+          const priorSmoke = JSON.parse(fs.readFileSync(process.env.SMOKE_RESULT, "utf8"));
+          const candidateRequire = createRequire(path.join(process.env.APP_DIR, "package.json"));
+          const { PrismaClient, Prisma } = candidateRequire("@prisma/client");
+          const prisma = new PrismaClient();
+          const assert = (condition, message) => { if (!condition) throw new Error(message); };
+
+          class CookieJar {
+            constructor() { this.cookies = new Map(); }
+            absorb(headers) {
+              const values = typeof headers.getSetCookie === "function" ? headers.getSetCookie() : [headers.get("set-cookie")].filter(Boolean);
+              for (const value of values) { const pair = value.split(";", 1)[0]; const index = pair.indexOf("="); if (index > 0) this.cookies.set(pair.slice(0, index), pair.slice(index + 1)); }
+            }
+            header() { return [...this.cookies.entries()].map(([key, value]) => `${key}=${value}`).join("; "); }
+          }
+          async function request(jar, pathname, options = {}, expected = 200) {
+            const headers = new Headers(options.headers || {});
+            if (jar?.header()) headers.set("cookie", jar.header());
+            const response = await fetch(`${baseUrl}${pathname}`, { ...options, headers, redirect: "manual" });
+            jar?.absorb(response.headers);
+            const text = await response.text();
+            let data = null; try { data = text ? JSON.parse(text) : null; } catch {}
+            const statuses = Array.isArray(expected) ? expected : [expected];
+            if (!statuses.includes(response.status)) throw new Error(`${options.method || "GET"} ${pathname} -> ${response.status}: ${text.slice(0, 500)}`);
+            return { status: response.status, data, text };
+          }
+          async function jsonRequest(jar, pathname, method, body, expected = 200, headers = {}) {
+            return request(jar, pathname, { method, headers: { "content-type": "application/json", ...headers }, body: body === undefined ? undefined : JSON.stringify(body) }, expected);
+          }
+          async function login(account) {
+            const jar = new CookieJar();
+            const csrf = await request(jar, "/api/auth/csrf");
+            const form = new URLSearchParams({ csrfToken: csrf.data.csrfToken, email: account.email, password: process.env.SMOKE_PASSWORD, callbackUrl: `${baseUrl}/dashboard`, redirect: "false" });
+            await request(jar, "/api/auth/callback/credentials", { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: form }, [200, 302, 303]);
+            return jar;
+          }
+          const dateOnly = (offsetDays) => { const date = new Date(); date.setUTCDate(date.getUTCDate() + offsetDays); return date.toISOString().slice(0, 10); };
+
+          try {
+            const suffix = process.env.GITHUB_RUN_ID;
+            const superJar = await login(seed.accounts.superAdmin);
+            const purchaseJar = await login(seed.accounts.purchase);
+            const warehouseJar = await login(seed.accounts.warehouse);
+            const supplyMaterial = await prisma.material.create({ data: { code: `PH4-SUPPLY-${suffix}`, name: "采购防重复验证物料", categoryId: seed.ids.normalCategoryId, unit: "件", standardPrice: new Prisma.Decimal(10), autoPurchaseDraftEnabled: true } });
+            await prisma.inventory.create({ data: { warehouseId: seed.ids.warehouseId, materialId: supplyMaterial.id, quantity: new Prisma.Decimal(10), totalAmount: new Prisma.Decimal(100), avgPrice: new Prisma.Decimal(10) } });
+
+            const createDemand = async (sourceRecordId, quantity) => (await jsonRequest(purchaseJar, "/api/erp/purchase-demands", "POST", { sourceType: "STOCK_REPLENISHMENT", sourceRecordId, materialId: supplyMaterial.id, quantity, needByDate: dateOnly(20), stockPurpose: "隔离验证" }, 201)).data;
+            const demandA = await createDemand(`SUPPLY-A-${suffix}`, 20);
+            assert(Number(demandA.suggestedQuantity) === 10, "Initial stock demand suggestion should be 10");
+            const converted = await jsonRequest(purchaseJar, "/api/erp/purchase-demands/convert", "POST", { supplierId: seed.ids.supplierId, allocations: [{ purchaseDemandId: demandA.id, quantity: 10 }], unitPrices: { [supplyMaterial.id]: 10 } }, 201);
+            const supplyOrderId = converted.data.id;
+            let supplyOrder = (await request(purchaseJar, `/api/erp/purchase-orders/${supplyOrderId}`)).data;
+            const supplyItem = supplyOrder.items[0];
+            const convertedDemand = await prisma.purchaseDemand.findUnique({ where: { id: demandA.id } });
+            assert(convertedDemand.status === "CONVERTED" && convertedDemand.activeSlot === null, "Fully converted demand must leave the active calculation set");
+
+            const demandB = await createDemand(`SUPPLY-B-${suffix}`, 25);
+            assert(Number(demandB.suggestedQuantity) === 5, "Draft PO allocation must replace, not duplicate, effective demand");
+            await jsonRequest(superJar, `/api/erp/purchase-demands/${demandB.id}`, "PATCH", { action: "CANCEL" });
+            await jsonRequest(purchaseJar, `/api/erp/purchase-orders/${supplyOrderId}/status`, "POST", { status: "ORDERED" });
+            const demandC = await createDemand(`SUPPLY-C-${suffix}`, 25);
+            assert(Number(demandC.suggestedQuantity) === 5, "Confirmed inbound must replace converted demand exactly once");
+            await jsonRequest(superJar, `/api/erp/purchase-demands/${demandC.id}`, "PATCH", { action: "CANCEL" });
+
+            const stockIn = (await jsonRequest(warehouseJar, "/api/erp/stock-in", "POST", { warehouseId: seed.ids.warehouseId, purchaseOrderId: supplyOrderId, type: "PURCHASE", items: [{ materialId: supplyMaterial.id, purchaseOrderItemId: supplyItem.id, quantity: 4, unitPrice: 10 }] }, 201)).data;
+            supplyOrder = (await request(purchaseJar, `/api/erp/purchase-orders/${supplyOrderId}`)).data;
+            assert(supplyOrder.status === "PARTIAL_RECEIVED" && Number(supplyOrder.items[0].receivedQuantity) === 4, "Partial receipt must only recognize the actual quantity 4");
+            const demandD = await createDemand(`SUPPLY-D-${suffix}`, 25);
+            assert(Number(demandD.suggestedQuantity) === 5, "Partial receipt must reduce inbound while increasing inventory without double counting");
+            await jsonRequest(superJar, `/api/erp/purchase-demands/${demandD.id}`, "PATCH", { action: "CANCEL" });
+            const supplyAllocation = await prisma.purchaseOrderItemSource.findFirst({ where: { purchaseOrderItemId: supplyItem.id } });
+            assert(Number(supplyAllocation.fulfilledQuantity) === 4, "Source fulfillment must equal the actual receipt quantity");
+
+            for (const promisedDate of [dateOnly(2), dateOnly(4), dateOnly(6)]) await jsonRequest(purchaseJar, `/api/erp/supplier-deliveries/${supplyItem.id}/promise-date`, "POST", { promisedDate, supplierReason: "隔离验证" });
+            const promiseItem = await prisma.purchaseOrderItem.findUnique({ where: { id: supplyItem.id }, include: { promiseHistory: true } });
+            assert(promiseItem.firstPromisedDate.toISOString().slice(0, 10) === dateOnly(2), "First promise date was overwritten");
+            assert(promiseItem.latestPromisedDate.toISOString().slice(0, 10) === dateOnly(6) && promiseItem.promiseHistory.length === 3, "Promise history is incomplete");
+            await jsonRequest(warehouseJar, `/api/erp/supplier-deliveries/${supplyItem.id}/promise-date`, "POST", { promisedDate: dateOnly(7) }, 403);
+
+            const otherPurchase = await prisma.user.create({ data: { email: `phase4.other.purchase.${suffix}@test.invalid`, name: "Other Purchase", password: process.env.SMOKE_PASSWORD_HASH, role: "PURCHASE", region: "其他", territories: [], viewScope: "TERRITORY", isActive: true } });
+            const otherPurchaseJar = await login({ email: otherPurchase.email });
+            await jsonRequest(otherPurchaseJar, `/api/erp/supplier-deliveries/${supplyItem.id}/promise-date`, "POST", { promisedDate: dateOnly(7) }, 403);
+
+            const form = new FormData(); form.set("entityType", "STOCK_IN"); form.set("entityId", stockIn.id); form.set("file", new File(["phase4 attachment"], "receipt.pdf", { type: "application/pdf" }));
+            const attachment = (await request(warehouseJar, "/api/erp/attachments", { method: "POST", body: form }, 201)).data;
+            await request(warehouseJar, `/api/erp/attachments/${attachment.id}`, { method: "DELETE" }, 403);
+            const attachmentPath = path.join(process.env.UPLOAD_DIR, "erp", "stock_in", attachment.storedName);
+            assert(fs.existsSync(attachmentPath), "Uploaded attachment is not in external UPLOAD_DIR");
+
+            await prisma.purchaseOrderItem.update({ where: { id: supplyItem.id }, data: { latestPromisedDate: new Date(`${dateOnly(0)}T00:00:00.000Z`) } });
+            await request(null, "/api/erp/delivery-reminders/run", { method: "POST", headers: { "x-cron-secret": "wrong" } }, 401);
+            const reminderFirst = await request(null, "/api/erp/delivery-reminders/run", { method: "POST", headers: { "x-cron-secret": process.env.ERP_CRON_SECRET } });
+            const reminderSecond = await request(null, "/api/erp/delivery-reminders/run", { method: "POST", headers: { "x-cron-secret": process.env.ERP_CRON_SECRET } });
+            assert(reminderFirst.data.created > 0 && reminderSecond.data.created === 0, "Delivery reminder idempotency failed");
+
+            const productionOrderId = priorSmoke.contractOrder.id;
+            const queueRequestedAt = new Date();
+            await prisma.kitRecheckQueue.upsert({ where: { productionOrderId }, create: { productionOrderId, reason: "stale lease verification", materialIds: [seed.ids.leafMaterialId], requestedById: seed.ids.superAdminId, requestedAt: queueRequestedAt, processingAt: new Date(Date.now() - 20 * 60 * 1000) }, update: { reason: "stale lease verification", materialIds: [seed.ids.leafMaterialId], requestedById: seed.ids.superAdminId, requestedAt: queueRequestedAt, processedAt: null, processingAt: new Date(Date.now() - 20 * 60 * 1000), lastError: null } });
+            await request(null, "/api/erp/kit-rechecks/process", { method: "POST" }, 401);
+            await request(null, "/api/erp/kit-rechecks/process", { method: "POST", headers: { "x-cron-secret": process.env.ERP_CRON_SECRET, "x-system-user-id": "invalid" } }, 400);
+            const queueRun = await request(null, "/api/erp/kit-rechecks/process", { method: "POST", headers: { "x-cron-secret": process.env.ERP_CRON_SECRET, "x-system-user-id": seed.ids.superAdminId } });
+            assert(queueRun.data.processed === 1, "Stale queue lease was not reclaimed");
+            const queue = await prisma.kitRecheckQueue.findUnique({ where: { productionOrderId } });
+            assert(queue.processedAt && !queue.processingAt && !queue.lastError && queue.attemptCount > 0, "Queue state did not close cleanly");
+            const queueReplay = await request(null, "/api/erp/kit-rechecks/process", { method: "POST", headers: { "x-cron-secret": process.env.ERP_CRON_SECRET, "x-system-user-id": seed.ids.superAdminId } });
+            assert(queueReplay.data.processed === 0, "Processed queue was executed twice");
+            await prisma.productionOrder.update({ where: { id: productionOrderId }, data: { status: "DRAFT" } });
+            await prisma.kitRecheckQueue.update({ where: { productionOrderId }, data: { requestedAt: new Date(), processedAt: null, processingAt: null, lastError: null } });
+            const failedQueueRun = await request(null, "/api/erp/kit-rechecks/process", { method: "POST", headers: { "x-cron-secret": process.env.ERP_CRON_SECRET, "x-system-user-id": seed.ids.superAdminId } });
+            assert(failedQueueRun.data.results[0]?.status === "FAILED", "Invalid work order did not produce a retryable queue failure");
+            const failedQueue = await prisma.kitRecheckQueue.findUnique({ where: { productionOrderId } });
+            assert(failedQueue.lastError && !failedQueue.processingAt && !failedQueue.processedAt, "Queue failure reason or retry state is missing");
+            await prisma.productionOrder.update({ where: { id: productionOrderId }, data: { status: "ISSUED" } });
+            const recoveredQueueRun = await request(null, "/api/erp/kit-rechecks/process", { method: "POST", headers: { "x-cron-secret": process.env.ERP_CRON_SECRET, "x-system-user-id": seed.ids.superAdminId } });
+            assert(recoveredQueueRun.data.results[0]?.status !== "FAILED", "Failed queue job did not recover after the cause was fixed");
+
+            const stockDemand = await jsonRequest(purchaseJar, "/api/erp/purchase-demands", "POST", { sourceType: "STOCK_REPLENISHMENT", sourceRecordId: `MERGE-STOCK-${suffix}`, materialId: seed.ids.leafMaterialId, quantity: 5, needByDate: dateOnly(20), stockPurpose: "合并来源验证" }, 201);
+            const productionDemand = await prisma.purchaseDemand.findFirst({ where: { sourceType: "PRODUCTION_ORDER", sourceRecordId: productionOrderId, materialId: seed.ids.leafMaterialId, activeSlot: true } });
+            assert(productionDemand, "Production shortage demand was not generated");
+            const mergedOrder = await jsonRequest(purchaseJar, "/api/erp/purchase-demands/convert", "POST", { supplierId: seed.ids.supplierId, allocations: [{ purchaseDemandId: productionDemand.id, quantity: Number(productionDemand.suggestedQuantity) }, { purchaseDemandId: stockDemand.data.id, quantity: Number(stockDemand.data.suggestedQuantity) }] }, 201);
+            const mergedItems = await prisma.purchaseOrderItem.findMany({ where: { purchaseOrderId: mergedOrder.data.id }, include: { demandSources: true } });
+            assert(mergedItems.length === 1 && mergedItems[0].demandSources.length === 2, "Production and stock demand were not merged with two source allocations");
+
+            const monthlyMaterial = await prisma.material.create({ data: { code: `PH4-MONTHLY-${suffix}`, name: "月度计划验证物料", categoryId: seed.ids.normalCategoryId, unit: "件", standardPrice: new Prisma.Decimal(8), autoPurchaseDraftEnabled: true } });
+            const monthlyProduct = await prisma.product.create({ data: { model: `PH4-MONTHLY-PRODUCT-${suffix}`, category: "隔离验证设备", productType: "MAIN", translations: { create: { language: "ZH", name: "月度计划验证设备" } } } });
+            const monthlyBom = await prisma.bomHeader.create({ data: { productId: monthlyProduct.id, version: `monthly-${suffix}`, isActive: true, items: { create: { materialId: monthlyMaterial.id, quantity: new Prisma.Decimal(2), level: 1, sortOrder: 0 } } } });
+            const plan = (await jsonRequest(superJar, "/api/erp/monthly-production-plans", "POST", { planMonth: `${dateOnly(30).slice(0, 7)}-01`, name: "月度部分转换验证", items: [{ productId: monthlyProduct.id, bomId: monthlyBom.id, plannedQuantity: 10, plannedStartDate: dateOnly(30), plannedCompletionDate: dateOnly(50) }] }, 201)).data;
+            await jsonRequest(superJar, `/api/erp/monthly-production-plans/${plan.id}`, "PUT", { status: "PENDING_APPROVAL" });
+            await jsonRequest(superJar, `/api/erp/monthly-production-plans/${plan.id}/approve`, "POST", {});
+            const monthlyDemand = await prisma.purchaseDemand.findFirst({ where: { sourceType: "MONTHLY_PRODUCTION_PLAN", sourceRecordId: plan.items[0].id, materialId: monthlyMaterial.id } });
+            assert(Number(monthlyDemand.suggestedQuantity) === 20, "Monthly material shortage should be 20");
+            const monthlyOrder = (await jsonRequest(superJar, `/api/erp/monthly-production-plans/${plan.id}/convert`, "POST", { planItemId: plan.items[0].id, quantity: 3, warehouseId: seed.ids.warehouseId, requestKey: `monthly-${suffix}-part-001` }, 201)).data;
+            const monthlyAllocation = await prisma.purchaseDemandProductionAllocation.findUnique({ where: { purchaseDemandId_productionOrderId: { purchaseDemandId: monthlyDemand.id, productionOrderId: monthlyOrder.id } } });
+            assert(Number(monthlyAllocation.allocatedQuantity) === 6, "Monthly partial conversion allocation should be 6");
+            await jsonRequest(superJar, `/api/erp/production-orders/${monthlyOrder.id}/issue`, "POST", {});
+            const duplicateMonthlyDemand = await prisma.purchaseDemand.count({ where: { sourceType: "PRODUCTION_ORDER", sourceRecordId: monthlyOrder.id, materialId: monthlyMaterial.id, activeSlot: true } });
+            assert(duplicateMonthlyDemand === 0, "Monthly plan conversion created duplicate production procurement");
+
+            const queueLogs = await prisma.operationLog.count({ where: { entityType: "KitRecheckQueue", action: { in: ["PROCESS_KIT_RECHECK_QUEUE", "REPLAY_KIT_RECHECK_QUEUE"] } } });
+            assert(queueLogs > 0, "Queue execution operation log is missing");
+            const result = { supply: { initialSuggestion: 10, draftReplacementSuggestion: 5, orderedReplacementSuggestion: 5, partialReceiptSuggestion: 5, receivedQuantity: 4 }, sources: { mergedSourceCount: 2 }, monthly: { plannedDemand: 20, convertedQuantity: 3, allocatedDemand: 6, duplicateProductionDemand: 0 }, promise: { historyCount: 3, firstPreserved: true }, reminders: { firstCreated: reminderFirst.data.created, replayCreated: reminderSecond.data.created }, queue: { reclaimedStaleLease: true, replayProcessed: queueReplay.data.processed, failureRecorded: true, recoveredAfterFailure: true, operationLogs: queueLogs }, permissions: { warehousePromise: 403, otherPurchasePromise: 403, warehouseFormalAttachmentDelete: 403 }, persistentAttachmentPath: attachmentPath };
+            fs.writeFileSync(path.join(process.env.SMOKE_DIR, "release-audit.json"), JSON.stringify(result, null, 2));
+            console.log(JSON.stringify(result));
+          } finally {
+            await prisma.$disconnect();
+          }
+          NODE
+          node "$audit_script"
+
+      - name: 重启 standalone 并验证外置附件保留
+        run: |
+          set -Eeuo pipefail
+          attachment_path="$(jq -r '.persistentAttachmentPath' "$SMOKE_DIR/release-audit.json")"
+          test -f "$attachment_path"
+          test -f "$UPLOAD_DIR/restart-marker.txt"
+          kill "$APP_PID"
+          wait "$APP_PID" || true
+          cd "$APP_DIR"
+          node server.js >> "$APP_LOG" 2>&1 &
+          app_pid=$!
+          echo "APP_PID=$app_pid" >> "$GITHUB_ENV"
+          for _ in {1..30}; do
+            status="$(curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:3000/login || true)"
+            [[ "$status" == "200" ]] && break
+            kill -0 "$app_pid" 2>/dev/null || { cat "$APP_LOG"; exit 1; }
+            sleep 1
+          done
+          test "$status" = "200"
+          test -f "$attachment_path"
+          test -f "$UPLOAD_DIR/restart-marker.txt"
+
       - name: 检查应用日志和独立运行边界
         run: |
           set -Eeuo pipefail
@@ -710,13 +970,18 @@ jobs:
           {
             echo '## ERP 第四期候选 Artifact 云端隔离验证'
             echo
-            echo "- Artifact: $EXPECTED_ARTIFACT_NAME ($EXPECTED_ARTIFACT_ID)"
-            echo "- Source run: $EXPECTED_RUN_ID"
+            echo "- Artifact: $EXPECTED_ARTIFACT_NAME ($ARTIFACT_ID)"
+            echo "- Source run: $BUILD_RUN_ID"
             echo "- Source commit: $EXPECTED_SOURCE_SHA"
-            echo "- ZIP SHA256: $EXPECTED_ZIP_SHA256"
-            echo "- tar.gz SHA256: $EXPECTED_TAR_SHA256"
+            echo "- ZIP SHA256: $ZIP_SHA256"
+            echo "- tar.gz: $TAR_NAME"
+            echo "- tar.gz SHA256: $TAR_SHA256"
             echo '- Runtime: Ubuntu latest + MySQL 5.7 service'
-            echo '- Result: migrate deploy/status, real login, protected pages, production order, kit checks and permission matrix all passed'
+            echo '- Result: migration manifest, migrate deploy/status, direct server.js start, real login, procurement deduplication, partial receipt, monthly conversion, queue, cron, permissions and external upload persistence all passed'
+            echo
+            echo '```json'
+            cat "$SMOKE_DIR/release-audit.json"
+            echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: 失败时输出诊断日志

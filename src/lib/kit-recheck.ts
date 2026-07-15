@@ -1,5 +1,8 @@
 import { Prisma } from "@prisma/client";
 import { createKitCheckResult } from "@/lib/production-orders";
+import { writeOperationLog } from "@/lib/sales-items";
+
+const PROCESSING_LEASE_MS = 10 * 60 * 1000;
 
 export async function enqueueKitRechecks(tx: Prisma.TransactionClient, input: {
   warehouseId: string;
@@ -32,26 +35,32 @@ export async function enqueueKitRechecks(tx: Prisma.TransactionClient, input: {
 }
 
 export async function processPendingKitRechecks(tx: Prisma.TransactionClient, checkedById: string, limit = 20) {
-  const pending = await tx.kitRecheckQueue.findMany({ where: { processedAt: null }, orderBy: { requestedAt: "asc" }, take: limit });
+  const staleBefore = new Date(Date.now() - PROCESSING_LEASE_MS);
+  const availableClaim = { OR: [{ processingAt: null }, { processingAt: { lt: staleBefore } }] };
+  const pending = await tx.kitRecheckQueue.findMany({ where: { processedAt: null, ...availableClaim }, orderBy: { requestedAt: "asc" }, take: limit });
   const results: Array<{ productionOrderId: string; status: string; resultId?: string; error?: string }> = [];
   for (const job of pending) {
     const claimed = await tx.kitRecheckQueue.updateMany({
-      where: { id: job.id, processedAt: null, processingAt: null },
+      where: { id: job.id, processedAt: null, ...availableClaim },
       data: { processingAt: new Date(), attemptCount: { increment: 1 } },
     });
     if (claimed.count !== 1) continue;
     try {
-      const check = await createKitCheckResult(tx, {
-        productionOrderId: job.productionOrderId,
-        checkedById,
-        triggerKey: `QUEUE:${job.id}:${job.requestedAt.toISOString()}`,
-        triggerType: "INVENTORY_CHANGE",
-      });
+      const triggerKey = `QUEUE:${job.id}:${job.requestedAt.toISOString()}`;
+      const existing = await tx.kitCheckResult.findUnique({ where: { triggerKey } });
+      const check = existing || await createKitCheckResult(tx, {
+          productionOrderId: job.productionOrderId,
+          checkedById,
+          triggerKey,
+          triggerType: "INVENTORY_CHANGE",
+        });
       await tx.kitRecheckQueue.update({ where: { id: job.id }, data: { processedAt: new Date(), processingAt: null, lastError: null } });
+      await writeOperationLog(tx, { userId: checkedById, action: existing ? "REPLAY_KIT_RECHECK_QUEUE" : "PROCESS_KIT_RECHECK_QUEUE", entityType: "KitRecheckQueue", entityId: job.id, afterData: { resultId: check.id, triggerKey } });
       results.push({ productionOrderId: job.productionOrderId, status: check.status, resultId: check.id });
     } catch (error) {
       const message = error instanceof Error ? error.message : "齐套复检失败";
       await tx.kitRecheckQueue.update({ where: { id: job.id }, data: { processingAt: null, lastError: message } });
+      await writeOperationLog(tx, { userId: checkedById, action: "FAIL_KIT_RECHECK_QUEUE", entityType: "KitRecheckQueue", entityId: job.id, afterData: { error: message } });
       results.push({ productionOrderId: job.productionOrderId, status: "FAILED", error: message });
     }
   }

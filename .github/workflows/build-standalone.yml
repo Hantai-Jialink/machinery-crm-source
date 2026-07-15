@@ -223,10 +223,6 @@ jobs:
           )"
           echo "源码migration数量：$SOURCE_MIGRATION_COUNT"
           echo "包内migration数量：$PACKAGE_MIGRATION_COUNT"
-          if [[ "$SOURCE_MIGRATION_COUNT" -ne 16 ]]; then
-            echo "源码migration数量不是预期的16：$SOURCE_MIGRATION_COUNT"
-            exit 1
-          fi
           if [[ "$SOURCE_MIGRATION_COUNT" -ne "$PACKAGE_MIGRATION_COUNT" ]]; then
             echo "Migration数量不一致：源码=$SOURCE_MIGRATION_COUNT，包内=$PACKAGE_MIGRATION_COUNT"
             exit 1
@@ -244,8 +240,19 @@ jobs:
           find "$PKG_DIR/prisma/migrations" \
             -mindepth 1 -maxdepth 1 -type d \
             -printf '%f\n' | sort
-          find "$PKG_DIR/node_modules/.prisma/client" -name 'libquery_engine-*' -print -quit >/dev/null
+          migration_manifest() {
+            local root="$1"
+            while IFS= read -r relative_path; do
+              printf '%s  %s\n' "$(sha256sum "$root/$relative_path" | awk '{print $1}')" "$relative_path"
+            done < <(find "$root" -mindepth 2 -maxdepth 2 -type f -name migration.sql -printf '%P\n' | sort)
+          }
+          migration_manifest prisma/migrations > "$OUT_DIR/source-migrations.sha256"
+          migration_manifest "$PKG_DIR/prisma/migrations" > "$OUT_DIR/package-migrations.sha256"
+          diff -u "$OUT_DIR/source-migrations.sha256" "$OUT_DIR/package-migrations.sha256"
+          find "$PKG_DIR/node_modules/.prisma/client" -name 'libquery_engine-*.so.node' -print -quit | grep -q .
           test -z "$(find "$PKG_DIR" -type l -print -quit)"
+          test ! -e "$PKG_DIR/.env"
+          test ! -d "$PKG_DIR/src/app/uploads"
           PKG_DIR="$PKG_DIR" node <<'NODE'
           const path = require("node:path");
           const { createRequire } = require("node:module");
@@ -284,6 +291,8 @@ jobs:
           test -f "$VERIFY_APP/start-standalone.cjs"
           test -d "$VERIFY_APP/.next/static"
           test ! -d "$VERIFY_APP/prisma/migrations/migrations"
+          test ! -e "$VERIFY_APP/.env"
+          test ! -d "$VERIFY_APP/src/app/uploads"
           VERIFY_MIGRATION_COUNT="$(
             find "$VERIFY_APP/prisma/migrations" \
               -mindepth 1 -maxdepth 1 -type d | wc -l
@@ -302,9 +311,8 @@ jobs:
             find "$VERIFY_APP/prisma/migrations" \
               -mindepth 1 -maxdepth 1 -type d -print
           )
-          test -f "$VERIFY_APP/prisma/migrations/20260714100000_erp_phase4_round1_roles_contract_item/migration.sql"
-          test -f "$VERIFY_APP/prisma/migrations/20260714130000_reconcile_legacy_schema_history/migration.sql"
-          test -f "$VERIFY_APP/prisma/migrations/20260715100000_erp_phase4_procurement_delivery/migration.sql"
+          migration_manifest "$VERIFY_APP/prisma/migrations" > "$OUT_DIR/extracted-migrations.sha256"
+          diff -u "$OUT_DIR/source-migrations.sha256" "$OUT_DIR/extracted-migrations.sha256"
           test -f "$VERIFY_APP/.next/server/app/(app)/erp/bom/page.js"
           test -f "$VERIFY_APP/.next/server/app/api/erp/boms/route.js"
           test -f "$VERIFY_APP/.next/server/app/api/erp/boms/[id]/route.js"
@@ -334,7 +342,10 @@ jobs:
           NODE
           node "$VERIFY_APP/node_modules/prisma/build/index.js" -v
           SMOKE_LOG="$VERIFY_DIR/server.log"
-          PORT=3000 HOSTNAME=127.0.0.1 node "$VERIFY_APP/start-standalone.cjs" >"$SMOKE_LOG" 2>&1 &
+          PERSISTENT_UPLOADS="$VERIFY_DIR/persistent-uploads"
+          mkdir -p "$PERSISTENT_UPLOADS"
+          printf 'standalone-upload-persistence-check\n' > "$PERSISTENT_UPLOADS/restart-marker.txt"
+          PORT=3000 HOSTNAME=127.0.0.1 UPLOAD_DIR="$PERSISTENT_UPLOADS" node "$VERIFY_APP/server.js" >"$SMOKE_LOG" 2>&1 &
           SERVER_PID=$!
           trap 'kill "$SERVER_PID" 2>/dev/null || true' EXIT
 
@@ -360,9 +371,32 @@ jobs:
           kill "$SERVER_PID" 2>/dev/null || true
           wait "$SERVER_PID" || true
           trap - EXIT
+          test -f "$PERSISTENT_UPLOADS/restart-marker.txt"
+
+          PORT=3000 HOSTNAME=127.0.0.1 UPLOAD_DIR="$PERSISTENT_UPLOADS" node "$VERIFY_APP/start-standalone.cjs" >>"$SMOKE_LOG" 2>&1 &
+          SERVER_PID=$!
+          trap 'kill "$SERVER_PID" 2>/dev/null || true' EXIT
+          STATUS=""
+          for _ in {1..30}; do
+            STATUS="$(curl -sS -o /dev/null -w "%{http_code}" http://127.0.0.1:3000/login || true)"
+            if [[ "$STATUS" =~ ^(200|302|307)$ ]]; then
+              break
+            fi
+            if ! kill -0 "$SERVER_PID" 2>/dev/null; then
+              cat "$SMOKE_LOG"
+              exit 1
+            fi
+            sleep 1
+          done
+          test "$STATUS" = "200"
+          test -f "$PERSISTENT_UPLOADS/restart-marker.txt"
+          kill "$SERVER_PID" 2>/dev/null || true
+          wait "$SERVER_PID" || true
+          trap - EXIT
           rm -rf "$VERIFY_DIR"
 
           echo "OK: $PKG_FILE"
+          sha256sum "$PKG_FILE"
           ls -lh "$PKG_FILE"
 
       - name: 上传成品包（可在本次运行页面底部下载）
