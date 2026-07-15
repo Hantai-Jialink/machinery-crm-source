@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db";
 import { getSessionUser, canManagePurchaseOrders } from "@/lib/permissions";
 import { writeOperationLog } from "@/lib/sales-items";
 import { releaseShortageSource } from "@/lib/purchase-order-shortage-source";
+import { releasePurchaseDemandAllocations } from "@/lib/purchase-demand-links";
 
 const ALLOWED_TRANSITIONS: Record<PurchaseOrderStatus, PurchaseOrderStatus[]> = {
   DRAFT: ["ORDERED", "CANCELLED"],
@@ -61,6 +62,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         data: { status: targetStatus },
       });
       if (result.count !== 1) throw new Error("采购订单状态已被其他操作更新，请刷新后重试");
+      const releasedDemandAllocations = targetStatus === "CANCELLED" ? await releasePurchaseDemandAllocations(tx, id) : 0;
       const releasedSources = targetStatus === "CANCELLED"
         ? await tx.purchaseOrderShortageSource.updateMany({ where: { purchaseOrderId: id, isActive: true }, data: releaseShortageSource(new Date()) })
         : { count: 0 };
@@ -73,7 +75,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         entityType: "PurchaseOrder",
         entityId: id,
         beforeData: { status: existing.status },
-        afterData: { status: after.status, releasedShortageSourceCount: releasedSources.count },
+        afterData: { status: after.status, releasedShortageSourceCount: releasedSources.count, releasedDemandAllocations },
       });
     });
     return NextResponse.json(await loadPurchaseOrder(id));

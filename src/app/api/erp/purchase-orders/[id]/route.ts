@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db";
 import { getSessionUser, canAccessERP, canManagePurchaseOrders } from "@/lib/permissions";
 import { writeOperationLog } from "@/lib/sales-items";
 import { hasShortageSourceMaterialMismatch, releaseShortageSource, shortageSourceMaterialChangeMessage } from "@/lib/purchase-order-shortage-source";
+import { releasePurchaseDemandAllocations } from "@/lib/purchase-demand-links";
 
 type PurchaseOrderItemInput = { materialId?: string; quantity?: string | number; unitPrice?: string | number };
 
@@ -95,6 +96,8 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
       const materialById = new Map(materials.map((material) => [material.id, material]));
       if (materialById.size !== items.length) throw new Error("采购明细中存在不存在或已停用的物料");
       const activeShortageSources = await tx.purchaseOrderShortageSource.findMany({ where: { purchaseOrderId: id, isActive: true }, select: { id: true, materialId: true } });
+      const linkedDemandSources = await tx.purchaseOrderItemSource.count({ where: { purchaseOrderItem: { purchaseOrderId: id } } });
+      if (linkedDemandSources > 0) throw new Error("该采购单包含多来源数量分摊，不能通过旧编辑方式重建明细；请在采购需求分摊中调整");
       if (activeShortageSources.length > 0) {
         if (hasShortageSourceMaterialMismatch(activeShortageSources.map((source) => source.materialId), items.map((item) => item.materialId))) {
           throw new Error(shortageSourceMaterialChangeMessage);
@@ -167,6 +170,7 @@ export async function DELETE(_request: NextRequest, { params }: { params: Promis
       const deletedAt = new Date();
       const deleted = await tx.purchaseOrder.updateMany({ where: { id, status: "DRAFT", deletedAt: null }, data: { deletedAt } });
       if (deleted.count !== 1) throw new Error("采购订单已被其他操作更新，请刷新后重试");
+      const releasedDemandAllocations = await releasePurchaseDemandAllocations(tx, id);
       const releasedSources = await tx.purchaseOrderShortageSource.updateMany({ where: { purchaseOrderId: id, isActive: true }, data: releaseShortageSource(deletedAt) });
       await writeOperationLog(tx, {
         userId: user.id,
@@ -174,7 +178,7 @@ export async function DELETE(_request: NextRequest, { params }: { params: Promis
         entityType: "PurchaseOrder",
         entityId: id,
         beforeData: existing,
-        afterData: { deletedAt, releasedShortageSourceCount: releasedSources.count },
+        afterData: { deletedAt, releasedShortageSourceCount: releasedSources.count, releasedDemandAllocations },
       });
     });
   } catch (error) {
