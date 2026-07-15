@@ -25,5 +25,10 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       return updated;
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
     return NextResponse.json(result);
-  } catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "修改失败" }, { status: 409 }); }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "修改失败";
+    if (message === "不能修改其他采购负责人数据") return NextResponse.json({ error: message }, { status: 403 });
+    if (message === "采购明细不存在") return NextResponse.json({ error: message }, { status: 404 });
+    return NextResponse.json({ error: message }, { status: 409 });
+  }
 }
