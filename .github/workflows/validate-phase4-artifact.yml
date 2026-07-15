@@ -917,7 +917,7 @@ jobs:
             const monthlyOrder = (await jsonRequest(superJar, `/api/erp/monthly-production-plans/${plan.id}/convert`, "POST", { planItemId: plan.items[0].id, quantity: 3, warehouseId: seed.ids.warehouseId, requestKey: `monthly-${suffix}-part-001` }, 201)).data;
             const monthlyAllocation = await prisma.purchaseDemandProductionAllocation.findUnique({ where: { purchaseDemandId_productionOrderId: { purchaseDemandId: monthlyDemand.id, productionOrderId: monthlyOrder.id } } });
             assert(Number(monthlyAllocation.allocatedQuantity) === 6, "Monthly partial conversion allocation should be 6");
-            await jsonRequest(superJar, `/api/erp/production-orders/${monthlyOrder.id}/issue`, "POST", {});
+            await jsonRequest(superJar, `/api/erp/production-orders/${monthlyOrder.id}/issue`, "POST", { confirmStockOrder: true });
             const duplicateMonthlyDemand = await prisma.purchaseDemand.count({ where: { sourceType: "PRODUCTION_ORDER", sourceRecordId: monthlyOrder.id, materialId: monthlyMaterial.id, activeSlot: true } });
             assert(duplicateMonthlyDemand === 0, "Monthly plan conversion created duplicate production procurement");
 
