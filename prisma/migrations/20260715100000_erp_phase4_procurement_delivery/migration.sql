@@ -71,6 +71,9 @@ CREATE INDEX `idx_po_item_responsible` ON `erp_purchase_order_items`(`responsibl
 CREATE INDEX `idx_po_item_delivery_status` ON `erp_purchase_order_items`(`deliveryStatus`);
 CREATE INDEX `idx_po_item_latest_promise` ON `erp_purchase_order_items`(`latestPromisedDate`);
 
+ALTER TABLE `erp_stock_movements`
+  MODIFY `type` ENUM('STOCK_IN','STOCK_OUT','CHECK_ADJUST','TRANSFER_IN','TRANSFER_OUT') NOT NULL;
+
 CREATE TABLE `erp_monthly_production_plans` (
   `id` VARCHAR(191) NOT NULL,
   `planNo` VARCHAR(191) NOT NULL,
@@ -212,7 +215,7 @@ CREATE TABLE `erp_supplier_delivery_followups` (
   `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
   PRIMARY KEY (`id`),
   INDEX `idx_followup_item_time`(`purchaseOrderItemId`,`followedAt`),
-  CONSTRAINT `fk_followup_po_item` FOREIGN KEY (`purchaseOrderItemId`) REFERENCES `erp_purchase_order_items`(`id`) ON DELETE CASCADE ON UPDATE CASCADE
+  CONSTRAINT `fk_followup_po_item` FOREIGN KEY (`purchaseOrderItemId`) REFERENCES `erp_purchase_order_items`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 CREATE TABLE `erp_supplier_promise_date_history` (
@@ -227,7 +230,7 @@ CREATE TABLE `erp_supplier_promise_date_history` (
   `remark` TEXT NULL,
   PRIMARY KEY (`id`),
   INDEX `idx_promise_item_time`(`purchaseOrderItemId`,`changedAt`),
-  CONSTRAINT `fk_promise_po_item` FOREIGN KEY (`purchaseOrderItemId`) REFERENCES `erp_purchase_order_items`(`id`) ON DELETE CASCADE ON UPDATE CASCADE
+  CONSTRAINT `fk_promise_po_item` FOREIGN KEY (`purchaseOrderItemId`) REFERENCES `erp_purchase_order_items`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 CREATE TABLE `erp_purchase_delivery_batches` (
@@ -246,7 +249,51 @@ CREATE TABLE `erp_purchase_delivery_batches` (
   `updatedAt` DATETIME(3) NOT NULL,
   PRIMARY KEY (`id`),
   INDEX `idx_delivery_batch_item`(`purchaseOrderItemId`),
-  CONSTRAINT `fk_delivery_batch_item` FOREIGN KEY (`purchaseOrderItemId`) REFERENCES `erp_purchase_order_items`(`id`) ON DELETE CASCADE ON UPDATE CASCADE
+  CONSTRAINT `fk_delivery_batch_item` FOREIGN KEY (`purchaseOrderItemId`) REFERENCES `erp_purchase_order_items`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+CREATE TABLE `erp_purchase_demand_production_allocations` (
+  `id` VARCHAR(191) NOT NULL, `purchaseDemandId` VARCHAR(191) NOT NULL,
+  `productionOrderId` VARCHAR(191) NOT NULL, `purchaseOrderItemId` VARCHAR(191) NULL,
+  `allocatedQuantity` DECIMAL(12,4) NOT NULL,
+  `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3), PRIMARY KEY (`id`),
+  UNIQUE INDEX `erp_demand_prod_order_uq`(`purchaseDemandId`,`productionOrderId`),
+  INDEX `idx_demand_prod_order`(`productionOrderId`), INDEX `idx_demand_prod_po_item`(`purchaseOrderItemId`),
+  CONSTRAINT `fk_demand_prod_demand` FOREIGN KEY (`purchaseDemandId`) REFERENCES `erp_purchase_demands`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE,
+  CONSTRAINT `fk_demand_prod_order` FOREIGN KEY (`productionOrderId`) REFERENCES `erp_production_orders`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE,
+  CONSTRAINT `fk_demand_prod_po_item` FOREIGN KEY (`purchaseOrderItemId`) REFERENCES `erp_purchase_order_items`(`id`) ON DELETE SET NULL ON UPDATE CASCADE
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+CREATE TABLE `erp_purchase_delivery_receipt_allocations` (
+  `id` VARCHAR(191) NOT NULL, `deliveryBatchId` VARCHAR(191) NOT NULL,
+  `stockInItemId` VARCHAR(191) NOT NULL, `quantity` DECIMAL(10,2) NOT NULL,
+  `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3), PRIMARY KEY (`id`),
+  UNIQUE INDEX `erp_batch_receipt_item_uq`(`deliveryBatchId`,`stockInItemId`),
+  INDEX `idx_batch_receipt_stock_item`(`stockInItemId`),
+  CONSTRAINT `fk_batch_receipt_batch` FOREIGN KEY (`deliveryBatchId`) REFERENCES `erp_purchase_delivery_batches`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE,
+  CONSTRAINT `fk_batch_receipt_stock_item` FOREIGN KEY (`stockInItemId`) REFERENCES `erp_stock_in_items`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+CREATE TABLE `erp_stock_transfers` (
+  `id` VARCHAR(191) NOT NULL, `transferNo` VARCHAR(191) NOT NULL,
+  `fromWarehouseId` VARCHAR(191) NOT NULL, `toWarehouseId` VARCHAR(191) NOT NULL,
+  `reason` TEXT NULL, `confirmedById` VARCHAR(191) NOT NULL,
+  `confirmedAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3), PRIMARY KEY (`id`),
+  UNIQUE INDEX `uq_stock_transfer_no`(`transferNo`),
+  INDEX `idx_transfer_from_wh`(`fromWarehouseId`), INDEX `idx_transfer_to_wh`(`toWarehouseId`)
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+CREATE TABLE `erp_stock_transfer_items` (
+  `id` VARCHAR(191) NOT NULL, `stockTransferId` VARCHAR(191) NOT NULL,
+  `materialId` VARCHAR(191) NOT NULL, `materialCodeSnapshot` VARCHAR(191) NOT NULL,
+  `materialNameSnapshot` VARCHAR(191) NOT NULL, `materialSpecSnapshot` VARCHAR(191) NULL,
+  `unitSnapshot` VARCHAR(191) NOT NULL, `quantity` DECIMAL(10,2) NOT NULL,
+  `fromBeforeQty` DECIMAL(10,2) NOT NULL, `fromAfterQty` DECIMAL(10,2) NOT NULL,
+  `toBeforeQty` DECIMAL(10,2) NOT NULL, `toAfterQty` DECIMAL(10,2) NOT NULL,
+  `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3), PRIMARY KEY (`id`),
+  INDEX `idx_transfer_item_header`(`stockTransferId`), INDEX `idx_transfer_item_material`(`materialId`),
+  CONSTRAINT `fk_transfer_item_header` FOREIGN KEY (`stockTransferId`) REFERENCES `erp_stock_transfers`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 CREATE TABLE `erp_attachments` (

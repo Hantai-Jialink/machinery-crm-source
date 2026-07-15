@@ -78,6 +78,7 @@ const navItems: NavItem[] = [
       { href: "/erp/stock-in", label: "入库", roles: ["SUPER_ADMIN", "WAREHOUSE"] },
       { href: "/erp/stock-out", label: "出库", roles: ["SUPER_ADMIN", "WAREHOUSE"] },
       { href: "/erp/stock-check", label: "盘点", roles: ["SUPER_ADMIN", "WAREHOUSE"] },
+      { href: "/erp/stock-transfers", label: "库存调拨", roles: ["SUPER_ADMIN", "WAREHOUSE"] },
     ],
   },
   { href: "/operation-logs", label: "操作日志", icon: History, adminOnly: true },

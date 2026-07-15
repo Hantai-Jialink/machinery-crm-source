@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { getSessionUser, canManagePurchaseOrders } from "@/lib/permissions";
-import { deliveryStatusFor } from "@/lib/supplier-delivery";
+import { canManageDeliveryItem, deliveryStatusFor } from "@/lib/supplier-delivery";
+import { writeOperationLog } from "@/lib/sales-items";
 
 export async function POST(request: NextRequest, { params }: { params: Promise<{ itemId: string }> }) {
   const user = await getSessionUser();
@@ -15,9 +16,12 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       await tx.$queryRaw`SELECT id FROM erp_purchase_order_items WHERE id = ${itemId} FOR UPDATE`;
       const item = await tx.purchaseOrderItem.findUnique({ where: { id: itemId } });
       if (!item) throw new Error("采购明细不存在");
+      const order = await tx.purchaseOrder.findUnique({ where: { id: item.purchaseOrderId }, select: { createdById: true } });
+      if (!order || !canManageDeliveryItem(user, item, order)) throw new Error("不能修改其他采购负责人数据");
       const affectsProduction = Boolean(item.needArrivalDate && date > item.needArrivalDate);
       const updated = await tx.purchaseOrderItem.update({ where: { id: itemId }, data: { firstPromisedDate: item.firstPromisedDate || date, latestPromisedDate: date, deliveryStatus: deliveryStatusFor({ quantity: Number(item.quantity), receivedQuantity: Number(item.receivedQuantity), latestPromisedDate: date }) } });
       await tx.supplierPromiseDateHistory.create({ data: { purchaseOrderItemId: itemId, oldPromisedDate: item.latestPromisedDate, newPromisedDate: date, changedById: user.id, supplierReason: body.supplierReason || null, affectsProduction, remark: body.remark || null } });
+      await writeOperationLog(tx,{userId:user.id,action:"UPDATE_SUPPLIER_PROMISE_DATE",entityType:"PurchaseOrderItem",entityId:itemId,beforeData:{latestPromisedDate:item.latestPromisedDate},afterData:{latestPromisedDate:date,affectsProduction}});
       return updated;
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
     return NextResponse.json(result);

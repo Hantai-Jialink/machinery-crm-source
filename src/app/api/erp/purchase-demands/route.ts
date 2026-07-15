@@ -4,6 +4,7 @@ import { Prisma, ProcurementSourceType } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { getSessionUser, canManagePurchaseOrders } from "@/lib/permissions";
 import { upsertPurchaseDemandForSource } from "@/lib/procurement-planning";
+import { writeOperationLog } from "@/lib/sales-items";
 
 const SOURCE_TYPES = new Set(Object.values(ProcurementSourceType));
 export async function GET(request: NextRequest) {
@@ -27,12 +28,16 @@ export async function POST(request: NextRequest) {
   if (!body.materialId || !quantity.gt(0) || Number.isNaN(needByDate.getTime())) return NextResponse.json({ error: "备货物料、数量和计划需要日期为必填项" }, { status: 400 });
   const sourceRecordId = String(body.sourceRecordId || `MANUAL-${randomUUID()}`);
   try {
-    const demand = await prisma.$transaction((tx) => upsertPurchaseDemandForSource(tx, {
-      sourceType, sourceRecordId, sourceLabel: sourceType === "STOCK_REPLENISHMENT" ? "备货" : "手工采购需求",
-      materialId: String(body.materialId), newDemand: quantity, needByDate, createdById: user.id,
-      stockPurpose: String(body.stockPurpose || "") || null, replenishmentReason: String(body.replenishmentReason || "") || null,
-      targetStockQuantity: body.targetStockQuantity || null, forceCreate: true,
-    }), { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    const demand = await prisma.$transaction(async (tx) => {
+      const created = await upsertPurchaseDemandForSource(tx, {
+        sourceType, sourceRecordId, sourceLabel: sourceType === "STOCK_REPLENISHMENT" ? "备货" : "手工采购需求",
+        materialId: String(body.materialId), newDemand: quantity, needByDate, createdById: user.id,
+        stockPurpose: String(body.stockPurpose || "") || null, replenishmentReason: String(body.replenishmentReason || "") || null,
+        targetStockQuantity: body.targetStockQuantity || null, forceCreate: true,
+      });
+      if (created) await writeOperationLog(tx, { userId: user.id, action: "CREATE_PURCHASE_DEMAND", entityType: "PurchaseDemand", entityId: created.id, afterData: created });
+      return created;
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
     return demand ? NextResponse.json(demand, { status: 201 }) : NextResponse.json({ error: "预计可用量已满足需求，无需生成采购草稿" }, { status: 409 });
   } catch (error: any) { return NextResponse.json({ error: error?.code === "P2002" ? "同一来源和物料已存在有效采购需求" : error?.message || "创建失败" }, { status: error?.code === "P2002" ? 409 : 400 }); }
 }

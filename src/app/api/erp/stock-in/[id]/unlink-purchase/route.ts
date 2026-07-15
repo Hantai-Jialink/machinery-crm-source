@@ -8,6 +8,7 @@ import {
   reconcilePurchaseOrderReceiptStatus,
 } from "@/lib/purchase-order-receipt";
 import { writeOperationLog } from "@/lib/sales-items";
+import { reversePurchaseReceiptBatches } from "@/lib/purchase-delivery-receipts";
 
 export async function POST(
   _request: NextRequest,
@@ -63,10 +64,16 @@ export async function POST(
         }
 
         for (const item of stockIn.items) {
+          await reversePurchaseReceiptBatches(tx, item.id);
+          const purchaseItem = purchaseItemById.get(item.purchaseOrderItemId!);
+          const receivedAfter = new Prisma.Decimal(purchaseItem!.receivedQuantity).sub(item.quantity);
           await tx.purchaseOrderItem.update({
             where: { id: item.purchaseOrderItemId! },
-            data: { receivedQuantity: { decrement: item.quantity } },
+            data: { receivedQuantity: { decrement: item.quantity }, deliveryStatus: receivedAfter.lte(0) ? "NOT_DELIVERED" : "PARTIAL_RECEIVED", actualArrivalDate: null },
           });
+          let remaining = new Prisma.Decimal(item.quantity);
+          const sources = await tx.purchaseOrderItemSource.findMany({ where: { purchaseOrderItemId: item.purchaseOrderItemId! }, orderBy: { createdAt: "desc" } });
+          for (const source of sources) { if (remaining.lte(0)) break; const reversed = Prisma.Decimal.min(source.fulfilledQuantity, remaining); if (reversed.gt(0)) await tx.purchaseOrderItemSource.update({ where: { id: source.id }, data: { fulfilledQuantity: { decrement: reversed } } }); remaining = remaining.sub(reversed); }
         }
         await tx.stockInItem.updateMany({
           where: { stockInId: id },

@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { getSessionUser, canManagePurchaseOrders } from "@/lib/permissions";
+import { writeOperationLog } from "@/lib/sales-items";
 
 export async function POST(request: NextRequest) {
   const user = await getSessionUser();
@@ -38,7 +39,9 @@ export async function POST(request: NextRequest) {
           await tx.purchaseDemand.update({ where: { id: allocation.demand.id }, data: { convertedQuantity: converted, status: converted.gte(allocation.demand.suggestedQuantity) ? "CONVERTED" : "PARTIALLY_CONVERTED", activeSlot: converted.gte(allocation.demand.suggestedQuantity) ? null : true } });
         }
       }
-      return tx.purchaseOrder.findUnique({ where: { id: order.id } });
+      const created = await tx.purchaseOrder.findUnique({ where: { id: order.id } });
+      await writeOperationLog(tx, { userId: user.id, action: "CONVERT_PURCHASE_DEMANDS", entityType: "PurchaseOrder", entityId: order.id, afterData: { order: created, demandIds } });
+      return created;
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
     return NextResponse.json(created, { status: 201 });
   } catch (error: any) { return NextResponse.json({ error: error?.code === "P2002" ? "采购需求正在被其他操作转换，请刷新后重试" : error?.message || "转换失败" }, { status: 409 }); }

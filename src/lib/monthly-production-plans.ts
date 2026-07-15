@@ -2,6 +2,13 @@ import { randomUUID } from "crypto";
 import { Prisma } from "@prisma/client";
 import { flattenBomLeafRequirements } from "@/lib/bom-items";
 import { upsertPurchaseDemandForSource } from "@/lib/procurement-planning";
+import { writeOperationLog } from "@/lib/sales-items";
+
+export function monthlyDemandAllocation(suggestedQuantity: Prisma.Decimal.Value, convertedQuantity: Prisma.Decimal.Value, plannedQuantity: Prisma.Decimal.Value) {
+  const planned = new Prisma.Decimal(plannedQuantity);
+  if (planned.lte(0)) throw new Error("月度计划数量必须大于 0");
+  return new Prisma.Decimal(suggestedQuantity).mul(convertedQuantity).div(planned).toDecimalPlaces(4);
+}
 
 export async function approveMonthlyProductionPlan(tx: Prisma.TransactionClient, input: { planId: string; approvedById: string }) {
   const plan = await tx.monthlyProductionPlan.findFirst({
@@ -45,7 +52,8 @@ export async function approveMonthlyProductionPlan(tx: Prisma.TransactionClient,
       });
     }
   }
-  return tx.monthlyProductionPlan.update({ where: { id: plan.id }, data: { status: "APPROVED", approvedById: input.approvedById, approvedAt: new Date() }, include: { items: { include: { materialRequirements: true } } } });
+  const approved=await tx.monthlyProductionPlan.update({ where: { id: plan.id }, data: { status: "APPROVED", approvedById: input.approvedById, approvedAt: new Date() }, include: { items: { include: { materialRequirements: true } } } });
+  await writeOperationLog(tx,{userId:input.approvedById,action:"APPROVE_MONTHLY_PRODUCTION_PLAN",entityType:"MonthlyProductionPlan",entityId:plan.id,beforeData:{status:plan.status},afterData:{status:approved.status,version:approved.version}});return approved;
 }
 
 export function monthlyPlanNo(month: Date, version: number) {

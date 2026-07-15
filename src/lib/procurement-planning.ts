@@ -26,7 +26,7 @@ export function calculateSuggestedProcurement(input: {
 
 export async function buildMaterialProcurementSnapshot(
   tx: Prisma.TransactionClient,
-  input: { materialId: string; newDemand: Prisma.Decimal.Value; excludeProductionOrderId?: string }
+  input: { materialId: string; newDemand: Prisma.Decimal.Value; excludeProductionOrderId?: string; excludePurchaseDemandId?: string }
 ) {
   const material = await tx.material.findFirst({
     where: { id: input.materialId, isActive: true, deletedAt: null },
@@ -34,16 +34,19 @@ export async function buildMaterialProcurementSnapshot(
   });
   if (!material) throw new Error("物料不存在或已停用");
   const openOrders = await tx.purchaseOrder.findMany({ where: { deletedAt: null, status: { in: ["ORDERED", "PARTIAL_RECEIVED"] } }, select: { id: true } });
-  const [inventories, purchaseItems, activeDemands, productionMaterials] = await Promise.all([
+  const draftOrders = await tx.purchaseOrder.findMany({ where: { deletedAt: null, status: "DRAFT" }, select: { id: true } });
+  const draftItems = draftOrders.length ? await tx.purchaseOrderItem.findMany({ where: { materialId: input.materialId, purchaseOrderId: { in: draftOrders.map((order) => order.id) } }, select: { id: true } }) : [];
+  const [inventories, purchaseItems, activeDemands, draftAllocations, productionMaterials] = await Promise.all([
     tx.inventory.findMany({ where: { materialId: input.materialId }, select: { quantity: true } }),
     tx.purchaseOrderItem.findMany({
       where: { materialId: input.materialId, purchaseOrderId: { in: openOrders.map((order) => order.id) } },
       select: { quantity: true, receivedQuantity: true },
     }),
     tx.purchaseDemand.findMany({
-      where: { materialId: input.materialId, activeSlot: true, status: { in: [...ACTIVE_DEMAND_STATUSES] } },
+      where: { materialId: input.materialId, activeSlot: true, status: { in: [...ACTIVE_DEMAND_STATUSES] }, ...(input.excludePurchaseDemandId ? { id: { not: input.excludePurchaseDemandId } } : {}) },
       select: { suggestedQuantity: true, convertedQuantity: true },
     }),
+    tx.purchaseOrderItemSource.findMany({ where: { purchaseOrderItemId: { in: draftItems.map((item) => item.id) } }, select: { allocatedQuantity: true, fulfilledQuantity: true } }),
     tx.productionOrderMaterial.findMany({
       where: {
         materialId: input.materialId,
@@ -69,7 +72,10 @@ export async function buildMaterialProcurementSnapshot(
   const totalRequired = sum(productionMaterials.map((row) => row.requiredQuantity));
   const netIssued = maxZero(sum(issues.map((row) => row.quantity)).sub(sum(returns.map((row) => row.quantity))));
   const reservedNotIssued = maxZero(totalRequired.sub(netIssued));
-  const existingEffectiveDemand = sum(activeDemands.map((row) => maxZero(new Prisma.Decimal(row.suggestedQuantity).sub(row.convertedQuantity))));
+  const existingEffectiveDemand = sum([
+    ...activeDemands.map((row) => maxZero(new Prisma.Decimal(row.suggestedQuantity).sub(row.convertedQuantity))),
+    ...draftAllocations.map((row) => maxZero(new Prisma.Decimal(row.allocatedQuantity).sub(row.fulfilledQuantity))),
+  ]);
   const safetyStockTarget = material.safetyStockEnabled ? new Prisma.Decimal(material.safetyStock || 0) : new Prisma.Decimal(0);
   const result = calculateSuggestedProcurement({
     newDemand: input.newDemand,
@@ -111,10 +117,10 @@ export async function upsertPurchaseDemandForSource(tx: Prisma.TransactionClient
   targetStockQuantity?: Prisma.Decimal.Value | null;
   forceCreate?: boolean;
 }) {
-  const calculation = await buildMaterialProcurementSnapshot(tx, input);
   const existing = await tx.purchaseDemand.findFirst({
     where: { sourceType: input.sourceType, sourceRecordId: input.sourceRecordId, materialId: input.materialId, activeSlot: true },
   });
+  const calculation = await buildMaterialProcurementSnapshot(tx, { ...input, excludePurchaseDemandId: existing?.id });
   if (calculation.suggestedQuantity.lte(0) || (!calculation.material.autoPurchaseDraftEnabled && !input.forceCreate)) {
     if (existing && existing.status === "DRAFT") {
       await tx.purchaseDemand.update({ where: { id: existing.id }, data: { status: "CANCELLED", activeSlot: null, cancelledAt: new Date(), calculationSnapshot: calculation.snapshot } });

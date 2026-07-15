@@ -3,6 +3,8 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { getSessionUser, isSuperAdmin } from "@/lib/permissions";
 import { buildDraftData } from "@/lib/production-orders";
+import { writeOperationLog } from "@/lib/sales-items";
+import { monthlyDemandAllocation } from "@/lib/monthly-production-plans";
 
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const user = await getSessionUser();
@@ -31,9 +33,17 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       });
       const created = await tx.productionOrder.create({ data: { ...data, sourceRequestKey: requestKey, monthlyPlanItemId: item.id, createdById: user.id } });
       const ratio = quantity.div(item.plannedQuantity);
+      const demands = await tx.purchaseDemand.findMany({ where: { sourceType: "MONTHLY_PRODUCTION_PLAN", sourceRecordId: item.id, status: { not: "CANCELLED" } }, include: { allocations: true } });
+      for (const demand of demands) {
+        // Allocate the already planned purchase shortage proportionally. Using requestedQuantity
+        // here could allocate the same shortage more than once when suggestion < gross demand.
+        const allocatedQuantity = monthlyDemandAllocation(demand.suggestedQuantity, quantity, item.plannedQuantity);
+        if (allocatedQuantity.gt(0)) await tx.purchaseDemandProductionAllocation.create({ data: { purchaseDemandId: demand.id, productionOrderId: created.id, purchaseOrderItemId: demand.allocations[0]?.purchaseOrderItemId || null, allocatedQuantity } });
+      }
       await tx.monthlyProductionPlanItem.update({ where: { id: item.id }, data: { convertedQuantity: { increment: quantity } } });
       for (const req of item.materialRequirements) await tx.monthlyMaterialRequirement.update({ where: { id: req.id }, data: { convertedDemandQty: { increment: new Prisma.Decimal(req.requiredQuantity).mul(ratio).toDecimalPlaces(4) } } });
       await tx.monthlyProductionPlan.update({ where: { id }, data: { status: "IN_PROGRESS" } });
+      await writeOperationLog(tx,{userId:user.id,action:"CONVERT_MONTHLY_PLAN_TO_ORDER",entityType:"MonthlyProductionPlan",entityId:id,afterData:{productionOrderId:created.id,planItemId:item.id,quantity}});
       return created;
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
     return NextResponse.json(result, { status: 201 });

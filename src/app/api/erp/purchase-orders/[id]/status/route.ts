@@ -8,8 +8,9 @@ import { releasePurchaseDemandAllocations } from "@/lib/purchase-demand-links";
 
 const ALLOWED_TRANSITIONS: Record<PurchaseOrderStatus, PurchaseOrderStatus[]> = {
   DRAFT: ["ORDERED", "CANCELLED"],
-  ORDERED: ["PARTIAL_RECEIVED", "RECEIVED", "CANCELLED"],
-  PARTIAL_RECEIVED: ["RECEIVED"],
+  // Arrival states are derived exclusively from confirmed stock-in records.
+  ORDERED: ["CANCELLED"],
+  PARTIAL_RECEIVED: [],
   RECEIVED: [],
   CANCELLED: [],
 };

@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db";
 import { getSessionUser, canAccessERP, canManageInventory } from "@/lib/permissions";
 import { writeOperationLog } from "@/lib/sales-items";
 import { enqueueKitRechecks } from "@/lib/kit-recheck";
+import { allocatePurchaseReceiptToBatches } from "@/lib/purchase-delivery-receipts";
 import {
   lockAndValidatePurchaseReceipt,
   PurchaseReceiptError,
@@ -330,6 +331,9 @@ export async function POST(request: NextRequest) {
               if (applied.gt(0)) await tx.purchaseOrderItemSource.update({ where: { id: allocation.id }, data: { fulfilledQuantity: { increment: applied } } });
               remainingReceipt = remainingReceipt.sub(applied);
             }
+            const stockInItem = header.items.find((row) => row.purchaseOrderItemId === item.purchaseOrderItemId);
+            if (!stockInItem) throw new PurchaseReceiptError("入库单采购明细快照不完整", 409);
+            await allocatePurchaseReceiptToBatches(tx, { purchaseOrderItemId: item.purchaseOrderItemId, stockInItemId: stockInItem.id, quantity: item.quantity, arrivedAt: header.confirmedAt || new Date() });
           }
           await reconcilePurchaseOrderReceiptStatus(tx, {
             purchaseOrderId,

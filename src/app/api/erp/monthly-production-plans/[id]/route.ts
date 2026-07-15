@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { getSessionUser, canAccessERP, isSuperAdmin } from "@/lib/permissions";
+import { writeOperationLog } from "@/lib/sales-items";
 
 export async function GET(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const user = await getSessionUser();
@@ -19,5 +20,10 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
   const body = await request.json();
   const plan = await prisma.monthlyProductionPlan.findUnique({ where: { id } });
   if (!plan || plan.status !== "DRAFT") return NextResponse.json({ error: "只有草稿计划可提交审核；已审核计划需创建新版本" }, { status: 409 });
-  return NextResponse.json(await prisma.monthlyProductionPlan.update({ where: { id }, data: { status: body.status === "PENDING_APPROVAL" ? "PENDING_APPROVAL" : "DRAFT", name: body.name || undefined, description: body.description === undefined ? undefined : body.description || null } }));
+  const updated = await prisma.$transaction(async (tx) => {
+    const row = await tx.monthlyProductionPlan.update({ where: { id }, data: { status: body.status === "PENDING_APPROVAL" ? "PENDING_APPROVAL" : "DRAFT", name: body.name || undefined, description: body.description === undefined ? undefined : body.description || null } });
+    await writeOperationLog(tx, { userId: user.id, action: "UPDATE_MONTHLY_PRODUCTION_PLAN", entityType: "MonthlyProductionPlan", entityId: id, beforeData: plan, afterData: row });
+    return row;
+  });
+  return NextResponse.json(updated);
 }

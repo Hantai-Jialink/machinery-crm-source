@@ -223,8 +223,8 @@ jobs:
           )"
           echo "源码migration数量：$SOURCE_MIGRATION_COUNT"
           echo "包内migration数量：$PACKAGE_MIGRATION_COUNT"
-          if [[ "$SOURCE_MIGRATION_COUNT" -ne 15 ]]; then
-            echo "源码migration数量不是预期的15：$SOURCE_MIGRATION_COUNT"
+          if [[ "$SOURCE_MIGRATION_COUNT" -ne 16 ]]; then
+            echo "源码migration数量不是预期的16：$SOURCE_MIGRATION_COUNT"
             exit 1
           fi
           if [[ "$SOURCE_MIGRATION_COUNT" -ne "$PACKAGE_MIGRATION_COUNT" ]]; then
@@ -304,6 +304,7 @@ jobs:
           )
           test -f "$VERIFY_APP/prisma/migrations/20260714100000_erp_phase4_round1_roles_contract_item/migration.sql"
           test -f "$VERIFY_APP/prisma/migrations/20260714130000_reconcile_legacy_schema_history/migration.sql"
+          test -f "$VERIFY_APP/prisma/migrations/20260715100000_erp_phase4_procurement_delivery/migration.sql"
           test -f "$VERIFY_APP/.next/server/app/(app)/erp/bom/page.js"
           test -f "$VERIFY_APP/.next/server/app/api/erp/boms/route.js"
           test -f "$VERIFY_APP/.next/server/app/api/erp/boms/[id]/route.js"

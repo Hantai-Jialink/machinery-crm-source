@@ -36,3 +36,7 @@ export function deliveryRisk(input: {
   if (staleFollowUp || (days !== null && days < input.attentionDays)) return { level: "ATTENTION", days, affectsProduction };
   return { level: "NORMAL", days, affectsProduction };
 }
+
+export function canManageDeliveryItem(user: { id: string; role: string }, item: { responsibleId: string | null }, order: { createdById: string }) {
+  return user.role === "SUPER_ADMIN" || (user.role === "PURCHASE" && (item.responsibleId === user.id || order.createdById === user.id));
+}

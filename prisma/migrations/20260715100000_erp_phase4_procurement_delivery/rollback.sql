@@ -2,6 +2,10 @@
 DROP TABLE `erp_notifications`;
 DROP TABLE `erp_procurement_config`;
 DROP TABLE `erp_attachments`;
+DROP TABLE `erp_purchase_delivery_receipt_allocations`;
+DROP TABLE `erp_purchase_demand_production_allocations`;
+DROP TABLE `erp_stock_transfer_items`;
+DROP TABLE `erp_stock_transfers`;
 DROP TABLE `erp_purchase_delivery_batches`;
 DROP TABLE `erp_supplier_promise_date_history`;
 DROP TABLE `erp_supplier_delivery_followups`;

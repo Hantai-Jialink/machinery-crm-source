@@ -3,6 +3,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { getSessionUser, canAccessERP, isSuperAdmin } from "@/lib/permissions";
 import { monthlyPlanNo } from "@/lib/monthly-production-plans";
+import { writeOperationLog } from "@/lib/sales-items";
 
 export async function GET() {
   const user = await getSessionUser();
@@ -33,7 +34,9 @@ export async function POST(request: NextRequest) {
         if (!product || !bom || !quantity.gt(0) || Number.isNaN(start.getTime()) || Number.isNaN(completion.getTime()) || start > completion) throw new Error("月度计划明细中的机型、数量、日期或 BOM 无效");
         return { productId: product.id, productModelSnapshot: product.model, plannedQuantity: quantity, plannedStartDate: start, plannedCompletionDate: completion, bomId: bom.id, bomVersionSnapshot: bom.version, remark: String(row.remark || "") || null };
       }));
-      return tx.monthlyProductionPlan.create({ data: { planNo: monthlyPlanNo(month, version), planMonth: month, name: String(body.name), description: String(body.description || "") || null, version, supersedesId: body.supersedesId || null, createdById: user.id, items: { create: refs } }, include: { items: true } });
+      const created = await tx.monthlyProductionPlan.create({ data: { planNo: monthlyPlanNo(month, version), planMonth: month, name: String(body.name), description: String(body.description || "") || null, version, supersedesId: body.supersedesId || null, createdById: user.id, items: { create: refs } }, include: { items: true } });
+      await writeOperationLog(tx, { userId: user.id, action: "CREATE_MONTHLY_PRODUCTION_PLAN", entityType: "MonthlyProductionPlan", entityId: created.id, afterData: created });
+      return created;
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
     return NextResponse.json(result, { status: 201 });
   } catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "创建失败" }, { status: 400 }); }
