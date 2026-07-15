@@ -705,7 +705,9 @@ jobs:
             {},
             200
           );
-          assert(kitHistory.data.items.filter((item) => item.productionOrderId === order.id).length === 2, "Two independent kit-check history records were not retained");
+          const orderKitHistory = kitHistory.data.items.filter((item) => item.productionOrderId === order.id);
+          assert(firstKit.data.id !== secondKit.data.id, "Manual kit-check requests returned the same history record");
+          assert(orderKitHistory.some((item) => item.id === firstKit.data.id) && orderKitHistory.some((item) => item.id === secondKit.data.id), "Independent manual kit-check history records were not retained");
           const inventoryAfterResult = await expectRequest(
             superJar,
             `/api/erp/inventory?warehouseId=${encodeURIComponent(seed.ids.warehouseId)}&pageSize=100`,
@@ -758,7 +760,7 @@ jobs:
             pages,
             contractOrder: { id: order.id, orderNo: issued.data.orderNo, duplicateCount },
             bom: { requiredQuantity: seed.expected.requiredQuantity, aggregatedLeafCount: issued.data.materials.length },
-            kitCheck: { historyCount: 2, shortageQuantity: seed.expected.shortageQuantity, inventoryBefore, inventoryAfter },
+            kitCheck: { historyCount: orderKitHistory.length, shortageQuantity: seed.expected.shortageQuantity, inventoryBefore, inventoryAfter },
             permissions: {
               purchase: "read allowed; inventory/BOM/users writes denied",
               warehouse: "purchase read allowed; purchase create/edit denied; inventory endpoints allowed",
