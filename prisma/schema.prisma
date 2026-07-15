@@ -351,20 +351,21 @@ model Contract {
 }
 
 model ContractItem {
-  id                   String           @id @default(uuid())
-  contractId           String
-  contract             Contract         @relation(fields: [contractId], references: [id], onDelete: Cascade)
-  productId            String
-  product              Product          @relation(fields: [productId], references: [id])
-  itemType             ContractItemType
-  productNameSnapshot  String
-  productModelSnapshot String
-  factoryPriceSnapshot Decimal?         @db.Decimal(12, 2)
-  contractPrice        Decimal?         @db.Decimal(12, 2)
-  quantity             Int              @default(1)
-  sortOrder            Int              @default(0)
-  createdAt            DateTime         @default(now())
-  updatedAt            DateTime         @updatedAt
+  id                    String           @id @default(uuid())
+  contractId            String
+  contract              Contract         @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  productId             String
+  product               Product          @relation(fields: [productId], references: [id])
+  itemType              ContractItemType
+  productNameSnapshot   String
+  productModelSnapshot  String
+  factoryPriceSnapshot  Decimal?         @db.Decimal(12, 2)
+  contractPrice         Decimal?         @db.Decimal(12, 2)
+  quantity              Int              @default(1)
+  estimatedShipmentDate DateTime?        @db.Date
+  sortOrder             Int              @default(0)
+  createdAt             DateTime         @default(now())
+  updatedAt             DateTime         @updatedAt
 
   productionOrders ProductionOrder[]
 
@@ -558,6 +559,55 @@ enum KitCheckStatus {
   SHORTAGE
 }
 
+enum ProcurementSourceType {
+  PRODUCTION_ORDER
+  STOCK_REPLENISHMENT
+  MONTHLY_PRODUCTION_PLAN
+  MANUAL
+}
+
+enum PurchaseDemandStatus {
+  DRAFT
+  SUBMITTED
+  APPROVED
+  PARTIALLY_CONVERTED
+  CONVERTED
+  CANCELLED
+}
+
+enum MonthlyProductionPlanStatus {
+  DRAFT
+  PENDING_APPROVAL
+  APPROVED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum PurchaseDeliveryStatus {
+  NOT_DELIVERED
+  PARTIAL_RECEIVED
+  FULLY_RECEIVED
+  OVERDUE_NOT_RECEIVED
+  OVERDUE_PARTIAL_RECEIVED
+  CLOSED
+}
+
+enum SupplierProgressStatus {
+  UNCONFIRMED
+  NOT_SCHEDULED
+  SCHEDULED
+  IN_PRODUCTION
+  PENDING_INSPECTION
+  COMPLETED
+  PENDING_SHIPMENT
+  SHIPPED
+  PARTIAL_RECEIVED
+  FULLY_RECEIVED
+  DELAYED
+  PAUSED
+}
+
 // ==================== ERP：仓库 ====================
 // 注：createdById / productId 等指向 CRM 既有模型（User/Product）的字段
 // 一律使用标量外键（不声明 @relation），以遵守「不改动 CRM 既有模型」约束。
@@ -602,25 +652,30 @@ model MaterialCategory {
 // ==================== ERP：物料主表 ====================
 
 model Material {
-  id            String           @id @default(uuid())
-  code          String           @unique
-  name          String
-  categoryId    String
-  category      MaterialCategory @relation(fields: [categoryId], references: [id])
-  spec          String?
-  materialType  String?
-  drawingNo     String?
-  supplier      String?
-  supplierId    String?
-  unit          String           @default("件")
-  standardPrice Decimal?         @db.Decimal(12, 2)
-  safetyStock   Decimal?         @db.Decimal(10, 2)
-  weight        Decimal?         @db.Decimal(10, 2)
-  remark        String?          @db.Text
-  isActive      Boolean          @default(true)
-  createdAt     DateTime         @default(now())
-  updatedAt     DateTime         @updatedAt
-  deletedAt     DateTime?
+  id                       String           @id @default(uuid())
+  code                     String           @unique
+  name                     String
+  categoryId               String
+  category                 MaterialCategory @relation(fields: [categoryId], references: [id])
+  spec                     String?
+  materialType             String?
+  drawingNo                String?
+  supplier                 String?
+  supplierId               String?
+  unit                     String           @default("件")
+  standardPrice            Decimal?         @db.Decimal(12, 2)
+  safetyStock              Decimal?         @db.Decimal(10, 2)
+  minStock                 Decimal?         @db.Decimal(10, 2)
+  maxStock                 Decimal?         @db.Decimal(10, 2)
+  procurementLeadDays      Int              @default(0)
+  safetyStockEnabled       Boolean          @default(false)
+  autoPurchaseDraftEnabled Boolean          @default(false)
+  weight                   Decimal?         @db.Decimal(10, 2)
+  remark                   String?          @db.Text
+  isActive                 Boolean          @default(true)
+  createdAt                DateTime         @default(now())
+  updatedAt                DateTime         @updatedAt
+  deletedAt                DateTime?
 
   inventories                  Inventory[]
   stockInItems                 StockInItem[]
@@ -629,6 +684,8 @@ model Material {
   movements                    StockMovement[]
   bomItems                     BomItem[]
   purchaseOrderShortageSources PurchaseOrderShortageSource[]
+  purchaseDemands              PurchaseDemand[]
+  monthlyMaterialRequirements  MonthlyMaterialRequirement[]
 
   @@index([categoryId])
   @@index([supplierId])
@@ -691,23 +748,39 @@ model PurchaseOrder {
 }
 
 model PurchaseOrderItem {
-  id                   String   @id @default(uuid())
+  id                   String                 @id @default(uuid())
   purchaseOrderId      String
   materialId           String
   materialCodeSnapshot String
   materialNameSnapshot String
   materialSpecSnapshot String?
-  quantity             Decimal  @db.Decimal(10, 2)
-  unitPrice            Decimal  @db.Decimal(12, 2)
-  amount               Decimal  @db.Decimal(12, 2)
-  receivedQuantity     Decimal  @default(0) @db.Decimal(10, 2)
-  sortOrder            Int      @default(0)
-  createdAt            DateTime @default(now())
+  quantity             Decimal                @db.Decimal(10, 2)
+  unitPrice            Decimal                @db.Decimal(12, 2)
+  amount               Decimal                @db.Decimal(12, 2)
+  receivedQuantity     Decimal                @default(0) @db.Decimal(10, 2)
+  needArrivalDate      DateTime?              @db.Date
+  requiredDeliveryDate DateTime?              @db.Date
+  firstPromisedDate    DateTime?              @db.Date
+  latestPromisedDate   DateTime?              @db.Date
+  estimatedShipDate    DateTime?              @db.Date
+  actualShipDate       DateTime?              @db.Date
+  actualArrivalDate    DateTime?              @db.Date
+  deliveryStatus       PurchaseDeliveryStatus @default(NOT_DELIVERED)
+  responsibleId        String?
+  sortOrder            Int                    @default(0)
+  createdAt            DateTime               @default(now())
 
   shortageSources PurchaseOrderShortageSource[]
+  demandSources   PurchaseOrderItemSource[]
+  followUps       SupplierDeliveryFollowUp[]
+  promiseHistory  SupplierPromiseDateHistory[]
+  deliveryBatches PurchaseDeliveryBatch[]
 
   @@index([purchaseOrderId])
   @@index([materialId])
+  @@index([responsibleId])
+  @@index([deliveryStatus])
+  @@index([latestPromisedDate])
   @@map("erp_purchase_order_items")
 }
 
@@ -757,16 +830,19 @@ model Inventory {
 // ==================== ERP：入库单（头 + 明细） ====================
 
 model StockIn {
-  id                String      @id @default(uuid())
-  batchNo           String      @unique
-  warehouseId       String
-  warehouse         Warehouse   @relation(fields: [warehouseId], references: [id])
-  purchaseOrderId   String?
-  productionOrderId String?
-  type              StockInType @default(PURCHASE)
-  remark            String?     @db.Text
-  createdById       String
-  createdAt         DateTime    @default(now())
+  id                     String      @id @default(uuid())
+  batchNo                String      @unique
+  warehouseId            String
+  warehouse              Warehouse   @relation(fields: [warehouseId], references: [id])
+  purchaseOrderId        String?
+  productionOrderId      String?
+  type                   StockInType @default(PURCHASE)
+  remark                 String?     @db.Text
+  createdById            String
+  confirmedById          String?
+  confirmedAt            DateTime?
+  sourceDocumentSnapshot Json?
+  createdAt              DateTime    @default(now())
 
   items StockInItem[]
 
@@ -780,17 +856,24 @@ model StockIn {
 }
 
 model StockInItem {
-  id                  String   @id @default(uuid())
-  stockInId           String
-  stockIn             StockIn  @relation(fields: [stockInId], references: [id], onDelete: Cascade)
-  materialId          String
-  material            Material @relation(fields: [materialId], references: [id])
-  purchaseOrderItemId String?
-  quantity            Decimal  @db.Decimal(10, 2)
-  unitPrice           Decimal  @db.Decimal(12, 2)
-  amount              Decimal  @db.Decimal(12, 2)
-  sortOrder           Int      @default(0)
-  createdAt           DateTime @default(now())
+  id                   String   @id @default(uuid())
+  stockInId            String
+  stockIn              StockIn  @relation(fields: [stockInId], references: [id], onDelete: Cascade)
+  materialId           String
+  material             Material @relation(fields: [materialId], references: [id])
+  purchaseOrderItemId  String?
+  quantity             Decimal  @db.Decimal(10, 2)
+  unitPrice            Decimal  @db.Decimal(12, 2)
+  amount               Decimal  @db.Decimal(12, 2)
+  materialCodeSnapshot String?
+  materialNameSnapshot String?
+  materialSpecSnapshot String?
+  unitSnapshot         String?
+  warehouseSnapshot    String?
+  beforeQty            Decimal? @db.Decimal(10, 2)
+  afterQty             Decimal? @db.Decimal(10, 2)
+  sortOrder            Int      @default(0)
+  createdAt            DateTime @default(now())
 
   @@index([stockInId])
   @@index([materialId])
@@ -801,15 +884,18 @@ model StockInItem {
 // ==================== ERP：出库单（头 + 明细） ====================
 
 model StockOut {
-  id                String       @id @default(uuid())
-  batchNo           String       @unique
-  warehouseId       String
-  productionOrderId String?
-  warehouse         Warehouse    @relation(fields: [warehouseId], references: [id])
-  type              StockOutType @default(PRODUCTION)
-  remark            String?      @db.Text
-  createdById       String
-  createdAt         DateTime     @default(now())
+  id                     String       @id @default(uuid())
+  batchNo                String       @unique
+  warehouseId            String
+  productionOrderId      String?
+  warehouse              Warehouse    @relation(fields: [warehouseId], references: [id])
+  type                   StockOutType @default(PRODUCTION)
+  remark                 String?      @db.Text
+  createdById            String
+  confirmedById          String?
+  confirmedAt            DateTime?
+  sourceDocumentSnapshot Json?
+  createdAt              DateTime     @default(now())
 
   items StockOutItem[]
 
@@ -822,14 +908,21 @@ model StockOut {
 }
 
 model StockOutItem {
-  id         String   @id @default(uuid())
-  stockOutId String
-  stockOut   StockOut @relation(fields: [stockOutId], references: [id], onDelete: Cascade)
-  materialId String
-  material   Material @relation(fields: [materialId], references: [id])
-  quantity   Decimal  @db.Decimal(10, 2)
-  sortOrder  Int      @default(0)
-  createdAt  DateTime @default(now())
+  id                   String   @id @default(uuid())
+  stockOutId           String
+  stockOut             StockOut @relation(fields: [stockOutId], references: [id], onDelete: Cascade)
+  materialId           String
+  material             Material @relation(fields: [materialId], references: [id])
+  quantity             Decimal  @db.Decimal(10, 2)
+  materialCodeSnapshot String?
+  materialNameSnapshot String?
+  materialSpecSnapshot String?
+  unitSnapshot         String?
+  warehouseSnapshot    String?
+  beforeQty            Decimal? @db.Decimal(10, 2)
+  afterQty             Decimal? @db.Decimal(10, 2)
+  sortOrder            Int      @default(0)
+  createdAt            DateTime @default(now())
 
   @@index([stockOutId])
   @@index([materialId])
@@ -905,17 +998,19 @@ model StockMovement {
 // ==================== ERP：BOM（第 2 期预留） ====================
 
 model BomHeader {
-  id        String   @id @default(uuid())
-  productId String
-  version   String   @default("v1.0")
-  isActive  Boolean  @default(true)
-  remark    String?  @db.Text
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id           String   @id @default(uuid())
+  productId    String
+  version      String   @default("v1.0")
+  isActive     Boolean  @default(true)
+  remark       String?  @db.Text
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  supersedesId String?
 
   items BomItem[]
 
   @@index([productId])
+  @@index([supersedesId])
   @@map("erp_bom_headers")
 }
 
@@ -961,6 +1056,12 @@ model ProductionOrder {
   configuration        Json?
   warehouseId          String
   plannedDate          DateTime?             @db.Date
+  deliveryDateSnapshot DateTime?             @db.Date
+  kitCheckStatus       KitCheckStatus        @default(NOT_CHECKED)
+  kitCheckRequired     Boolean               @default(true)
+  latestKitCheckId     String?
+  lastKitCheckedAt     DateTime?
+  monthlyPlanItemId    String?
   responsibleId        String?
   status               ProductionOrderStatus @default(DRAFT)
   version              Int                   @default(1)
@@ -976,6 +1077,8 @@ model ProductionOrder {
   changeRequests       ProductionOrderChangeRequest[]
   kitCheckResults      KitCheckResult[]
   sourcePurchaseOrders PurchaseOrder[]                @relation("PurchaseOrderSourceProductionOrder")
+  monthlyPlanItem      MonthlyProductionPlanItem?     @relation(fields: [monthlyPlanItemId], references: [id], onDelete: SetNull)
+  recheckQueue         KitRecheckQueue?
 
   @@index([contractId])
   @@index([contractItemId], map: "idx_po_contract_item")
@@ -988,6 +1091,8 @@ model ProductionOrder {
   @@index([deletedAt])
   @@index([contractId, sequenceInContract])
   @@index([isCurrent])
+  @@index([kitCheckRequired])
+  @@index([monthlyPlanItemId])
   @@map("erp_production_orders")
 }
 
@@ -1044,6 +1149,8 @@ model KitCheckResult {
   totalMaterials     Int             @default(0)
   detail             Json
   checkedById        String
+  triggerKey         String?         @unique
+  triggerType        String          @default("MANUAL")
   createdAt          DateTime        @default(now())
 
   sourcePurchaseOrders PurchaseOrder[]               @relation("PurchaseOrderSourceKitCheck")
@@ -1054,4 +1161,233 @@ model KitCheckResult {
   @@index([status])
   @@index([createdAt])
   @@map("erp_kit_check_results")
+}
+
+model KitRecheckQueue {
+  id                String          @id @default(uuid())
+  productionOrderId String          @unique
+  productionOrder   ProductionOrder @relation(fields: [productionOrderId], references: [id], onDelete: Cascade)
+  reason            String
+  materialIds       Json
+  requestedById     String
+  requestedAt       DateTime        @default(now())
+  processingAt      DateTime?
+  processedAt       DateTime?
+  attemptCount      Int             @default(0)
+  lastError         String?         @db.Text
+
+  @@index([processedAt, requestedAt])
+  @@map("erp_kit_recheck_queue")
+}
+
+model PurchaseDemand {
+  id                  String                    @id @default(uuid())
+  demandNo            String                    @unique
+  sourceType          ProcurementSourceType
+  sourceRecordId      String
+  sourceLineId        String?
+  sourceLabel         String
+  materialId          String
+  material            Material                  @relation(fields: [materialId], references: [id])
+  requestedQuantity   Decimal                   @db.Decimal(12, 4)
+  suggestedQuantity   Decimal                   @db.Decimal(12, 4)
+  convertedQuantity   Decimal                   @default(0) @db.Decimal(12, 4)
+  targetStockQuantity Decimal?                  @db.Decimal(12, 4)
+  needByDate          DateTime                  @db.Date
+  stockPurpose        String?
+  replenishmentReason String?
+  calculationSnapshot Json
+  status              PurchaseDemandStatus      @default(DRAFT)
+  activeSlot          Boolean?
+  createdById         String
+  approvedById        String?
+  createdAt           DateTime                  @default(now())
+  approvedAt          DateTime?
+  cancelledAt         DateTime?
+  updatedAt           DateTime                  @updatedAt
+  allocations         PurchaseOrderItemSource[]
+
+  @@unique([sourceType, sourceRecordId, materialId, activeSlot], map: "erp_demand_source_mat_active_uq")
+  @@index([materialId, status])
+  @@index([sourceType, sourceRecordId])
+  @@index([needByDate])
+  @@map("erp_purchase_demands")
+}
+
+model PurchaseOrderItemSource {
+  id                  String            @id @default(uuid())
+  purchaseOrderItemId String
+  purchaseOrderItem   PurchaseOrderItem @relation(fields: [purchaseOrderItemId], references: [id], onDelete: Restrict)
+  purchaseDemandId    String
+  purchaseDemand      PurchaseDemand    @relation(fields: [purchaseDemandId], references: [id], onDelete: Restrict)
+  allocatedQuantity   Decimal           @db.Decimal(12, 4)
+  fulfilledQuantity   Decimal           @default(0) @db.Decimal(12, 4)
+  createdAt           DateTime          @default(now())
+
+  @@unique([purchaseOrderItemId, purchaseDemandId], map: "erp_po_item_demand_uq")
+  @@index([purchaseDemandId])
+  @@map("erp_purchase_order_item_sources")
+}
+
+model MonthlyProductionPlan {
+  id           String                      @id @default(uuid())
+  planNo       String                      @unique
+  planMonth    DateTime                    @db.Date
+  name         String
+  status       MonthlyProductionPlanStatus @default(DRAFT)
+  description  String?                     @db.Text
+  version      Int                         @default(1)
+  supersedesId String?
+  createdById  String
+  approvedById String?
+  createdAt    DateTime                    @default(now())
+  approvedAt   DateTime?
+  updatedAt    DateTime                    @updatedAt
+  items        MonthlyProductionPlanItem[]
+
+  @@unique([planMonth, version], map: "erp_month_plan_month_version_uq")
+  @@index([status])
+  @@index([supersedesId])
+  @@map("erp_monthly_production_plans")
+}
+
+model MonthlyProductionPlanItem {
+  id                    String                       @id @default(uuid())
+  planId                String
+  plan                  MonthlyProductionPlan        @relation(fields: [planId], references: [id], onDelete: Cascade)
+  productId             String
+  productModelSnapshot  String
+  plannedQuantity       Decimal                      @db.Decimal(10, 2)
+  plannedStartDate      DateTime                     @db.Date
+  plannedCompletionDate DateTime                     @db.Date
+  bomId                 String
+  bomVersionSnapshot    String
+  convertedQuantity     Decimal                      @default(0) @db.Decimal(10, 2)
+  remark                String?                      @db.Text
+  createdAt             DateTime                     @default(now())
+  materialRequirements  MonthlyMaterialRequirement[]
+  productionOrders      ProductionOrder[]
+
+  @@index([planId])
+  @@index([productId])
+  @@map("erp_monthly_production_plan_items")
+}
+
+model MonthlyMaterialRequirement {
+  id                  String                    @id @default(uuid())
+  planItemId          String
+  planItem            MonthlyProductionPlanItem @relation(fields: [planItemId], references: [id], onDelete: Cascade)
+  materialId          String
+  material            Material                  @relation(fields: [materialId], references: [id])
+  requiredQuantity    Decimal                   @db.Decimal(12, 4)
+  plannedDemandQty    Decimal                   @db.Decimal(12, 4)
+  convertedDemandQty  Decimal                   @default(0) @db.Decimal(12, 4)
+  calculationSnapshot Json
+  createdAt           DateTime                  @default(now())
+
+  @@unique([planItemId, materialId], map: "erp_month_req_item_mat_uq")
+  @@index([materialId])
+  @@map("erp_monthly_material_requirements")
+}
+
+model SupplierDeliveryFollowUp {
+  id                      String                 @id @default(uuid())
+  purchaseOrderItemId     String
+  purchaseOrderItem       PurchaseOrderItem      @relation(fields: [purchaseOrderItemId], references: [id], onDelete: Cascade)
+  followedAt              DateTime
+  followedById            String
+  supplierContact         String?
+  contactMethod           String?
+  progress                SupplierProgressStatus
+  completionPercent       Int?
+  estimatedCompletionDate DateTime?              @db.Date
+  estimatedShipDate       DateTime?              @db.Date
+  hasDelayRisk            Boolean                @default(false)
+  riskReason              String?                @db.Text
+  actionPlan              String?                @db.Text
+  remark                  String?                @db.Text
+  createdAt               DateTime               @default(now())
+
+  @@index([purchaseOrderItemId, followedAt])
+  @@map("erp_supplier_delivery_followups")
+}
+
+model SupplierPromiseDateHistory {
+  id                  String            @id @default(uuid())
+  purchaseOrderItemId String
+  purchaseOrderItem   PurchaseOrderItem @relation(fields: [purchaseOrderItemId], references: [id], onDelete: Cascade)
+  oldPromisedDate     DateTime?         @db.Date
+  newPromisedDate     DateTime          @db.Date
+  changedAt           DateTime          @default(now())
+  changedById         String
+  supplierReason      String?           @db.Text
+  affectsProduction   Boolean           @default(false)
+  remark              String?           @db.Text
+
+  @@index([purchaseOrderItemId, changedAt])
+  @@map("erp_supplier_promise_date_history")
+}
+
+model PurchaseDeliveryBatch {
+  id                  String            @id @default(uuid())
+  purchaseOrderItemId String
+  purchaseOrderItem   PurchaseOrderItem @relation(fields: [purchaseOrderItemId], references: [id], onDelete: Cascade)
+  plannedQuantity     Decimal           @db.Decimal(10, 2)
+  plannedArrivalDate  DateTime?         @db.Date
+  promisedDate        DateTime?         @db.Date
+  shippedQuantity     Decimal           @default(0) @db.Decimal(10, 2)
+  actualShipDate      DateTime?         @db.Date
+  receivedQuantity    Decimal           @default(0) @db.Decimal(10, 2)
+  actualArrivalDate   DateTime?         @db.Date
+  trackingNo          String?
+  remark              String?           @db.Text
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
+
+  @@index([purchaseOrderItemId])
+  @@map("erp_purchase_delivery_batches")
+}
+
+model ErpAttachment {
+  id           String    @id @default(uuid())
+  entityType   String
+  entityId     String
+  fileName     String
+  storedName   String
+  fileUrl      String
+  mimeType     String
+  fileSize     Int
+  uploadedById String
+  createdAt    DateTime  @default(now())
+  deletedAt    DateTime?
+  deletedById  String?
+
+  @@index([entityType, entityId, deletedAt])
+  @@map("erp_attachments")
+}
+
+model ProcurementConfig {
+  id            String   @id @default("default")
+  attentionDays Int      @default(7)
+  highRiskDays  Int      @default(3)
+  urgentDays    Int      @default(1)
+  updatedById   String?
+  updatedAt     DateTime @updatedAt
+
+  @@map("erp_procurement_config")
+}
+
+model ErpNotification {
+  id              String    @id @default(uuid())
+  notificationKey String    @unique
+  userId          String
+  title           String
+  content         String    @db.Text
+  link            String?
+  level           String    @default("INFO")
+  readAt          DateTime?
+  createdAt       DateTime  @default(now())
+
+  @@index([userId, readAt, createdAt])
+  @@map("erp_notifications")
 }
