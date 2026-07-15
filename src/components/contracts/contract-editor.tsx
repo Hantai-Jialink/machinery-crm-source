@@ -28,6 +28,7 @@ type ContractLine = {
   itemType: "MAIN" | "OPTIONAL";
   contractPrice: string;
   quantity: string;
+  estimatedShipmentDate: string;
 };
 
 
@@ -59,7 +60,7 @@ export function ContractEditor({ mode, contractId, quoteId, initialCustomerId }:
     attachmentUrl: "",
   });
   const [mainLines, setMainLines] = useState<ContractLine[]>([
-    { key: "main", productId: "", itemType: "MAIN", contractPrice: "", quantity: "1" },
+    { key: "main", productId: "", itemType: "MAIN", contractPrice: "", quantity: "1", estimatedShipmentDate: "" },
   ]);
   const [optionalLines, setOptionalLines] = useState<ContractLine[]>([]);
   const [loading, setLoading] = useState(true);
@@ -113,6 +114,7 @@ export function ContractEditor({ mode, contractId, quoteId, initialCustomerId }:
         itemType: "MAIN",
         contractPrice: item.quotedPrice !== null && item.quotedPrice !== undefined ? String(Number(item.quotedPrice)) : "",
         quantity: String(item.quantity || 1),
+        estimatedShipmentDate: "",
       })));
       setOptionalLines(items.filter((item: any) => item.itemType === "OPTIONAL").map((item: any) => ({
         key: item.id || makeClientId(),
@@ -120,6 +122,7 @@ export function ContractEditor({ mode, contractId, quoteId, initialCustomerId }:
         itemType: "OPTIONAL",
         contractPrice: item.quotedPrice ? String(Number(item.quotedPrice)) : "",
         quantity: String(item.quantity || 1),
+        estimatedShipmentDate: "",
       })));
     };
 
@@ -149,6 +152,7 @@ export function ContractEditor({ mode, contractId, quoteId, initialCustomerId }:
         itemType: "MAIN",
         contractPrice: item.contractPrice !== null && item.contractPrice !== undefined ? String(Number(item.contractPrice)) : "",
         quantity: String(item.quantity || 1),
+        estimatedShipmentDate: toDateInput(item.estimatedShipmentDate),
       })));
       setOptionalLines(items.filter((item: any) => item.itemType === "OPTIONAL").map((item: any) => ({
         key: item.id || makeClientId(),
@@ -156,6 +160,7 @@ export function ContractEditor({ mode, contractId, quoteId, initialCustomerId }:
         itemType: "OPTIONAL",
         contractPrice: item.contractPrice ? String(Number(item.contractPrice)) : "",
         quantity: String(item.quantity || 1),
+        estimatedShipmentDate: "",
       })));
     };
 
@@ -168,11 +173,11 @@ export function ContractEditor({ mode, contractId, quoteId, initialCustomerId }:
   }, [contractId, mode, quoteId]);
 
   const addOptionalLine = () => {
-    setOptionalLines((lines) => [...lines, { key: makeClientId(), productId: "", itemType: "OPTIONAL", contractPrice: "", quantity: "1" }]);
+    setOptionalLines((lines) => [...lines, { key: makeClientId(), productId: "", itemType: "OPTIONAL", contractPrice: "", quantity: "1", estimatedShipmentDate: "" }]);
   };
 
   const addMainLine = () => {
-    setMainLines((lines) => [...lines, { key: makeClientId(), productId: "", itemType: "MAIN", contractPrice: "", quantity: "1" }]);
+    setMainLines((lines) => [...lines, { key: makeClientId(), productId: "", itemType: "MAIN", contractPrice: "", quantity: "1", estimatedShipmentDate: "" }]);
   };
 
   const updateMainLine = (key: string, patch: Partial<ContractLine>) => {
@@ -227,6 +232,7 @@ export function ContractEditor({ mode, contractId, quoteId, initialCustomerId }:
       itemType: line.itemType,
       contractPrice: line.contractPrice || 0,
       quantity: line.quantity || 1,
+      estimatedShipmentDate: line.estimatedShipmentDate || null,
       sortOrder: index,
     }));
 
@@ -316,7 +322,7 @@ export function ContractEditor({ mode, contractId, quoteId, initialCustomerId }:
             const selected = mainProducts.find((product) => product.id === line.productId);
             const subtotal = Number(line.contractPrice || 0) * Math.max(1, Number(line.quantity || 1));
             return (
-              <div key={line.key} className="grid grid-cols-1 sm:grid-cols-[1fr_140px_90px_110px_36px] gap-2 items-start">
+              <div key={line.key} className="grid grid-cols-1 sm:grid-cols-[1fr_130px_80px_140px_100px_36px] gap-2 items-start">
                 <div>
                   <select value={line.productId} disabled={!!lockedMessage} onChange={(event) => updateMainLine(line.key, { productId: event.target.value })}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 disabled:bg-gray-50">
@@ -331,6 +337,7 @@ export function ContractEditor({ mode, contractId, quoteId, initialCustomerId }:
                 <input type="number" min="1" value={line.quantity} disabled={!!lockedMessage} onChange={(event) => updateMainLine(line.key, { quantity: event.target.value })}
                   placeholder="数量"
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 disabled:bg-gray-50" />
+                <input type="date" value={line.estimatedShipmentDate} disabled={!!lockedMessage} onChange={(event) => updateMainLine(line.key, { estimatedShipmentDate: event.target.value })} title="该合同明细独立交货日期；留空则使用合同表头日期" className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm disabled:bg-gray-50" />
                 <div className="px-3 py-2 text-sm text-gray-700 bg-gray-50 rounded-lg">{formatMoney(subtotal)}</div>
                 <button onClick={() => removeMainLine(line.key)} disabled={!!lockedMessage || mainLines.length === 1} title={mainLines.length === 1 ? "至少保留一个产品" : "删除产品"}
                   className="p-2 text-gray-400 hover:text-red-600 rounded-lg hover:bg-red-50 disabled:opacity-30">

@@ -45,7 +45,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       await tx.productionOrderMaterial.createMany({ data: snapshot.materials.map((item) => ({ ...item, productionOrderId: successor.id })) });
       const retired = await tx.productionOrder.updateMany({ where: { id: current.id, status: "CHANGE_PENDING", isCurrent: true }, data: { isCurrent: false } });
       if (retired.count !== 1) throw new ProductionOrderRequestError("当前工单已被其他操作更新，请刷新后重试", 409);
-      const kitCheck = await createKitCheckResult(tx, { productionOrderId: successor.id, checkedById: user.id });
+      const kitCheck = await createKitCheckResult(tx, { productionOrderId: successor.id, checkedById: user.id, triggerKey: `CHANGE:${id}:${nextVersion}`, triggerType: "ORDER_CHANGE" });
       const approved = await tx.productionOrderChangeRequest.update({ where: { id }, data: { status: "APPROVED", approverId: user.id, approvalRemark: String(body.remark || "").trim() || null, approvedAt: new Date() } });
       await writeOperationLog(tx, { userId: user.id, action: "APPROVE_PRODUCTION_ORDER_CHANGE_REQUEST", entityType: "ProductionOrder", entityId: successor.id, beforeData: { previousOrderId: current.id, version: current.version }, afterData: { changeRequestId: approved.id, version: successor.version, kitCheckId: kitCheck.id } });
       return { successor, kitCheck, approved };

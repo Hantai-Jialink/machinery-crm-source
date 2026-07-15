@@ -116,6 +116,7 @@ export async function PUT(
           itemType: item.itemType,
           contractPrice: item.contractPrice,
           quantity: item.quantity,
+          estimatedShipmentDate: item.estimatedShipmentDate,
           sortOrder: item.sortOrder,
         }));
 

@@ -133,7 +133,8 @@ export async function PUT(
   catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "用料清单明细无效" }, { status: 400 }); }
 
   const isActive = body.isActive !== false;
-  await prisma.$transaction(async (tx) => {
+  const targetId = await prisma.$transaction(async (tx) => {
+    const hasFrozenUsage = await tx.productionOrder.count({ where: { bomId: id, deletedAt: null } }) > 0;
     if (isActive) {
       await tx.bomHeader.updateMany({
         where: { productId: nextProductId, isActive: true, id: { not: id } },
@@ -141,20 +142,15 @@ export async function PUT(
       });
     }
 
-    await tx.bomItem.deleteMany({ where: { bomId: id } });
-    const updated = await tx.bomHeader.update({
-      where: { id },
-      data: {
-        productId: nextProductId,
-        version: nextVersion,
-        isActive,
-        remark: body.remark || null,
-      },
-    });
+    const updated = hasFrozenUsage
+      ? await tx.bomHeader.create({ data: { productId: nextProductId, version: nextVersion, isActive, remark: body.remark || null, supersedesId: id } })
+      : await tx.bomHeader.update({ where: { id }, data: { productId: nextProductId, version: nextVersion, isActive, remark: body.remark || null } });
+    if (hasFrozenUsage) await tx.bomHeader.update({ where: { id }, data: { isActive: false } });
+    else await tx.bomItem.deleteMany({ where: { bomId: id } });
 
-    await createBomItems(tx, id, items);
+    await createBomItems(tx, updated.id, items);
     const after = await tx.bomHeader.findUnique({
-      where: { id },
+      where: { id: updated.id },
       include: { items: { orderBy: { sortOrder: "asc" } } },
     });
     await writeOperationLog(tx, {
@@ -165,9 +161,10 @@ export async function PUT(
       beforeData: existing,
       afterData: after,
     });
+    return updated.id;
   });
 
-  return NextResponse.json(await loadBom(id));
+  return NextResponse.json(await loadBom(targetId));
 }
 
 export async function DELETE(

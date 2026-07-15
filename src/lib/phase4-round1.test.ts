@@ -73,9 +73,10 @@ describe("draft publication and BOM write guards", () => {
     expect(page).toContain("if (isNew) router.replace(`/erp/production-orders/${orderId}`)");
   });
 
-  it("publishes without silently running a kit check and blocks duplicate publication", () => {
+  it("publishes with the phase4 acceptance kit check and blocks duplicate publication", () => {
     const route = read("src/app/api/erp/production-orders/[id]/issue/route.ts");
-    expect(route).not.toContain("createKitCheckResult");
+    expect(route).toContain("createKitCheckResult");
+    expect(route).toContain('triggerType: "ORDER_ISSUE"');
     expect(route).toContain("请勿重复发布");
   });
 

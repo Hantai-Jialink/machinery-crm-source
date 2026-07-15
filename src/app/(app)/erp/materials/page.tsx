@@ -34,7 +34,7 @@ export default function MaterialsPage() {
   const [showWarningModal, setShowWarningModal] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
-  const [form, setForm] = useState<any>({ code: "", name: "", categoryId: "", spec: "", unit: "件", standardPrice: "", safetyStock: "", supplier: "", supplierId: "", remark: "" });
+  const [form, setForm] = useState<any>({ code: "", name: "", categoryId: "", spec: "", unit: "件", standardPrice: "", safetyStock: "", minStock: "", maxStock: "", procurementLeadDays: "0", safetyStockEnabled: false, autoPurchaseDraftEnabled: false, supplier: "", supplierId: "", remark: "" });
   const [thresholdDraft, setThresholdDraft] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [savingThresholds, setSavingThresholds] = useState(false);
@@ -79,7 +79,7 @@ export default function MaterialsPage() {
 
   const openCreate = () => {
     setEditId(null);
-    setForm({ code: "", name: "", categoryId: categories[0]?.id || "", spec: "", unit: "件", standardPrice: "", safetyStock: "", supplier: "", supplierId: "", remark: "" });
+    setForm({ code: "", name: "", categoryId: categories[0]?.id || "", spec: "", unit: "件", standardPrice: "", safetyStock: "", minStock: "", maxStock: "", procurementLeadDays: "0", safetyStockEnabled: false, autoPurchaseDraftEnabled: false, supplier: "", supplierId: "", remark: "" });
     setShowModal(true);
   };
 
@@ -93,6 +93,11 @@ export default function MaterialsPage() {
       unit: m.unit || "件",
       standardPrice: m.standardPrice ? String(m.standardPrice) : "",
       safetyStock: m.safetyStock ? String(m.safetyStock) : "",
+      minStock: m.minStock ? String(m.minStock) : "",
+      maxStock: m.maxStock ? String(m.maxStock) : "",
+      procurementLeadDays: String(m.procurementLeadDays || 0),
+      safetyStockEnabled: Boolean(m.safetyStockEnabled),
+      autoPurchaseDraftEnabled: Boolean(m.autoPurchaseDraftEnabled),
       supplier: m.supplier || "",
       supplierId: m.supplierId || "",
       remark: m.remark || "",
@@ -297,6 +302,11 @@ export default function MaterialsPage() {
                   <label className="block text-xs font-medium text-gray-600 mb-1">安全库存</label>
                   <input type="number" value={form.safetyStock} onChange={(e) => setForm({ ...form, safetyStock: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" />
                 </div>
+                <div><label className="block text-xs font-medium text-gray-600 mb-1">最低库存</label><input type="number" value={form.minStock} onChange={(e) => setForm({ ...form, minStock: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" /></div>
+                <div><label className="block text-xs font-medium text-gray-600 mb-1">最高库存（可选）</label><input type="number" value={form.maxStock} onChange={(e) => setForm({ ...form, maxStock: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" /></div>
+                <div><label className="block text-xs font-medium text-gray-600 mb-1">默认采购提前期（天）</label><input type="number" min="0" value={form.procurementLeadDays} onChange={(e) => setForm({ ...form, procurementLeadDays: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" /></div>
+                <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={form.safetyStockEnabled} onChange={(e) => setForm({ ...form, safetyStockEnabled: e.target.checked })} />启用安全库存</label>
+                <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={form.autoPurchaseDraftEnabled} onChange={(e) => setForm({ ...form, autoPurchaseDraftEnabled: e.target.checked })} />允许自动生成采购需求草稿</label>
               </div>
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">关联供应商</label>

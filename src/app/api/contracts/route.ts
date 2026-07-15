@@ -222,6 +222,7 @@ export async function POST(request: NextRequest) {
               factoryPriceSnapshot: item.factoryPriceSnapshot,
               contractPrice: item.contractPrice,
               quantity: item.quantity,
+              estimatedShipmentDate: item.estimatedShipmentDate,
               sortOrder: item.sortOrder,
             })),
           },

@@ -8,6 +8,7 @@ export type LineItemInput = {
   contractPrice?: string | number | null;
   quantity?: string | number | null;
   sortOrder?: number;
+  estimatedShipmentDate?: string | Date | null;
 };
 
 export function toNumber(value: unknown, fallback = 0) {
@@ -137,6 +138,7 @@ export function buildItemData(product: any, input: LineItemInput, priceField: "q
     [priceField]: price,
     quantity,
     sortOrder: input.sortOrder ?? index,
+    estimatedShipmentDate: input.estimatedShipmentDate ? new Date(input.estimatedShipmentDate) : null,
   };
 }
 

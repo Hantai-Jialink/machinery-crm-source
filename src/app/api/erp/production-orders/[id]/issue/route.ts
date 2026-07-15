@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { canPublishProductionOrder, getSessionUser } from "@/lib/permissions";
-import { expandBomSnapshot, issuedOrderNo, nextSequenceInContract, nextStockOrderNo, ProductionOrderRequestError, validateProductionOrderForIssue } from "@/lib/production-orders";
+import { createKitCheckResult, expandBomSnapshot, issuedOrderNo, nextSequenceInContract, nextStockOrderNo, ProductionOrderRequestError, validateProductionOrderForIssue } from "@/lib/production-orders";
 import { writeOperationLog } from "@/lib/sales-items";
 
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -30,6 +30,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         const updated = await tx.productionOrder.updateMany({ where: { id, status: "DRAFT", deletedAt: null }, data: { orderNo, sequenceInContract: sequence, bomVersionSnapshot: snapshot.bomVersion, status: "ISSUED" } });
         if (updated.count !== 1) throw new ProductionOrderRequestError("生产工单已被其他操作更新，请刷新后重试", 409);
         await tx.productionOrderMaterial.createMany({ data: snapshot.materials.map((item) => ({ ...item, productionOrderId: id })) });
+        await createKitCheckResult(tx, { productionOrderId: id, checkedById: user.id, triggerKey: `ISSUE:${id}`, triggerType: "ORDER_ISSUE" });
         const after = await tx.productionOrder.findUniqueOrThrow({ where: { id } });
         await writeOperationLog(tx, { userId: user.id, action: "ISSUE_PRODUCTION_ORDER", entityType: "ProductionOrder", entityId: id, beforeData: existing, afterData: after });
       }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });

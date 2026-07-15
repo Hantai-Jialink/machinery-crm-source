@@ -6,6 +6,7 @@ import {
   isProductionOrderConcurrencyConflict,
   issuedOrderNo,
   normalizeProductionRequestKey,
+  resolveDeliveryDateSnapshot,
 } from "./production-orders";
 
 describe("production order numbering", () => {
@@ -39,6 +40,13 @@ describe("contract item production limits", () => {
   it("rejects a planned completion date after the contract delivery date", () => {
     expect(() => assertPlannedCompletionDate(new Date("2026-07-20"), new Date("2026-07-20"))).not.toThrow();
     expect(() => assertPlannedCompletionDate(new Date("2026-07-21"), new Date("2026-07-20"))).toThrow("合同交货日期");
+  });
+
+  it("freezes item delivery first, then header, while stock orders use planned completion", () => {
+    const item = new Date("2026-07-20"); const header = new Date("2026-07-25"); const planned = new Date("2026-07-18");
+    expect(resolveDeliveryDateSnapshot({ contractItemDeliveryDate: item, contractHeaderDeliveryDate: header, plannedDate: planned })).toBe(item);
+    expect(resolveDeliveryDateSnapshot({ contractItemDeliveryDate: null, contractHeaderDeliveryDate: header, plannedDate: planned })).toBe(header);
+    expect(resolveDeliveryDateSnapshot({ plannedDate: planned })).toBe(planned);
   });
 });
 

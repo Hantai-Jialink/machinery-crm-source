@@ -67,8 +67,11 @@ const navItems: NavItem[] = [
       { href: "/erp/materials", label: "物料管理", roles: ["SUPER_ADMIN", "PURCHASE", "WAREHOUSE"] },
       { href: "/erp/suppliers", label: "供应商管理", roles: ["SUPER_ADMIN", "PURCHASE"] },
       { href: "/erp/purchase-orders", label: "采购订单", roles: ["SUPER_ADMIN", "PURCHASE", "WAREHOUSE"] },
+      { href: "/erp/purchase-demands", label: "采购需求", roles: ["SUPER_ADMIN", "PURCHASE"] },
+      { href: "/erp/supplier-deliveries", label: "供应商交期跟踪", roles: ["SUPER_ADMIN", "PURCHASE", "WAREHOUSE"] },
       { href: "/erp/bom", label: "整机用料清单", roles: ["SUPER_ADMIN"] },
       { href: "/erp/production-orders", label: "生产工单", roles: ["SUPER_ADMIN", "PURCHASE", "WAREHOUSE"] },
+      { href: "/erp/monthly-production-plans", label: "月度生产计划", roles: ["SUPER_ADMIN", "PURCHASE", "WAREHOUSE"] },
       { href: "/erp/kit-check-results", label: "齐套检查结果", roles: ["SUPER_ADMIN", "PURCHASE", "WAREHOUSE"] },
       { href: "/erp/production-order-change-requests", label: "工单变更审批", adminOnly: true },
       { href: "/erp/warehouse", label: "仓库管理", roles: ["SUPER_ADMIN", "WAREHOUSE"] },
@@ -107,7 +110,7 @@ export function Sidebar() {
         <img src="/logo.png" alt="大川机械" className="w-40 h-auto object-contain" />
       </div>
 
-      <nav className="flex-1 p-3 space-y-1">
+      <nav className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-3 space-y-1">
         {filteredNavItems.map((item) => {
           const isActive = pathname === item.href || pathname.startsWith(item.href + "/");
           const Icon = item.icon;
@@ -172,7 +175,7 @@ export function Sidebar() {
         })}
       </nav>
 
-      <div className="p-4 border-t border-gray-100">
+      <div className="shrink-0 p-4 border-t border-gray-100 bg-white">
         <div className="mb-3 text-xs text-gray-500">
           <p className="font-medium text-gray-700">{session?.user?.name || session?.user?.email}</p>
           <p>{ROLE_LABELS[userRole as keyof typeof ROLE_LABELS] || (userViewScope === "ALL" ? "全区域" : "销售")}</p>
@@ -199,14 +202,14 @@ export function Sidebar() {
         <Menu className="w-5 h-5" />
       </button>
 
-      <aside className="hidden lg:flex fixed inset-y-0 left-0 w-64 bg-white border-r border-gray-200 flex-col">
+      <aside className="hidden lg:flex fixed inset-y-0 left-0 h-dvh max-h-dvh w-64 overflow-hidden bg-white border-r border-gray-200 flex-col">
         <NavContent />
       </aside>
 
       {mobileOpen && (
         <div className="lg:hidden fixed inset-0 z-50">
           <div className="absolute inset-0 bg-black/40" onClick={() => setMobileOpen(false)} />
-          <aside className="absolute inset-y-0 left-0 w-64 bg-white border-r border-gray-200 flex flex-col">
+          <aside className="absolute inset-y-0 left-0 h-dvh max-h-dvh w-64 overflow-hidden bg-white border-r border-gray-200 flex flex-col">
             <button type="button" onClick={() => setMobileOpen(false)} className="absolute top-3 right-3 p-2 text-gray-400 hover:text-gray-700">
               <X className="w-5 h-5" />
             </button>

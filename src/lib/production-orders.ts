@@ -3,6 +3,7 @@ import { KitCheckStatus, Prisma, ProductionOrderStatus } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { writeOperationLog } from "@/lib/sales-items";
 import { flattenBomLeafRequirements } from "@/lib/bom-items";
+import { upsertPurchaseDemandForSource } from "@/lib/procurement-planning";
 
 export class ProductionOrderRequestError extends Error {
   constructor(message: string, public readonly status = 400) {
@@ -132,7 +133,11 @@ async function assertContractItemCapacity(
   await tx.$queryRaw`SELECT id FROM contract_items WHERE id = ${contractItemId} FOR UPDATE`;
   const contractItem = await tx.contractItem.findFirst({
     where: { id: contractItemId, contractId: input.contractId },
-    include: {
+    select: {
+      id: true,
+      productId: true,
+      quantity: true,
+      estimatedShipmentDate: true,
       contract: {
         select: {
           id: true,
@@ -232,7 +237,7 @@ async function loadDraftReferences(
     throw new ProductionOrderRequestError("生产机型必须与所选合同设备明细一致");
   }
   if (!options?.allowPlannedDateAfterDelivery) {
-    assertPlannedCompletionDate(input.plannedDate, contractSource?.contractItem.contract.estimatedShipmentDate || null);
+    assertPlannedCompletionDate(input.plannedDate, contractSource?.contractItem.estimatedShipmentDate || contractSource?.contractItem.contract.estimatedShipmentDate || null);
   }
   return { product, bom, warehouse, contractSource };
 }
@@ -261,6 +266,7 @@ export async function buildDraftData(
     configuration: input.configuration,
     warehouseId: warehouse.id,
     plannedDate: input.plannedDate,
+    deliveryDateSnapshot: resolveDeliveryDateSnapshot({ contractItemDeliveryDate: contractSource?.contractItem.estimatedShipmentDate, contractHeaderDeliveryDate: contract?.estimatedShipmentDate, plannedDate: input.plannedDate }),
     responsibleId: input.responsibleId,
     remark: input.remark,
   };
@@ -283,7 +289,7 @@ export async function validateProductionOrderForIssue(tx: Prisma.TransactionClie
   if (!order.plannedDate) throw new ProductionOrderRequestError("发布前必须填写计划完工日期");
   if (!order.isStockOrder) {
     const source = await assertContractItemCapacity(tx, order, order.id);
-    assertPlannedCompletionDate(order.plannedDate, source?.contractItem.contract.estimatedShipmentDate || null);
+    assertPlannedCompletionDate(order.plannedDate, source?.contractItem.estimatedShipmentDate || source?.contractItem.contract.estimatedShipmentDate || null);
   }
 }
 
@@ -335,6 +341,10 @@ export function assertPlannedCompletionDate(plannedDate: Date | null, contractDe
   }
 }
 
+export function resolveDeliveryDateSnapshot(input: { contractItemDeliveryDate?: Date | null; contractHeaderDeliveryDate?: Date | null; plannedDate: Date | null }) {
+  return input.contractItemDeliveryDate || input.contractHeaderDeliveryDate || input.plannedDate;
+}
+
 export async function expandBomSnapshot(
   tx: Prisma.TransactionClient,
   input: { bomId: string; productId: string; quantity: Prisma.Decimal }
@@ -374,8 +384,8 @@ export async function expandBomSnapshot(
   };
 }
 
-export async function createKitCheckResult(tx: Prisma.TransactionClient, input: { productionOrderId: string; checkedById: string }) {
-  const order = await tx.productionOrder.findFirst({ where: { id: input.productionOrderId, deletedAt: null }, select: { id: true, warehouseId: true, status: true, quantity: true, bomVersionSnapshot: true } });
+export async function createKitCheckResult(tx: Prisma.TransactionClient, input: { productionOrderId: string; checkedById: string; triggerKey?: string; triggerType?: string }) {
+  const order = await tx.productionOrder.findFirst({ where: { id: input.productionOrderId, deletedAt: null }, select: { id: true, orderNo: true, warehouseId: true, status: true, quantity: true, plannedDate: true, bomVersionSnapshot: true } });
   if (!order) throw new ProductionOrderRequestError("生产工单不存在", 404);
   if (order.status !== "ISSUED") throw new ProductionOrderRequestError("只有已发布且未作废的生产工单可以执行齐套检查", 409);
   const materials = await tx.productionOrderMaterial.findMany({ where: { productionOrderId: order.id }, orderBy: { sortOrder: "asc" } });
@@ -414,8 +424,25 @@ export async function createKitCheckResult(tx: Prisma.TransactionClient, input: 
   });
   const shortageCount = detail.filter((item) => item.shortageQty > 0).length;
   const result = await tx.kitCheckResult.create({
-    data: { productionOrderId: order.id, warehouseId: order.warehouseId, bomVersionSnapshot: order.bomVersionSnapshot, status: shortageCount ? KitCheckStatus.SHORTAGE : KitCheckStatus.SUFFICIENT, shortageCount, totalMaterials: detail.length, detail, checkedById: input.checkedById },
+    data: { productionOrderId: order.id, warehouseId: order.warehouseId, bomVersionSnapshot: order.bomVersionSnapshot, status: shortageCount ? KitCheckStatus.SHORTAGE : KitCheckStatus.SUFFICIENT, shortageCount, totalMaterials: detail.length, detail, checkedById: input.checkedById, triggerKey: input.triggerKey || null, triggerType: input.triggerType || "MANUAL" },
   });
+  await tx.productionOrder.update({
+    where: { id: order.id },
+    data: { kitCheckStatus: result.status, kitCheckRequired: false, latestKitCheckId: result.id, lastKitCheckedAt: result.createdAt },
+  });
+  for (const item of detail) {
+    await upsertPurchaseDemandForSource(tx, {
+      sourceType: "PRODUCTION_ORDER",
+      sourceRecordId: order.id,
+      sourceLineId: result.id,
+      sourceLabel: `生产工单 ${order.orderNo}`,
+      materialId: item.materialId,
+      newDemand: item.remainingRequiredQty,
+      needByDate: order.plannedDate || new Date(),
+      createdById: input.checkedById,
+      excludeProductionOrderId: order.id,
+    });
+  }
   await writeOperationLog(tx, { userId: input.checkedById, action: "CHECK_PRODUCTION_ORDER_KIT", entityType: "ProductionOrder", entityId: order.id, afterData: { result } });
   return result;
 }
@@ -460,7 +487,7 @@ export async function getProductionOrderDetail(id: string) {
     const remainingQty = Prisma.Decimal.max(new Prisma.Decimal(item.requiredQuantity).sub(netIssuedQty), new Prisma.Decimal(0));
     return { materialId: item.materialId, plannedQty: Number(item.requiredQuantity), issuedQty: issuedQty.toNumber(), returnedQty: returnedQty.toNumber(), netIssuedQty: netIssuedQty.toNumber(), remainingQty: remainingQty.toNumber(), inventoryQty: (inventoryByMaterial.get(item.materialId) || new Prisma.Decimal(0)).toNumber() };
   });
-  return { ...order, contract, contractMeta: contract, productionResponsible, product, bom, warehouse, stockOuts, stockIns, materialSummary, versionHistory, latestKitCheckResult: order.kitCheckResults[0] || null };
+  return { ...order, contract, contractMeta: contract ? { ...contract, estimatedShipmentDate: order.deliveryDateSnapshot || contract.estimatedShipmentDate } : null, productionResponsible, product, bom, warehouse, stockOuts, stockIns, materialSummary, versionHistory, latestKitCheckResult: order.kitCheckResults[0] || null };
 }
 
 export async function getProductionOrderProcurementView(id: string) {
