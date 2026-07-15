@@ -45,7 +45,6 @@ jobs:
       PORT: "3000"
       HOSTNAME: 127.0.0.1
       ERP_CRON_SECRET: phase4-isolated-cron-secret
-      UPLOAD_DIR: ${{ runner.temp }}/phase4-persistent-uploads
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     defaults:
@@ -61,6 +60,9 @@ jobs:
       - name: 锁定当前提交和成功的构建 Run
         run: |
           set -Eeuo pipefail
+          upload_dir="$RUNNER_TEMP/phase4-persistent-uploads"
+          mkdir -p "$upload_dir"
+          echo "UPLOAD_DIR=$upload_dir" >> "$GITHUB_ENV"
           run_json="$RUNNER_TEMP/build-run.json"
           curl -fsSL --retry 3 \
             -H "Authorization: Bearer $GITHUB_TOKEN" \
