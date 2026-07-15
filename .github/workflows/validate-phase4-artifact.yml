@@ -25,12 +25,12 @@ jobs:
       mysql:
         image: mysql:5.7
         env:
-          MYSQL_ROOT_PASSWORD: phase4_test_only
+          MYSQL_ROOT_PASSWORD: ${{ format('ci-{0}-{1}', github.run_id, github.run_attempt) }}
           MYSQL_DATABASE: machinery_crm_phase4_test
         ports:
           - 3306:3306
         options: >-
-          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -pphase4_test_only"
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -pci-${{ github.run_id }}-${{ github.run_attempt }}"
           --health-interval=10s
           --health-timeout=5s
           --health-retries=20
@@ -38,13 +38,13 @@ jobs:
     env:
       EXPECTED_ARTIFACT_NAME: machinery-crm-prebuilt-standalone
       BUILD_RUN_ID: ${{ inputs.build_run_id }}
-      DATABASE_URL: mysql://root:phase4_test_only@127.0.0.1:3306/machinery_crm_phase4_test
-      AUTH_SECRET: phase4-artifact-smoke-test-secret
+      SMOKE_DB_PASSWORD: ${{ format('ci-{0}-{1}', github.run_id, github.run_attempt) }}
+      AUTH_SECRET: ${{ format('auth-{0}-{1}-{2}', github.run_id, github.run_attempt, github.sha) }}
       AUTH_URL: http://127.0.0.1:3000
       NEXTAUTH_URL: http://127.0.0.1:3000
       PORT: "3000"
       HOSTNAME: 127.0.0.1
-      ERP_CRON_SECRET: phase4-isolated-cron-secret
+      ERP_CRON_SECRET: ${{ format('cron-{0}-{1}-{2}', github.run_id, github.run_attempt, github.sha) }}
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     defaults:
@@ -60,6 +60,7 @@ jobs:
       - name: 锁定当前提交和成功的构建 Run
         run: |
           set -Eeuo pipefail
+          echo "DATABASE_URL=mysql://root:${SMOKE_DB_PASSWORD}@127.0.0.1:3306/machinery_crm_phase4_test" >> "$GITHUB_ENV"
           upload_dir="$RUNNER_TEMP/phase4-persistent-uploads"
           mkdir -p "$upload_dir"
           echo "UPLOAD_DIR=$upload_dir" >> "$GITHUB_ENV"
@@ -183,7 +184,7 @@ jobs:
       - name: 验证带历史采购库存工单数据的增量升级
         run: |
           set -Eeuo pipefail
-          upgrade_url="mysql://root:phase4_test_only@127.0.0.1:3306/machinery_crm_phase4_upgrade"
+          upgrade_url="mysql://root:${SMOKE_DB_PASSWORD}@127.0.0.1:3306/machinery_crm_phase4_upgrade"
           create_script="$SMOKE_DIR/create-upgrade-db.mjs"
           cat > "$create_script" <<'NODE'
           import path from "node:path";

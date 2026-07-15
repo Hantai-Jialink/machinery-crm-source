@@ -15,7 +15,7 @@ jobs:
 
     env:
       # 构建期占位用（运行时仍以服务器上的真实 .env 为准；这里只是让 build 顺利通过）
-      DATABASE_URL: "mysql://user:pass@localhost:3306/db"
+      DATABASE_URL: ${{ format('mysql://build_user:{0}@127.0.0.1:3306/build_only', github.run_id) }}
 
     steps:
       - name: 拉取源码
@@ -48,7 +48,8 @@ jobs:
           set -Eeuo pipefail
 
           APP_NAME="machinery-crm"
-          VERSION="${VERSION:-v108-step1}"
+          VERSION="$(tr -d '\r\n' < VERSION)"
+          [[ "$VERSION" =~ ^[A-Za-z0-9._-]+$ ]]
           STAMP="$(date +%Y-%m-%d-%H%M)"
           OUT_DIR="$PWD/dist"
           PKG_DIR="$OUT_DIR/${APP_NAME}-${VERSION}-prebuilt-standalone-linux-x64"
@@ -198,7 +199,28 @@ jobs:
           # 7. 放入启动脚本和部署说明
           cp -a start-standalone.cjs "$PKG_DIR/start-standalone.cjs"
           cp -a package.json "$PKG_DIR/package.json"
+          PKG_JSON="$PKG_DIR/package.json" node <<'NODE'
+          const fs = require("node:fs");
+          const file = process.env.PKG_JSON;
+          const pkg = JSON.parse(fs.readFileSync(file, "utf8"));
+          pkg.scripts = { start: "node start-standalone.cjs" };
+          delete pkg.devDependencies;
+          delete pkg.prisma;
+          fs.writeFileSync(file, `${JSON.stringify(pkg, null, 2)}\n`);
+          NODE
           cp -a pnpm-lock.yaml "$PKG_DIR/pnpm-lock.yaml"
+          cp -a VERSION "$PKG_DIR/VERSION"
+          cp -a CHANGELOG.md "$PKG_DIR/CHANGELOG.md"
+          cp -a DEPLOY.md "$PKG_DIR/DEPLOY.md"
+          cp -a ROLLBACK.md "$PKG_DIR/ROLLBACK.md"
+          {
+            printf 'VERSION=%s\n' "$VERSION"
+            printf 'GIT_SHA=%s\n' "$GITHUB_SHA"
+            printf 'GIT_REF=%s\n' "$GITHUB_REF"
+            printf 'WORKFLOW=%s\n' "$GITHUB_WORKFLOW"
+            printf 'RUN_ID=%s\n' "$GITHUB_RUN_ID"
+            printf 'RUN_ATTEMPT=%s\n' "$GITHUB_RUN_ATTEMPT"
+          } > "$PKG_DIR/BUILD_INFO"
           if [[ -f STANDALONE_DEPLOY.md ]]; then
             cp -a STANDALONE_DEPLOY.md "$PKG_DIR/STANDALONE_DEPLOY.md"
           fi
@@ -211,6 +233,10 @@ jobs:
           test -f "$PKG_DIR/.next/standalone/server.js" || test -f "$PKG_DIR/server.js"
           test -d "$PKG_DIR/.next/static"
           test -f "$PKG_DIR/prisma/schema.prisma"
+          test "$(tr -d '\r\n' < "$PKG_DIR/VERSION")" = "$VERSION"
+          test -f "$PKG_DIR/BUILD_INFO"
+          test -f "$PKG_DIR/DEPLOY.md"
+          test -f "$PKG_DIR/ROLLBACK.md"
           test ! -d "$PKG_DIR/prisma/migrations/migrations"
 
           SOURCE_MIGRATION_COUNT="$(
@@ -289,6 +315,10 @@ jobs:
           VERIFY_APP="$VERIFY_DIR/$(basename "$PKG_DIR")"
           test -f "$VERIFY_APP/server.js"
           test -f "$VERIFY_APP/start-standalone.cjs"
+          test -f "$VERIFY_APP/VERSION"
+          test -f "$VERIFY_APP/BUILD_INFO"
+          test -f "$VERIFY_APP/DEPLOY.md"
+          test -f "$VERIFY_APP/ROLLBACK.md"
           test -d "$VERIFY_APP/.next/static"
           test ! -d "$VERIFY_APP/prisma/migrations/migrations"
           test ! -e "$VERIFY_APP/.env"
@@ -318,7 +348,18 @@ jobs:
           test -f "$VERIFY_APP/.next/server/app/api/erp/boms/[id]/route.js"
           test -f "$VERIFY_APP/.next/server/app/api/erp/boms/[id]/requirements/route.js"
           test -f "$VERIFY_APP/.next/server/app/api/erp/products/route.js"
-          grep -q 'version: "v1.4.3"' "$VERIFY_APP/src/lib/changelog.ts"
+          test -f "$VERIFY_APP/.next/server/app/(app)/erp/monthly-production-plans/page.js"
+          test -f "$VERIFY_APP/.next/server/app/(app)/erp/supplier-deliveries/page.js"
+          test -f "$VERIFY_APP/.next/server/app/(app)/erp/stock-transfers/page.js"
+          test -f "$VERIFY_APP/.next/server/app/api/erp/delivery-reminders/run/route.js"
+          test -f "$VERIFY_APP/.next/server/app/api/erp/kit-rechecks/process/route.js"
+          test -f "$VERIFY_APP/prisma/migrations/20260715100000_erp_phase4_procurement_delivery/migration.sql"
+          grep -q 'version: "v1.5.2-phase4-rc1"' "$VERIFY_APP/src/lib/changelog.ts"
+          node -e 'const p=require(process.argv[1]); if(p.version!=="1.5.2-rc.1") process.exit(1)' "$VERIFY_APP/package.json"
+          if grep -RIlE 'machinery_crm_sandbox|phase4-mysql57|127\.0\.0\.1:3307|127\.0\.0\.1:3108|phase4-admin@example\.invalid' "$VERIFY_APP"; then
+            echo 'Sandbox-only marker found in candidate package' >&2
+            exit 1
+          fi
           PKG_DIR="$VERIFY_APP" node <<'NODE'
           const path = require("node:path");
           const { createRequire } = require("node:module");

@@ -26,6 +26,16 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "v1.5.2-phase4-rc1",
+    date: "2026-07-15",
+    notes: [
+      "ERP 第四期正式候选：补齐多来源采购需求、月度生产计划与部分转工单分摊。",
+      "新增库存调拨、入出库审计快照与受控附件，确认采购入库后按来源核销到货数量。",
+      "新增供应商承诺日期历史、分批交付、风险提醒与交付绩效，并强化采购负责人权限。",
+      "库存变化通过幂等队列触发齐套复检，交期提醒与齐套任务均增加 Cron 鉴权和重复执行保护。",
+    ],
+  },
+  {
     version: "v1.5.1-phase4",
     date: "2026-07-13",
     notes: [

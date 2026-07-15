@@ -4,7 +4,28 @@ import "dotenv/config";
 
 const prisma = new PrismaClient();
 
+function requireSeedValue(name: string) {
+  const value = process.env[name]?.trim();
+  if (!value) throw new Error(`Missing required seed environment variable: ${name}`);
+  return value;
+}
+
 async function main() {
+  if (process.env.ALLOW_DESTRUCTIVE_SEED !== "local-development-only") {
+    throw new Error("Refusing destructive seed without ALLOW_DESTRUCTIVE_SEED=local-development-only");
+  }
+
+  const adminEmail = requireSeedValue("SEED_ADMIN_EMAIL");
+  const salesNorthEmail = requireSeedValue("SEED_SALES_NORTH_EMAIL");
+  const salesSouthEmail = requireSeedValue("SEED_SALES_SOUTH_EMAIL");
+  const salesEastEmail = requireSeedValue("SEED_SALES_EAST_EMAIL");
+  const foreignTradeEmail = requireSeedValue("SEED_FOREIGN_TRADE_EMAIL");
+  const adminPassword = requireSeedValue("SEED_ADMIN_PASSWORD");
+  const salesPasswordPlain = requireSeedValue("SEED_SALES_PASSWORD");
+  if (adminPassword.length < 12 || salesPasswordPlain.length < 12) {
+    throw new Error("Seed passwords must contain at least 12 characters");
+  }
+
   console.log("🌱 开始初始化种子数据...");
 
   // 清空现有数据
@@ -19,23 +40,23 @@ async function main() {
   await prisma.user.deleteMany();
 
   // ==================== 创建用户 ====================
-  const hashedPassword = await bcryptjs.hash("Admin123456", 12);
-  const salesPassword = await bcryptjs.hash("Sales123456", 12);
+  const hashedPassword = await bcryptjs.hash(adminPassword, 12);
+  const salesPassword = await bcryptjs.hash(salesPasswordPlain, 12);
 
   const admin = await prisma.user.create({
-    data: { email: "admin@example.com", password: hashedPassword, name: "系统管理员", role: "SUPER_ADMIN", region: "其他" },
+    data: { email: adminEmail, password: hashedPassword, name: "系统管理员", role: "SUPER_ADMIN", region: "其他" },
   });
   const salesNorth = await prisma.user.create({
-    data: { email: "north@example.com", password: salesPassword, name: "张华北", role: "SALES", region: "华北" },
+    data: { email: salesNorthEmail, password: salesPassword, name: "张华北", role: "SALES", region: "华北" },
   });
   const salesSouth = await prisma.user.create({
-    data: { email: "south@example.com", password: salesPassword, name: "李华南", role: "SALES", region: "华南" },
+    data: { email: salesSouthEmail, password: salesPassword, name: "李华南", role: "SALES", region: "华南" },
   });
   const salesEast = await prisma.user.create({
-    data: { email: "east@example.com", password: salesPassword, name: "王华东", role: "SALES", region: "华东" },
+    data: { email: salesEastEmail, password: salesPassword, name: "王华东", role: "SALES", region: "华东" },
   });
   const foreignTrade = await prisma.user.create({
-    data: { email: "trade@example.com", password: salesPassword, name: "赵外贸", role: "FOREIGN_TRADE", region: "外贸" },
+    data: { email: foreignTradeEmail, password: salesPassword, name: "赵外贸", role: "FOREIGN_TRADE", region: "外贸" },
   });
   console.log("✅ 用户创建完成");
 
@@ -180,12 +201,7 @@ async function main() {
   console.log("🎉 种子数据初始化完成！（含第二阶段数据）");
   console.log("========================================");
   console.log("");
-  console.log("📋 登录账号：");
-  console.log("  超级管理员: admin@example.com / Admin123456");
-  console.log("  华北销售:   north@example.com / Sales123456");
-  console.log("  华南销售:   south@example.com / Sales123456");
-  console.log("  华东销售:   east@example.com  / Sales123456");
-  console.log("  外贸业务:   trade@example.com / Sales123456");
+  console.log("📋 种子账号已按环境变量创建，凭据不会输出。");
   console.log("");
   console.log("📊 合同数据：");
   console.log("  HT-2026-001: 已全款 ¥120,000（北京精密）");
