@@ -3,6 +3,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { getSessionUser, canAccessERP, canManageInventory, isSuperAdmin } from "@/lib/permissions";
 import { writeOperationLog } from "@/lib/sales-items";
+import { enqueueKitRechecks } from "@/lib/kit-recheck";
 
 function generateBatchNo(type: string): string {
   const now = new Date();
@@ -148,6 +149,17 @@ export async function POST(request: NextRequest) {
           }
         }
 
+        const warehouseSnapshot = await tx.warehouse.findUnique({ where: { id: body.warehouseId }, select: { name: true, code: true } });
+        if (!warehouseSnapshot) throw new Error("仓库不存在");
+        const snapshotItems = await Promise.all(body.items.map(async (item: any) => {
+          const [material, inventory] = await Promise.all([
+            tx.material.findFirst({ where: { id: item.materialId, deletedAt: null }, select: { code: true, name: true, spec: true, unit: true } }),
+            tx.inventory.findUnique({ where: { warehouseId_materialId: { warehouseId: body.warehouseId, materialId: item.materialId } }, select: { quantity: true } }),
+          ]);
+          if (!material || !inventory) throw new Error("出库物料或库存不存在");
+          const beforeQty = new Prisma.Decimal(inventory.quantity);
+          return { ...item, material, beforeQty, afterQty: beforeQty.sub(item.quantity) };
+        }));
         // 创建出库单头
         const header = await tx.stockOut.create({
           data: {
@@ -157,10 +169,20 @@ export async function POST(request: NextRequest) {
             type: body.type || "PRODUCTION",
             remark: productionOrderId && confirmOverIssue ? `${String(body.remark || "").trim()}${body.remark ? "；" : ""}超领原因：${overIssueReason}` : body.remark || null,
             createdById: user.id,
+            confirmedById: user.id,
+            confirmedAt: new Date(),
+            sourceDocumentSnapshot: { productionOrderId: productionOrderId || null, reason: body.remark || null },
             items: {
-              create: body.items.map((item: any, index: number) => ({
+              create: snapshotItems.map((item: any, index: number) => ({
                 materialId: item.materialId,
                 quantity: parseFloat(item.quantity),
+                materialCodeSnapshot: item.material.code,
+                materialNameSnapshot: item.material.name,
+                materialSpecSnapshot: item.material.spec,
+                unitSnapshot: item.material.unit,
+                warehouseSnapshot: `${warehouseSnapshot.code} ${warehouseSnapshot.name}`,
+                beforeQty: item.beforeQty,
+                afterQty: item.afterQty,
                 sortOrder: index,
               })),
             },
@@ -238,6 +260,7 @@ export async function POST(request: NextRequest) {
             afterData: { stockOutId: header.id, items: header.items, confirmOverIssue, overIssueReason: confirmOverIssue ? overIssueReason : null },
           });
         }
+        await enqueueKitRechecks(tx, { warehouseId: body.warehouseId, materialIds: snapshotItems.map((item: any) => item.materialId), reason: `出库单 ${header.batchNo} 变更库存`, requestedById: user.id });
 
         return header;
       },

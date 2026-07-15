@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { getSessionUser, canAccessERP, canManageInventory } from "@/lib/permissions";
+import { enqueueKitRechecks } from "@/lib/kit-recheck";
 
 export async function GET(
   request: NextRequest,
@@ -159,6 +160,13 @@ export async function PUT(
           }
         }
 
+        const changedMaterialIds = (body.items || []).flatMap((item: any) => {
+          const original = existing.items.find((row) => row.id === item.id);
+          return original && item.actualQty !== undefined && Number(item.actualQty) !== Number(original.bookQty) ? [original.materialId] : [];
+        });
+        if (changedMaterialIds.length) {
+          await enqueueKitRechecks(tx, { warehouseId: existing.warehouseId, materialIds: changedMaterialIds, reason: `盘点单 ${existing.batchNo} 调整库存`, requestedById: user.id });
+        }
         // 更新盘点单状态为 DONE
         const updated = await tx.stockCheck.update({
           where: { id },

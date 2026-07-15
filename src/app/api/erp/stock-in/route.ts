@@ -3,6 +3,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { getSessionUser, canAccessERP, canManageInventory } from "@/lib/permissions";
 import { writeOperationLog } from "@/lib/sales-items";
+import { enqueueKitRechecks } from "@/lib/kit-recheck";
 import {
   lockAndValidatePurchaseReceipt,
   PurchaseReceiptError,
@@ -203,6 +204,17 @@ export async function POST(request: NextRequest) {
           lockedPurchaseOrder = locked.order;
         }
 
+        const warehouseSnapshot = await tx.warehouse.findUnique({ where: { id: body.warehouseId }, select: { name: true, code: true } });
+        if (!warehouseSnapshot) throw new Error("仓库不存在");
+        const snapshotItems = await Promise.all(stockInItems.map(async (item: any) => {
+          const [material, inventory] = await Promise.all([
+            tx.material.findFirst({ where: { id: item.materialId, deletedAt: null }, select: { code: true, name: true, spec: true, unit: true } }),
+            tx.inventory.findUnique({ where: { warehouseId_materialId: { warehouseId: body.warehouseId, materialId: item.materialId } }, select: { quantity: true } }),
+          ]);
+          if (!material) throw new Error("入库物料不存在或已删除");
+          const beforeQty = new Prisma.Decimal(inventory?.quantity || 0);
+          return { ...item, material, beforeQty, afterQty: beforeQty.add(item.quantity) };
+        }));
         const header = await tx.stockIn.create({
           data: {
             batchNo,
@@ -212,13 +224,23 @@ export async function POST(request: NextRequest) {
             type: purchaseOrderId ? "PURCHASE" : productionOrderId ? "RETURN" : body.type || "PURCHASE",
             remark: body.remark || null,
             createdById: user.id,
+            confirmedById: user.id,
+            confirmedAt: new Date(),
+            sourceDocumentSnapshot: { purchaseOrderId: purchaseOrderId || null, productionOrderId: productionOrderId || null, reason: body.remark || null },
             items: {
-              create: stockInItems.map((item: any, index: number) => ({
+              create: snapshotItems.map((item: any, index: number) => ({
                 materialId: item.materialId,
                 purchaseOrderItemId: item.purchaseOrderItemId || null,
                 quantity: item.quantity,
                 unitPrice: item.unitPrice,
                 amount: item.amount,
+                materialCodeSnapshot: item.material.code,
+                materialNameSnapshot: item.material.name,
+                materialSpecSnapshot: item.material.spec,
+                unitSnapshot: item.material.unit,
+                warehouseSnapshot: `${warehouseSnapshot.code} ${warehouseSnapshot.name}`,
+                beforeQty: item.beforeQty,
+                afterQty: item.afterQty,
                 sortOrder: index,
               })),
             },
@@ -234,7 +256,7 @@ export async function POST(request: NextRequest) {
           },
         });
 
-        for (const item of stockInItems) {
+        for (const item of snapshotItems) {
           const qty = Number(item.quantity);
           const unitPrice = Number(item.unitPrice);
           const amount = Number(item.amount);
@@ -292,10 +314,22 @@ export async function POST(request: NextRequest) {
 
         if (purchaseOrderId && purchaseItems && lockedPurchaseOrder) {
           for (const item of purchaseItems) {
+            const currentItem = await tx.purchaseOrderItem.findUnique({ where: { id: item.purchaseOrderItemId } });
+            if (!currentItem) throw new PurchaseReceiptError("采购明细不存在", 404);
+            const receivedAfter = new Prisma.Decimal(currentItem.receivedQuantity).add(item.quantity);
             await tx.purchaseOrderItem.update({
               where: { id: item.purchaseOrderItemId },
-              data: { receivedQuantity: { increment: item.quantity } },
+              data: { receivedQuantity: { increment: item.quantity }, deliveryStatus: receivedAfter.gte(currentItem.quantity) ? "FULLY_RECEIVED" : "PARTIAL_RECEIVED", actualArrivalDate: receivedAfter.gte(currentItem.quantity) ? new Date() : currentItem.actualArrivalDate },
             });
+            let remainingReceipt = new Prisma.Decimal(item.quantity);
+            const allocations = await tx.purchaseOrderItemSource.findMany({ where: { purchaseOrderItemId: item.purchaseOrderItemId }, orderBy: { createdAt: "asc" } });
+            for (const allocation of allocations) {
+              if (remainingReceipt.lte(0)) break;
+              const open = Prisma.Decimal.max(new Prisma.Decimal(allocation.allocatedQuantity).sub(allocation.fulfilledQuantity), 0);
+              const applied = Prisma.Decimal.min(open, remainingReceipt);
+              if (applied.gt(0)) await tx.purchaseOrderItemSource.update({ where: { id: allocation.id }, data: { fulfilledQuantity: { increment: applied } } });
+              remainingReceipt = remainingReceipt.sub(applied);
+            }
           }
           await reconcilePurchaseOrderReceiptStatus(tx, {
             purchaseOrderId,
@@ -313,6 +347,7 @@ export async function POST(request: NextRequest) {
             afterData: { stockInId: header.id, items: header.items },
           });
         }
+        await enqueueKitRechecks(tx, { warehouseId: body.warehouseId, materialIds: snapshotItems.map((item) => item.materialId), reason: `入库单 ${header.batchNo} 变更库存`, requestedById: user.id });
 
         return header;
       },

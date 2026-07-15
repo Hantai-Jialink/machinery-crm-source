@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
 import { Plus, Search, Trash2, Eye, ArrowUpFromLine } from "lucide-react";
 import { MaterialCombobox } from "@/components/erp/material-combobox";
+import { ErpAttachments } from "@/components/erp/erp-attachments";
 
 export default function StockOutPage() {
   const { data: session } = useSession();
@@ -275,12 +276,13 @@ export default function StockOutPage() {
               <tbody>
                 {detail.items?.map((item: any) => (
                   <tr key={item.id} className="border-t">
-                    <td className="px-3 py-2">{item.material?.name} <span className="text-gray-400 text-xs">({item.material?.code})</span></td>
-                    <td className="px-3 py-2 text-right">{Number(item.quantity).toLocaleString()} {item.material?.unit}</td>
+                    <td className="px-3 py-2">{item.materialNameSnapshot || item.material?.name} <span className="text-gray-400 text-xs">({item.materialCodeSnapshot || item.material?.code})</span><div className="text-xs text-gray-400">{item.materialSpecSnapshot || item.material?.spec || "—"}</div></td>
+                    <td className="px-3 py-2 text-right">{Number(item.quantity).toLocaleString()} {item.unitSnapshot || item.material?.unit}<div className="text-xs text-gray-400">库存 {Number(item.beforeQty ?? 0)} → {Number(item.afterQty ?? 0)}</div></td>
                   </tr>
                 ))}
               </tbody>
             </table>
+            <ErpAttachments entityType="STOCK_OUT" entityId={detail.id} />
             <div className="text-right mt-2">
               <button onClick={() => setDetailId(null)} className="px-4 py-2 text-sm border border-gray-300 rounded-lg">关闭</button>
             </div>
