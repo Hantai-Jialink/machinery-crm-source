@@ -32,6 +32,7 @@ type NavChild = {
   adminOnly?: boolean;
   erpOnly?: boolean;
   roles?: string[];
+  children?: NavChild[];
 };
 
 type NavItem = NavChild & {
@@ -71,7 +72,10 @@ const navItems: NavItem[] = [
       { href: "/erp/supplier-deliveries", label: "供应商交期跟踪", roles: ["SUPER_ADMIN", "PURCHASE", "WAREHOUSE"] },
       { href: "/erp/bom", label: "整机用料清单", roles: ["SUPER_ADMIN"] },
       { href: "/erp/production-orders", label: "生产工单", roles: ["SUPER_ADMIN", "PURCHASE", "WAREHOUSE"] },
-      { href: "/erp/monthly-production-plans", label: "月度生产计划", roles: ["SUPER_ADMIN", "PURCHASE", "WAREHOUSE"] },
+      { href: "/erp/monthly-production-plans", label: "月度生产计划", roles: ["SUPER_ADMIN", "PURCHASE", "WAREHOUSE"], children: [
+        { href: "/erp/monthly-production-plans", label: "月度生产计划", roles: ["SUPER_ADMIN", "PURCHASE", "WAREHOUSE"] },
+        { href: "/erp/monthly-production-plans/spare-parts-forecast", label: "月度生产计划备件预测", roles: ["SUPER_ADMIN", "PURCHASE"] },
+      ] },
       { href: "/erp/kit-check-results", label: "齐套检查结果", roles: ["SUPER_ADMIN", "PURCHASE", "WAREHOUSE"] },
       { href: "/erp/production-order-change-requests", label: "工单变更审批", adminOnly: true },
       { href: "/erp/warehouse", label: "仓库管理", roles: ["SUPER_ADMIN", "WAREHOUSE"] },
@@ -138,7 +142,17 @@ export function Sidebar() {
                 {groupOpen && (
                   <div className="ml-7 mt-1 space-y-1">
                     {visibleChildren.map((child) => {
-                      const childActive = pathname === child.href;
+                      const childActive = pathname === child.href || Boolean(child.children?.some((nested) => pathname === nested.href));
+                      if (child.children) {
+                        const nestedOpen = openGroups[child.href] ?? childActive;
+                        const visibleNested = child.children.filter((nested) => (!nested.adminOnly || userRole === "SUPER_ADMIN") && (!nested.roles || nested.roles.includes(userRole)));
+                        return <div key={child.href}>
+                          <button type="button" onClick={() => setOpenGroups((open) => ({ ...open, [child.href]: !nestedOpen }))} className={cn("flex w-full items-center rounded-lg px-3 py-2 text-xs font-medium transition-colors", childActive ? "bg-gray-100 text-gray-900" : "text-gray-500 hover:bg-gray-100 hover:text-gray-900")}>
+                            <span className="flex-1 text-left">{child.label}</span><ChevronDown className={cn("h-3.5 w-3.5 transition-transform", nestedOpen && "rotate-180")} />
+                          </button>
+                          {nestedOpen && <div className="ml-3 mt-1 space-y-1 border-l border-gray-200 pl-2">{visibleNested.map((nested) => <Link key={nested.href} href={nested.href} onClick={() => setMobileOpen(false)} className={cn("block rounded-lg px-3 py-2 text-xs transition-colors", pathname === nested.href ? "bg-gray-100 font-medium text-gray-900" : "text-gray-500 hover:bg-gray-100 hover:text-gray-900")}>{nested.label}</Link>)}</div>}
+                        </div>;
+                      }
                       return (
                         <Link
                           key={child.href}

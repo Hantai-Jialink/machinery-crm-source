@@ -26,12 +26,12 @@ export async function POST(request: NextRequest) {
       const refs = await Promise.all(body.items.map(async (row: any) => {
         const quantity = new Prisma.Decimal(String(row.plannedQuantity || 0));
         const [product, bom] = await Promise.all([
-          tx.product.findFirst({ where: { id: String(row.productId || ""), isActive: true }, select: { id: true, model: true } }),
+          tx.product.findFirst({ where: { id: String(row.productId || ""), isActive: true, productType: "MAIN" }, select: { id: true, model: true } }),
           tx.bomHeader.findFirst({ where: { id: String(row.bomId || ""), productId: String(row.productId || ""), isActive: true }, select: { id: true, version: true } }),
         ]);
         const start = new Date(String(row.plannedStartDate || ""));
         const completion = new Date(String(row.plannedCompletionDate || ""));
-        if (!product || !bom || !quantity.gt(0) || Number.isNaN(start.getTime()) || Number.isNaN(completion.getTime()) || start > completion) throw new Error("月度计划明细中的机型、数量、日期或 BOM 无效");
+        if (!product || !bom || !quantity.gt(0) || Number.isNaN(start.getTime()) || Number.isNaN(completion.getTime()) || start > completion) throw new Error("月度计划明细只能选择启用的主产品，并填写有效数量、日期和用料版本");
         return { productId: product.id, productModelSnapshot: product.model, plannedQuantity: quantity, plannedStartDate: start, plannedCompletionDate: completion, bomId: bom.id, bomVersionSnapshot: bom.version, remark: String(row.remark || "") || null };
       }));
       const created = await tx.monthlyProductionPlan.create({ data: { planNo: monthlyPlanNo(month, version), planMonth: month, name: String(body.name), description: String(body.description || "") || null, version, supersedesId: body.supersedesId || null, createdById: user.id, items: { create: refs } }, include: { items: true } });

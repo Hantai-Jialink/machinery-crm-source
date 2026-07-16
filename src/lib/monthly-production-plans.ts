@@ -1,7 +1,6 @@
 import { randomUUID } from "crypto";
 import { Prisma } from "@prisma/client";
 import { flattenBomLeafRequirements } from "@/lib/bom-items";
-import { upsertPurchaseDemandForSource } from "@/lib/procurement-planning";
 import { writeOperationLog } from "@/lib/sales-items";
 
 export function monthlyDemandAllocation(suggestedQuantity: Prisma.Decimal.Value, convertedQuantity: Prisma.Decimal.Value, plannedQuantity: Prisma.Decimal.Value) {
@@ -25,16 +24,6 @@ export async function approveMonthlyProductionPlan(tx: Prisma.TransactionClient,
     const leaves = flattenBomLeafRequirements(bom.items, planItem.plannedQuantity);
     const byMaterial = new Map(leaves.map((leaf) => [leaf.materialId, leaf]));
     for (const leaf of byMaterial.values()) {
-      const calculation = await upsertPurchaseDemandForSource(tx, {
-        sourceType: "MONTHLY_PRODUCTION_PLAN",
-        sourceRecordId: planItem.id,
-        sourceLineId: plan.id,
-        sourceLabel: `${plan.planMonth.toISOString().slice(0, 7)} ${planItem.productModelSnapshot}`,
-        materialId: leaf.materialId,
-        newDemand: leaf.requiredQuantity,
-        needByDate: planItem.plannedStartDate,
-        createdById: input.approvedById,
-      });
       await tx.monthlyMaterialRequirement.upsert({
         where: { planItemId_materialId: { planItemId: planItem.id, materialId: leaf.materialId } },
         create: {
@@ -42,12 +31,12 @@ export async function approveMonthlyProductionPlan(tx: Prisma.TransactionClient,
           materialId: leaf.materialId,
           requiredQuantity: leaf.requiredQuantity,
           plannedDemandQty: leaf.requiredQuantity,
-          calculationSnapshot: (calculation?.calculationSnapshot || { suggestedQuantity: 0 }) as Prisma.InputJsonValue,
+          calculationSnapshot: { procurementDemandCreated: false, purpose: "PRODUCTION_PLAN_SNAPSHOT" },
         },
         update: {
           requiredQuantity: leaf.requiredQuantity,
           plannedDemandQty: leaf.requiredQuantity,
-          calculationSnapshot: (calculation?.calculationSnapshot || { suggestedQuantity: 0 }) as Prisma.InputJsonValue,
+          calculationSnapshot: { procurementDemandCreated: false, purpose: "PRODUCTION_PLAN_SNAPSHOT" },
         },
       });
     }

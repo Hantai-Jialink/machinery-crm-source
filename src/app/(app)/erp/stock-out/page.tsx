@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
 import { Plus, Search, Trash2, Eye, ArrowUpFromLine } from "lucide-react";
 import { MaterialCombobox } from "@/components/erp/material-combobox";
-import { ErpAttachments } from "@/components/erp/erp-attachments";
+import { ErpAttachments, PendingErpAttachments, uploadErpAttachments } from "@/components/erp/erp-attachments";
 
 export default function StockOutPage() {
   const { data: session } = useSession();
@@ -28,6 +28,7 @@ export default function StockOutPage() {
   const [stockOutType, setStockOutType] = useState("PRODUCTION");
   const [remark, setRemark] = useState("");
   const [items, setItems] = useState<any[]>([{ materialId: "", quantity: "" }]);
+  const [pendingAttachments, setPendingAttachments] = useState<File[]>([]);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -101,14 +102,18 @@ export default function StockOutPage() {
       body: JSON.stringify({ warehouseId, type: stockOutType, remark, items: validItems }),
     });
     const data = await res.json();
-    setSaving(false);
     if (!res.ok) {
+      setSaving(false);
       alert(data.error || "出库失败");
       return;
     }
+    const failedAttachments = await uploadErpAttachments("STOCK_OUT", data.id, pendingAttachments);
+    setSaving(false);
+    if (failedAttachments.length) alert(`出库单已创建，但以下附件上传失败，可在出库详情中重试：${failedAttachments.join("、")}`);
     setWarehouseId("");
     setRemark("");
     setItems([{ materialId: "", quantity: "" }]);
+    setPendingAttachments([]);
     setTab("history");
   };
 
@@ -163,15 +168,15 @@ export default function StockOutPage() {
             </div>
             <div className="space-y-2">
               {items.map((item, idx) => (
-                <div key={idx} className="flex gap-2 items-center">
+                <div key={idx} className="flex flex-col gap-2 sm:flex-row sm:items-center">
                   <MaterialCombobox
                     materials={materials}
                     value={item.materialId}
                     onChange={(materialId) => updateItem(idx, "materialId", materialId)}
                   />
                   <input type="number" placeholder="数量" value={item.quantity} onChange={(e) => updateItem(idx, "quantity", e.target.value)}
-                    className="w-24 px-3 py-2 border border-gray-300 rounded-lg text-sm" />
-                  <span className="text-xs text-gray-500 w-16">
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm sm:w-24" />
+                  <span className="w-full text-xs text-gray-500 sm:w-16">
                     {item.materialId && parseFloat(item.quantity || "0") > getAvailableQty(item.materialId) ? (
                       <span className="text-red-500">超库存!</span>
                     ) : item.materialId ? (
@@ -186,8 +191,10 @@ export default function StockOutPage() {
             </div>
           </div>
 
+          <PendingErpAttachments files={pendingAttachments} onChange={setPendingAttachments} />
+
           <div className="flex justify-end gap-2">
-            <button onClick={() => setTab("history")} className="px-4 py-2 text-sm text-gray-600 border border-gray-300 rounded-lg">取消</button>
+            <button onClick={() => { setPendingAttachments([]); setTab("history"); }} className="px-4 py-2 text-sm text-gray-600 border border-gray-300 rounded-lg">取消</button>
             <button onClick={handleSubmit} disabled={saving || !warehouseId || items.filter(i => i.materialId && i.quantity).length === 0}
               className="px-4 py-2 text-sm bg-gray-900 text-white rounded-lg hover:bg-gray-800 disabled:opacity-50">
               {saving ? "保存中..." : "确认出库"}

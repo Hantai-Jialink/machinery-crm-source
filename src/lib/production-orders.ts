@@ -215,10 +215,10 @@ async function loadDraftReferences(
   options?: ProductionOrderBuildOptions
 ) {
   const product = await tx.product.findFirst({
-    where: { id: input.productId, isActive: true },
+    where: { id: input.productId, isActive: true, productType: "MAIN" },
     include: { translations: { where: { language: "ZH" }, take: 1 } },
   });
-  if (!product) throw new ProductionOrderRequestError("机型不存在或已停用", 404);
+  if (!product) throw new ProductionOrderRequestError("生产工单只能选择启用的主产品", 404);
   const bom = await tx.bomHeader.findFirst({
     where: { id: input.bomId, productId: input.productId, isActive: true },
     select: { id: true, version: true },
@@ -319,6 +319,19 @@ export function calculateKitMaterialQuantities(plannedQuantity: Prisma.Decimal.V
   const remainingQty = Prisma.Decimal.max(new Prisma.Decimal(plannedQuantity).sub(netIssuedQty), new Prisma.Decimal(0));
   const shortageQty = Prisma.Decimal.max(remainingQty.sub(inventoryQuantity), new Prisma.Decimal(0));
   return { netIssuedQty, remainingQty, shortageQty };
+}
+
+export function shortageDemandItems(detail: unknown) {
+  if (!Array.isArray(detail)) return [];
+  return detail.flatMap((raw) => {
+    const item = (raw || {}) as Record<string, unknown>;
+    const materialId = String(item.materialId || "").trim();
+    const shortageQty = Number(item.shortageQty || 0);
+    const newDemand = Number(item.remainingRequiredQty ?? item.requiredQty ?? 0);
+    return materialId && Number.isFinite(shortageQty) && shortageQty > 0 && Number.isFinite(newDemand) && newDemand > 0
+      ? [{ materialId, newDemand }]
+      : [];
+  });
 }
 
 export function calculateRemainingContractQuantity(
@@ -430,21 +443,41 @@ export async function createKitCheckResult(tx: Prisma.TransactionClient, input: 
     where: { id: order.id },
     data: { kitCheckStatus: result.status, kitCheckRequired: false, latestKitCheckId: result.id, lastKitCheckedAt: result.createdAt },
   });
-  for (const item of detail) {
-    await upsertPurchaseDemandForSource(tx, {
-      sourceType: "PRODUCTION_ORDER",
-      sourceRecordId: order.id,
-      sourceLineId: result.id,
-      sourceLabel: `生产工单 ${order.orderNo}`,
-      materialId: item.materialId,
-      newDemand: item.remainingRequiredQty,
-      needByDate: order.plannedDate || new Date(),
-      createdById: input.checkedById,
-      excludeProductionOrderId: order.id,
-    });
-  }
   await writeOperationLog(tx, { userId: input.checkedById, action: "CHECK_PRODUCTION_ORDER_KIT", entityType: "ProductionOrder", entityId: order.id, afterData: { result } });
   return result;
+}
+
+export async function createPurchaseDemandsForKitCheck(tx: Prisma.TransactionClient, input: { productionOrderId: string; kitCheckId: string; createdById: string }) {
+  const order = await tx.productionOrder.findFirst({
+    where: { id: input.productionOrderId, deletedAt: null, isCurrent: true, status: "ISSUED" },
+    select: { id: true, orderNo: true, plannedDate: true, latestKitCheckId: true },
+  });
+  if (!order) throw new ProductionOrderRequestError("生产工单不存在或当前状态不能生成采购需求", 409);
+  if (order.latestKitCheckId !== input.kitCheckId) throw new ProductionOrderRequestError("齐套检查结果已更新，请刷新后按最新结果生成采购需求", 409);
+  const check = await tx.kitCheckResult.findFirst({ where: { id: input.kitCheckId, productionOrderId: order.id, status: "SHORTAGE" }, select: { id: true, detail: true } });
+  if (!check) throw new ProductionOrderRequestError("未找到有效的缺料检查结果", 404);
+  const candidates = shortageDemandItems(check.detail);
+  if (candidates.length === 0) throw new ProductionOrderRequestError("当前齐套检查没有需要采购的缺料", 409);
+
+  const created = [];
+  const skipped = [];
+  for (const item of candidates) {
+    const demand = await upsertPurchaseDemandForSource(tx, {
+      sourceType: "PRODUCTION_ORDER",
+      sourceRecordId: order.id,
+      sourceLineId: check.id,
+      sourceLabel: `生产工单 ${order.orderNo}`,
+      materialId: item.materialId,
+      newDemand: item.newDemand,
+      needByDate: order.plannedDate || new Date(),
+      createdById: input.createdById,
+      excludeProductionOrderId: order.id,
+    });
+    if (demand) created.push(demand);
+    else skipped.push({ materialId: item.materialId, reason: "库存、在途或已有采购需求已覆盖" });
+  }
+  await writeOperationLog(tx, { userId: input.createdById, action: "CREATE_PRODUCTION_ORDER_PURCHASE_DEMANDS", entityType: "ProductionOrder", entityId: order.id, afterData: { kitCheckId: check.id, demandIds: created.map((item) => item.id), skipped } });
+  return { created, skipped };
 }
 
 export async function getProductionOrderDetail(id: string) {

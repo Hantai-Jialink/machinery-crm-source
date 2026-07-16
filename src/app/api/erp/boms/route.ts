@@ -124,11 +124,11 @@ export async function POST(request: NextRequest) {
   }
 
   const product = await prisma.product.findFirst({
-    where: { id: body.productId, isActive: true },
+    where: { id: body.productId, isActive: true, productType: "MAIN" },
     select: { id: true },
   });
   if (!product) {
-    return NextResponse.json({ error: "产品不存在或已停用" }, { status: 404 });
+    return NextResponse.json({ error: "整机用料清单只能关联启用的主产品" }, { status: 404 });
   }
 
   const materialIds = Array.isArray(body.items) ? [...new Set(body.items.map((item: any) => String(item?.materialId || "")).filter(Boolean))] as string[] : [];

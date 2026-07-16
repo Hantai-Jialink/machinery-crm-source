@@ -7,6 +7,7 @@ import {
   issuedOrderNo,
   normalizeProductionRequestKey,
   resolveDeliveryDateSnapshot,
+  shortageDemandItems,
 } from "./production-orders";
 
 describe("production order numbering", () => {
@@ -51,6 +52,13 @@ describe("contract item production limits", () => {
 });
 
 describe("kit check after production material movements", () => {
+  it("creates demand candidates only for materials with a positive shortage", () => {
+    expect(shortageDemandItems([
+      { materialId: "m1", remainingRequiredQty: 10, shortageQty: 3 },
+      { materialId: "m2", remainingRequiredQty: 5, shortageQty: 0 },
+    ])).toEqual([{ materialId: "m1", newDemand: 10 }]);
+  });
+
   it("does not repurchase material already net-issued to the order", () => {
     const result = calculateKitMaterialQuantities(10, 6, 1, 2);
     expect(result.netIssuedQty.toNumber()).toBe(5);

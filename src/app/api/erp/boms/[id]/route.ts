@@ -110,11 +110,11 @@ export async function PUT(
 
   const nextProductId = body.productId || existing.productId;
   const product = await prisma.product.findFirst({
-    where: { id: nextProductId, isActive: true },
+    where: { id: nextProductId, isActive: true, productType: "MAIN" },
     select: { id: true },
   });
   if (!product) {
-    return NextResponse.json({ error: "产品不存在或已停用" }, { status: 404 });
+    return NextResponse.json({ error: "整机用料清单只能关联启用的主产品" }, { status: 404 });
   }
 
   const nextVersion = String(body.version || existing.version || "v1.0").trim();

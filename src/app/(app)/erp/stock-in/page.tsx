@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { AlertTriangle, Eye, Link2Off, Plus, Trash2 } from "lucide-react";
 import { MaterialCombobox } from "@/components/erp/material-combobox";
-import { ErpAttachments } from "@/components/erp/erp-attachments";
+import { ErpAttachments, PendingErpAttachments, uploadErpAttachments } from "@/components/erp/erp-attachments";
 
 function StockInContent() {
   const router = useRouter();
@@ -35,6 +35,7 @@ function StockInContent() {
   const [stockInType, setStockInType] = useState("PURCHASE");
   const [remark, setRemark] = useState("");
   const [items, setItems] = useState<any[]>([{ materialId: "", quantity: "", unitPrice: "" }]);
+  const [pendingAttachments, setPendingAttachments] = useState<File[]>([]);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -128,10 +129,18 @@ function StockInContent() {
       body: JSON.stringify({ warehouseId, type: stockInType, remark, purchaseOrderId: purchaseSource?.id, items: validItems }),
     });
     const data = await res.json();
-    setSaving(false);
     if (!res.ok) {
+      setSaving(false);
       setFormError(data.error || "保存入库单失败");
       return;
+    }
+    const failedAttachments = await uploadErpAttachments("STOCK_IN", data.id, pendingAttachments);
+    setSaving(false);
+    setPendingAttachments([]);
+    if (failedAttachments.length) {
+      const message = `入库单已创建，但以下附件上传失败，可在入库详情中重试：${failedAttachments.join("、")}`;
+      setFormError(message);
+      alert(message);
     }
     if (purchaseSource) {
       router.replace(`/erp/purchase-orders/${purchaseSource.id}`);
@@ -149,6 +158,7 @@ function StockInContent() {
     setWarehouseId("");
     setRemark("");
     setItems([{ materialId: "", quantity: "", unitPrice: "" }]);
+    setPendingAttachments([]);
     if (purchaseSource) {
       setPurchaseSource(null);
       router.replace("/erp/stock-in");
@@ -231,12 +241,12 @@ function StockInContent() {
             </div>
             <div className="space-y-2">
               {items.map((item, idx) => (
-                <div key={idx} className="flex gap-2 items-center">
+                <div key={idx} className="flex flex-col gap-2 sm:flex-row sm:items-center">
                   {purchaseSource ? <div className="min-w-[220px] flex-1 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700">{(() => { const material = materials.find((value) => value.id === item.materialId); return material ? `${material.code} - ${material.name}` : "采购物料"; })()}</div> : <MaterialCombobox materials={materials} value={item.materialId} onChange={(materialId) => updateItem(idx, "materialId", materialId)} />}
-                  <div className="w-28"><input type="number" min="0.01" max={purchaseSource ? item.maxQuantity : undefined} step="0.01" placeholder="数量" value={item.quantity} onChange={(e) => updateItem(idx, "quantity", e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" />{purchaseSource && <p className="mt-1 text-xs text-gray-500">最多 {Number(item.maxQuantity).toLocaleString()}</p>}</div>
+                  <div className="w-full sm:w-28"><input type="number" min="0.01" max={purchaseSource ? item.maxQuantity : undefined} step="0.01" placeholder="数量" value={item.quantity} onChange={(e) => updateItem(idx, "quantity", e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" />{purchaseSource && <p className="mt-1 text-xs text-gray-500">最多 {Number(item.maxQuantity).toLocaleString()}</p>}</div>
                   <input type="number" placeholder="单价" value={item.unitPrice} onChange={(e) => updateItem(idx, "unitPrice", e.target.value)}
-                    className="w-24 px-3 py-2 border border-gray-300 rounded-lg text-sm" />
-                  <span className="text-sm text-gray-500 w-24 text-right">
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm sm:w-24" />
+                  <span className="w-full text-right text-sm text-gray-500 sm:w-24">
                     ¥{((parseFloat(item.quantity || "0")) * parseFloat(item.unitPrice || "0")).toLocaleString()}
                   </span>
                   {!purchaseSource && items.length > 1 && (
@@ -249,6 +259,8 @@ function StockInContent() {
               合计金额：¥{totalAmount.toLocaleString()}
             </div>
           </div>
+
+          <PendingErpAttachments files={pendingAttachments} onChange={setPendingAttachments} />
 
           <div className="flex justify-end gap-2">
             <button onClick={cancelForm} className="px-4 py-2 text-sm text-gray-600 border border-gray-300 rounded-lg">取消</button>

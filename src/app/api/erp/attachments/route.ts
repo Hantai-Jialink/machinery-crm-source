@@ -8,10 +8,10 @@ import { attachmentEntityExists, canModifyAttachmentEntity, canViewAttachmentEnt
 import { writeOperationLog } from "@/lib/sales-items";
 
 const ENTITY_TYPES = new Set(["STOCK_IN", "STOCK_OUT", "DELIVERY_FOLLOW_UP", "PROMISE_DATE", "DELIVERY_BATCH"]);
-const EXTENSIONS = new Set([".jpg", ".jpeg", ".png", ".webp", ".pdf", ".doc", ".docx", ".xls", ".xlsx"]);
-const MIME_TYPES = new Set(["image/jpeg","image/png","image/webp","application/pdf","application/msword","application/vnd.openxmlformats-officedocument.wordprocessingml.document","application/vnd.ms-excel","application/vnd.openxmlformats-officedocument.spreadsheetml.sheet","application/octet-stream"]);
+const EXTENSIONS = new Set([".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif", ".pdf", ".doc", ".docx", ".xls", ".xlsx"]);
+const MIME_TYPES = new Set(["image/jpeg","image/png","image/webp","image/heic","image/heif","application/pdf","application/msword","application/vnd.openxmlformats-officedocument.wordprocessingml.document","application/vnd.ms-excel","application/vnd.openxmlformats-officedocument.spreadsheetml.sheet","application/octet-stream"]);
 const MIME_BY_EXTENSION: Record<string, string[]> = {
-  ".jpg": ["image/jpeg"], ".jpeg": ["image/jpeg"], ".png": ["image/png"], ".webp": ["image/webp"], ".pdf": ["application/pdf"],
+  ".jpg": ["image/jpeg"], ".jpeg": ["image/jpeg"], ".png": ["image/png"], ".webp": ["image/webp"], ".heic": ["image/heic", "application/octet-stream"], ".heif": ["image/heif", "application/octet-stream"], ".pdf": ["application/pdf"],
   ".doc": ["application/msword", "application/octet-stream"], ".docx": ["application/vnd.openxmlformats-officedocument.wordprocessingml.document", "application/octet-stream"],
   ".xls": ["application/vnd.ms-excel", "application/octet-stream"], ".xlsx": ["application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "application/octet-stream"],
 };

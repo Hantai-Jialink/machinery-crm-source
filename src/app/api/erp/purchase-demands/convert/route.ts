@@ -15,7 +15,9 @@ export async function POST(request: NextRequest) {
     const created = await prisma.$transaction(async (tx) => {
       const supplier = await tx.supplier.findFirst({ where: { id: String(body.supplierId), isActive: true, deletedAt: null } });
       if (!supplier) throw new Error("供应商不存在或已停用");
-      const demandIds: string[] = Array.from(new Set<string>(body.allocations.map((row: any) => String(row.purchaseDemandId))));
+      const rawDemandIds: string[] = body.allocations.map((row: any) => String(row.purchaseDemandId));
+      const demandIds: string[] = Array.from(new Set<string>(rawDemandIds));
+      if (demandIds.length !== rawDemandIds.length) throw new Error("同一采购需求不能重复分摊，请合并数量");
       for (const demandId of demandIds) await tx.$queryRaw`SELECT id FROM erp_purchase_demands WHERE id = ${demandId} FOR UPDATE`;
       const demands = await tx.purchaseDemand.findMany({ where: { id: { in: demandIds }, activeSlot: true, status: { in: ["DRAFT", "SUBMITTED", "APPROVED", "PARTIALLY_CONVERTED"] } }, include: { material: true } });
       if (demands.length !== demandIds.length) throw new Error("部分采购需求已取消、已转换或不存在");

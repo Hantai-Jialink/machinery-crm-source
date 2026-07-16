@@ -12,7 +12,8 @@ export async function GET(request: NextRequest) {
   if (!user) return NextResponse.json({ error: "未登录" }, { status: 401 });
   if (!canManagePurchaseOrders(user)) return NextResponse.json({ error: "无权限查看采购需求" }, { status: 403 });
   const sourceType = new URL(request.url).searchParams.get("sourceType") || "";
-  return NextResponse.json(await prisma.purchaseDemand.findMany({ where: { ...(SOURCE_TYPES.has(sourceType as ProcurementSourceType) ? { sourceType: sourceType as ProcurementSourceType } : {}), activeSlot: true }, include: { material: true, allocations: true }, orderBy: { createdAt: "desc" } }));
+  const scope = new URL(request.url).searchParams.get("scope") || "";
+  return NextResponse.json(await prisma.purchaseDemand.findMany({ where: { ...(SOURCE_TYPES.has(sourceType as ProcurementSourceType) ? { sourceType: sourceType as ProcurementSourceType } : {}), ...(scope === "spareForecast" ? { sourceRecordId: { startsWith: "SPARE-FORECAST-" } } : {}), activeSlot: true }, include: { material: true, allocations: true }, orderBy: { createdAt: "desc" } }));
 }
 
 export async function POST(request: NextRequest) {

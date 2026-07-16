@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { AlertTriangle, CheckCircle2, FileDown, Upload, X } from "lucide-react";
+import { MaterialCombobox } from "@/components/erp/material-combobox";
 
 type CategoryNode = {
   id: string;
@@ -104,13 +105,6 @@ function statusClass(status: PreviewRow["status"]) {
   if (status === "UPDATE") return "bg-blue-100 text-blue-700";
   if (status === "MISSING_CODE") return "bg-amber-100 text-amber-700";
   return "bg-red-100 text-red-700";
-}
-
-function resolutionValue(resolution?: Resolution) {
-  if (!resolution?.action) return "";
-  if (resolution.action === "UPDATE_EXISTING") return `update:${resolution.materialId}`;
-  if (resolution.action === "AUTO_CODE_CREATE") return `auto:${resolution.categoryId || ""}`;
-  return "skip";
 }
 
 function nextResolution(value: string, row: PreviewRow): Resolution {
@@ -323,25 +317,10 @@ export function MaterialImportDialog({
                         <td className="px-3 py-2 text-gray-600">{row.unit || "-"}</td>
                         <td className="px-3 py-2">
                           {row.status === "MISSING_CODE" ? (
-                            <select
-                              value={resolutionValue(resolutions[String(row.rowNumber)])}
-                              onChange={(event) =>
-                                setResolutions((current) => ({
-                                  ...current,
-                                  [String(row.rowNumber)]: nextResolution(event.target.value, row),
-                                }))
-                              }
-                              className="w-72 rounded-lg border border-gray-300 px-2 py-1.5 text-sm"
-                            >
-                              <option value="">请选择处理方式</option>
-                              {materialChoices.map((material) => (
-                                <option key={material.id} value={`update:${material.id}`}>
-                                  更新已有：{material.code} {material.name}
-                                </option>
-                              ))}
-                              <option value={`auto:${row.categoryId}`}>按分类自动生成图号并新增</option>
-                              <option value="skip">跳过该行</option>
-                            </select>
+                            <div className="min-w-[340px] space-y-2">
+                              <MaterialCombobox materials={materialChoices} value={resolutions[String(row.rowNumber)]?.action === "UPDATE_EXISTING" ? resolutions[String(row.rowNumber)]?.materialId || "" : ""} onChange={(materialId) => setResolutions((current) => ({ ...current, [String(row.rowNumber)]: materialId ? { action: "UPDATE_EXISTING", materialId } : {} }))} placeholder="搜索并选择要更新的已有物料" />
+                              <div className="flex gap-2"><button type="button" onClick={() => setResolutions((current) => ({ ...current, [String(row.rowNumber)]: nextResolution(`auto:${row.categoryId}`, row) }))} className="rounded border px-2 py-1 text-xs">按分类自动编号并新增</button><button type="button" onClick={() => setResolutions((current) => ({ ...current, [String(row.rowNumber)]: nextResolution("skip", row) }))} className="rounded border px-2 py-1 text-xs">跳过该行</button></div>
+                            </div>
                           ) : (
                             "-"
                           )}

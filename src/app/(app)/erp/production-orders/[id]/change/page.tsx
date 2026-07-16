@@ -17,7 +17,7 @@ export default function ProductionOrderChangePage() {
       const get = async (url: string) => { const response = await fetch(url); return response.json(); };
       const [data, products, boms, warehouses, users] = await Promise.all([
         get(`/api/erp/production-orders/${id}`),
-        get("/api/erp/products"),
+        get("/api/erp/products?productType=MAIN"),
         get("/api/erp/boms?pageSize=200"),
         get("/api/erp/warehouses"),
         get("/api/erp/production-users"),

@@ -28,6 +28,7 @@ export async function GET(request: NextRequest) {
       estimatedShipmentDate: true,
       salesUser: { select: { id: true, name: true, email: true } },
       items: {
+        where: { itemType: "MAIN" },
         orderBy: { sortOrder: "asc" },
         select: {
           id: true,

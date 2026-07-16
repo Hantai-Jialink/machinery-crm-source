@@ -1,12 +1,73 @@
 "use client";
-import { useEffect, useState } from "react";
-const labels: Record<string,string> = { PRODUCTION_ORDER:"生产工单", STOCK_REPLENISHMENT:"备货", MONTHLY_PRODUCTION_PLAN:"月度生产计划", MANUAL:"手工采购" };
+
+import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import { MaterialCombobox } from "@/components/erp/material-combobox";
+
+const sourceLabels: Record<string, string> = { PRODUCTION_ORDER: "生产工单", STOCK_REPLENISHMENT: "备货", MONTHLY_PRODUCTION_PLAN: "月度计划/备件预测", MANUAL: "手工采购" };
+const statusLabels: Record<string, string> = { DRAFT: "草稿", SUBMITTED: "已提交", APPROVED: "已审核", PARTIALLY_CONVERTED: "部分转采购单", CONVERTED: "已转采购单", CANCELLED: "已取消" };
+
 export default function PurchaseDemandsPage() {
-  const [items,setItems]=useState<any[]>([]); const [materials,setMaterials]=useState<any[]>([]); const [error,setError]=useState("");
-  const [form,setForm]=useState({materialId:"",quantity:"",needByDate:"",stockPurpose:"",replenishmentReason:"安全库存补充"});
-  const load=async()=>{const [a,b]=await Promise.all([fetch("/api/erp/purchase-demands"),fetch("/api/erp/materials")]);setItems(await a.json());setMaterials(await b.json());}; useEffect(()=>{load().catch(e=>setError(e.message));},[]);
-  const create=async()=>{setError("");const r=await fetch("/api/erp/purchase-demands",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({...form,sourceType:"STOCK_REPLENISHMENT"})});const d=await r.json();if(!r.ok)return setError(d.error||"保存失败");setForm({...form,quantity:"",stockPurpose:""});await load();};
-  return <div className="space-y-5"><div><h1 className="text-2xl font-semibold">采购需求</h1><p className="text-sm text-gray-500">生产工单、月度计划、备货和手工需求统一汇总；这里只生成草稿，不会自动下采购订单。</p></div>
-    <section className="rounded-xl border bg-white p-4"><h2 className="font-medium">新增备货需求</h2><div className="mt-3 grid gap-3 md:grid-cols-5"><select className="rounded border p-2 text-sm" value={form.materialId} onChange={e=>setForm({...form,materialId:e.target.value})}><option value="">选择物料</option>{materials.map(m=><option key={m.id} value={m.id}>{m.code} {m.name}</option>)}</select><input className="rounded border p-2 text-sm" type="number" min="0.01" placeholder="备货数量" value={form.quantity} onChange={e=>setForm({...form,quantity:e.target.value})}/><input className="rounded border p-2 text-sm" type="date" value={form.needByDate} onChange={e=>setForm({...form,needByDate:e.target.value})}/><input className="rounded border p-2 text-sm" placeholder="备货用途" value={form.stockPurpose} onChange={e=>setForm({...form,stockPurpose:e.target.value})}/><select className="rounded border p-2 text-sm" value={form.replenishmentReason} onChange={e=>setForm({...form,replenishmentReason:e.target.value})}>{["安全库存补充","常用物料备货","长周期物料提前采购","价格上涨前备货","供应商停产风险","售后备件","临时备货","其他"].map(v=><option key={v}>{v}</option>)}</select></div><button onClick={create} className="mt-3 rounded bg-gray-900 px-4 py-2 text-sm text-white">保存备货草稿</button>{error&&<p className="mt-2 text-sm text-red-600">{error}</p>}</section>
-    <section className="overflow-auto rounded-xl border bg-white"><table className="w-full min-w-[960px] text-sm"><thead className="bg-gray-50 text-left text-gray-500"><tr><th className="p-3">需求号</th><th>来源</th><th>物料</th><th>新增需求</th><th>建议采购</th><th>需要日期</th><th>状态</th><th>用途/原因</th></tr></thead><tbody>{items.map(i=><tr className="border-t" key={i.id}><td className="p-3">{i.demandNo}</td><td>{labels[i.sourceType]}</td><td>{i.material?.code} {i.material?.name}</td><td>{Number(i.requestedQuantity)} {i.material?.unit}</td><td>{Number(i.suggestedQuantity)}</td><td>{String(i.needByDate).slice(0,10)}</td><td>{i.status}</td><td>{i.stockPurpose||i.replenishmentReason||"—"}</td></tr>)}</tbody></table></section></div>;
+  const router = useRouter();
+  const [items, setItems] = useState<any[]>([]);
+  const [materials, setMaterials] = useState<any[]>([]);
+  const [suppliers, setSuppliers] = useState<any[]>([]);
+  const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
+  const [supplierId, setSupplierId] = useState("");
+  const [selected, setSelected] = useState<Record<string, string>>({});
+  const [converting, setConverting] = useState(false);
+  const [form, setForm] = useState({ materialId: "", quantity: "", needByDate: "", stockPurpose: "", replenishmentReason: "安全库存补充" });
+
+  const load = async () => {
+    const [demandResponse, materialResponse, supplierResponse] = await Promise.all([fetch("/api/erp/purchase-demands"), fetch("/api/erp/materials"), fetch("/api/erp/suppliers")]);
+    const [demandData, materialData, supplierData] = await Promise.all([demandResponse.json(), materialResponse.json(), supplierResponse.json()]);
+    setItems(Array.isArray(demandData) ? demandData : []);
+    setMaterials(Array.isArray(materialData) ? materialData : materialData.items || []);
+    setSuppliers(Array.isArray(supplierData) ? supplierData : supplierData.items || []);
+  };
+
+  useEffect(() => { void load().catch((reason) => setError(reason.message)); }, []);
+
+  const create = async () => {
+    setError(""); setMessage("");
+    const response = await fetch("/api/erp/purchase-demands", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...form, sourceType: "STOCK_REPLENISHMENT" }) });
+    const data = await response.json();
+    if (!response.ok) return setError(data.error || "保存失败");
+    setForm({ ...form, materialId: "", quantity: "", stockPurpose: "" });
+    setMessage(`采购需求 ${data.demandNo} 已保存。`);
+    await load();
+  };
+
+  const selectable = useMemo(() => items.filter((item) => Number(item.suggestedQuantity) - Number(item.convertedQuantity || 0) > 0), [items]);
+  const toggle = (item: any, checked: boolean) => {
+    const remaining = Math.max(Number(item.suggestedQuantity) - Number(item.convertedQuantity || 0), 0);
+    setSelected((current) => {
+      const next = { ...current };
+      if (checked) next[item.id] = String(remaining);
+      else delete next[item.id];
+      return next;
+    });
+  };
+
+  const convert = async () => {
+    const allocations = Object.entries(selected).map(([purchaseDemandId, quantity]) => ({ purchaseDemandId, quantity }));
+    if (!supplierId || allocations.length === 0) return setError("请选择供应商和至少一项采购需求");
+    setConverting(true); setError(""); setMessage("");
+    const response = await fetch("/api/erp/purchase-demands/convert", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ supplierId, allocations }) });
+    const data = await response.json();
+    setConverting(false);
+    if (!response.ok) return setError(data.error || "生成采购订单草稿失败");
+    setSelected({}); setSupplierId("");
+    await load();
+    if (window.confirm(`已生成采购订单草稿 ${data.orderNo}。是否立即查看？`)) router.push(`/erp/purchase-orders/${data.id}`);
+  };
+
+  return <div className="space-y-5">
+    <div><h1 className="text-2xl font-semibold">采购需求</h1><p className="mt-1 text-sm text-gray-500">生产工单、月度备件预测和备货需求统一汇总；选择需求和供应商后，才生成采购订单草稿。</p></div>
+    <section className="rounded-xl border bg-white p-4"><h2 className="font-medium">新增备货需求</h2><div className="mt-3 grid gap-3 md:grid-cols-5"><MaterialCombobox materials={materials} value={form.materialId} onChange={(materialId) => setForm({ ...form, materialId })} /><input className="rounded border p-2 text-sm" type="number" min="0.01" placeholder="备货数量" value={form.quantity} onChange={(event) => setForm({ ...form, quantity: event.target.value })} /><input className="rounded border p-2 text-sm" type="date" value={form.needByDate} onChange={(event) => setForm({ ...form, needByDate: event.target.value })} /><input className="rounded border p-2 text-sm" placeholder="备货用途" value={form.stockPurpose} onChange={(event) => setForm({ ...form, stockPurpose: event.target.value })} /><select className="rounded border p-2 text-sm" value={form.replenishmentReason} onChange={(event) => setForm({ ...form, replenishmentReason: event.target.value })}>{["安全库存补充", "常用物料备货", "长周期物料提前采购", "价格上涨前备货", "供应商停产风险", "售后备件", "临时备货", "其他"].map((value) => <option key={value}>{value}</option>)}</select></div><button onClick={create} className="mt-3 rounded bg-gray-900 px-4 py-2 text-sm text-white">保存备货需求</button></section>
+    <section className="rounded-xl border bg-white p-4"><div className="flex flex-wrap items-end gap-3"><label className="min-w-[260px] flex-1 text-sm">本次采购供应商<select value={supplierId} onChange={(event) => setSupplierId(event.target.value)} className="mt-1 w-full rounded-lg border px-3 py-2"><option value="">请选择供应商</option>{suppliers.filter((supplier) => supplier.isActive !== false).map((supplier) => <option key={supplier.id} value={supplier.id}>{supplier.code ? `${supplier.code} - ` : ""}{supplier.name}</option>)}</select></label><button onClick={convert} disabled={converting || !supplierId || Object.keys(selected).length === 0} className="rounded-lg bg-blue-600 px-4 py-2 text-sm text-white disabled:opacity-40">{converting ? "生成中..." : `生成采购订单草稿（${Object.keys(selected).length}）`}</button></div><p className="mt-2 text-xs text-gray-500">可合并选择多项需求；生成后可在采购订单草稿中调整单价和数量，不会自动下单。</p></section>
+    {error && <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}{message && <p className="rounded-lg bg-green-50 px-3 py-2 text-sm text-green-700">{message}</p>}
+    <section className="overflow-auto rounded-xl border bg-white"><table className="w-full min-w-[1100px] text-sm"><thead className="bg-gray-50 text-left text-gray-500"><tr><th className="p-3">选择</th><th>需求号</th><th>来源</th><th>物料</th><th>新增需求</th><th>建议采购</th><th>剩余可转</th><th>本次转采购单</th><th>需要日期</th><th>状态</th><th>用途/原因</th></tr></thead><tbody>{items.map((item) => { const remaining = Math.max(Number(item.suggestedQuantity) - Number(item.convertedQuantity || 0), 0); return <tr className="border-t" key={item.id}><td className="p-3"><input type="checkbox" disabled={remaining <= 0} checked={selected[item.id] !== undefined} onChange={(event) => toggle(item, event.target.checked)} /></td><td>{item.demandNo}</td><td><span className="block">{sourceLabels[item.sourceType] || item.sourceType}</span><span className="text-xs text-gray-400">{item.sourceLabel}</span></td><td>{item.material?.code} {item.material?.name}</td><td>{Number(item.requestedQuantity)} {item.material?.unit}</td><td>{Number(item.suggestedQuantity)}</td><td>{remaining}</td><td>{selected[item.id] !== undefined ? <input type="number" min="0.01" max={remaining} step="0.01" value={selected[item.id]} onChange={(event) => setSelected({ ...selected, [item.id]: event.target.value })} className="w-24 rounded border px-2 py-1 text-right" /> : "—"}</td><td>{String(item.needByDate).slice(0, 10)}</td><td>{statusLabels[item.status] || item.status}</td><td>{item.stockPurpose || item.replenishmentReason || "—"}</td></tr>; })}</tbody></table>{selectable.length === 0 && <p className="p-6 text-center text-sm text-gray-500">暂无待转换的采购需求</p>}</section>
+  </div>;
 }
