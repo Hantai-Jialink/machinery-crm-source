@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { useSession } from "next-auth/react";
 import { Plus, Trash2 } from "lucide-react";
 import { MaterialCombobox } from "@/components/erp/material-combobox";
 
@@ -9,6 +10,9 @@ type ForecastLine = { materialId: string; quantity: string; needByDate: string }
 const blankLine = (): ForecastLine => ({ materialId: "", quantity: "1", needByDate: "" });
 
 export default function MonthlySparePartsForecastPage() {
+  const { data: session, status } = useSession();
+  const role = (session?.user as { role?: string } | undefined)?.role;
+  const canManage = role === "SUPER_ADMIN" || role === "PURCHASE";
   const [materials, setMaterials] = useState<any[]>([]);
   const [demands, setDemands] = useState<any[]>([]);
   const [forecastMonth, setForecastMonth] = useState(new Date().toISOString().slice(0, 7));
@@ -29,7 +33,9 @@ export default function MonthlySparePartsForecastPage() {
     setDemands(Array.isArray(demandData) ? demandData : []);
   };
 
-  useEffect(() => { void load().catch((reason) => setError(reason.message)); }, []);
+  useEffect(() => {
+    if (canManage) void load().catch((reason) => setError(reason.message));
+  }, [canManage]);
 
   const updateLine = (index: number, patch: Partial<ForecastLine>) => {
     setItems((current) => current.map((line, lineIndex) => lineIndex === index ? { ...line, ...patch } : line));
@@ -49,6 +55,9 @@ export default function MonthlySparePartsForecastPage() {
     setItems([blankLine()]); setRemark(""); setRequestKey(crypto.randomUUID());
     await load();
   };
+
+  if (status === "loading") return <p className="py-8 text-center text-sm text-gray-500">正在校验权限...</p>;
+  if (!canManage) return <div className="rounded-xl border bg-white p-6"><h1 className="text-xl font-semibold">月度生产计划备件预测</h1><p className="mt-2 text-sm text-red-600">当前账号没有维护备件预测和生成采购需求的权限。</p><Link href="/erp/monthly-production-plans" className="mt-4 inline-block text-sm text-blue-600 hover:underline">返回月度生产计划</Link></div>;
 
   return <div className="space-y-5">
     <div className="flex flex-wrap items-start justify-between gap-3">

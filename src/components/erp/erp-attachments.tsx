@@ -10,10 +10,14 @@ export const attachmentHelpText = "可上传到货、送货单、数量异常凭
 export async function uploadErpAttachments(entityType: string, entityId: string, files: File[]) {
   const failed: string[] = [];
   for (const file of files) {
-    const form = new FormData();
-    form.set("entityType", entityType); form.set("entityId", entityId); form.set("file", file);
-    const response = await fetch("/api/erp/attachments", { method: "POST", body: form });
-    if (!response.ok) failed.push(file.name);
+    try {
+      const form = new FormData();
+      form.set("entityType", entityType); form.set("entityId", entityId); form.set("file", file);
+      const response = await fetch("/api/erp/attachments", { method: "POST", body: form });
+      if (!response.ok) failed.push(file.name);
+    } catch {
+      failed.push(file.name);
+    }
   }
   return failed;
 }

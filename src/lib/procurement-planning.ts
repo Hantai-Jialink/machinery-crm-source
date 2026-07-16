@@ -24,6 +24,18 @@ export function calculateSuggestedProcurement(input: {
   return { expectedAvailable: expectedAvailable.toDecimalPlaces(4), suggestedQuantity };
 }
 
+export function reconcileDemandSuggestion(
+  remainingSuggestion: Prisma.Decimal.Value,
+  convertedQuantity: Prisma.Decimal.Value
+) {
+  const remaining = Prisma.Decimal.max(new Prisma.Decimal(remainingSuggestion), 0);
+  const converted = Prisma.Decimal.max(new Prisma.Decimal(convertedQuantity), 0);
+  return {
+    suggestedQuantity: remaining.add(converted).toDecimalPlaces(4),
+    shouldClose: remaining.lte(0) && converted.gt(0),
+  };
+}
+
 export async function buildMaterialProcurementSnapshot(
   tx: Prisma.TransactionClient,
   input: { materialId: string; newDemand: Prisma.Decimal.Value; excludeProductionOrderId?: string; excludePurchaseDemandId?: string }
@@ -121,22 +133,47 @@ export async function upsertPurchaseDemandForSource(tx: Prisma.TransactionClient
     where: { sourceType: input.sourceType, sourceRecordId: input.sourceRecordId, materialId: input.materialId, activeSlot: true },
   });
   const calculation = await buildMaterialProcurementSnapshot(tx, { ...input, excludePurchaseDemandId: existing?.id });
+  const reconciliation = existing
+    ? reconcileDemandSuggestion(calculation.suggestedQuantity, existing.convertedQuantity)
+    : null;
   if (calculation.suggestedQuantity.lte(0) || (!calculation.material.autoPurchaseDraftEnabled && !input.forceCreate)) {
     if (existing && existing.status === "DRAFT") {
       await tx.purchaseDemand.update({ where: { id: existing.id }, data: { status: "CANCELLED", activeSlot: null, cancelledAt: new Date(), calculationSnapshot: calculation.snapshot } });
+    } else if (existing && existing.status === "PARTIALLY_CONVERTED" && reconciliation?.shouldClose) {
+      await tx.purchaseDemand.update({
+        where: { id: existing.id },
+        data: {
+          suggestedQuantity: reconciliation.suggestedQuantity,
+          status: "CONVERTED",
+          activeSlot: null,
+          calculationSnapshot: {
+            ...calculation.snapshot,
+            remainingSuggestedQuantity: 0,
+            suggestedQuantity: reconciliation.suggestedQuantity.toNumber(),
+          },
+        },
+      });
     }
     return null;
   }
+  const suggestedQuantity = reconciliation
+    ? reconciliation.suggestedQuantity
+    : calculation.suggestedQuantity;
+  const calculationSnapshot = {
+    ...calculation.snapshot,
+    remainingSuggestedQuantity: calculation.suggestedQuantity.toNumber(),
+    suggestedQuantity: suggestedQuantity.toNumber(),
+  } satisfies Prisma.InputJsonObject;
   const data = {
     sourceLineId: input.sourceLineId || null,
     sourceLabel: input.sourceLabel,
     requestedQuantity: new Prisma.Decimal(input.newDemand).toDecimalPlaces(4),
-    suggestedQuantity: calculation.suggestedQuantity,
+    suggestedQuantity,
     targetStockQuantity: input.targetStockQuantity === null || input.targetStockQuantity === undefined ? null : new Prisma.Decimal(input.targetStockQuantity).toDecimalPlaces(4),
     needByDate: input.needByDate,
     stockPurpose: input.stockPurpose || null,
     replenishmentReason: input.replenishmentReason || null,
-    calculationSnapshot: calculation.snapshot,
+    calculationSnapshot,
   };
   if (existing) return tx.purchaseDemand.update({ where: { id: existing.id }, data });
   return tx.purchaseDemand.create({

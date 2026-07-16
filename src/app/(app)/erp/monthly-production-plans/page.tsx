@@ -2,11 +2,15 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { useSession } from "next-auth/react";
 
 const status: Record<string, string> = { DRAFT: "草稿", PENDING_APPROVAL: "待审核", APPROVED: "已审核", IN_PROGRESS: "执行中", COMPLETED: "已完成", CANCELLED: "已取消" };
 const blank = () => ({ productId: "", plannedQuantity: "1", plannedStartDate: "", plannedCompletionDate: "", bomId: "", remark: "" });
 
 export default function MonthlyPlansPage() {
+  const { data: session } = useSession();
+  const role = (session?.user as { role?: string } | undefined)?.role;
+  const canManageSpareForecast = role === "SUPER_ADMIN" || role === "PURCHASE";
   const [plans, setPlans] = useState<any[]>([]);
   const [products, setProducts] = useState<any[]>([]);
   const [boms, setBoms] = useState<any[]>([]);
@@ -52,7 +56,7 @@ export default function MonthlyPlansPage() {
   };
 
   return <div className="space-y-5">
-    <div className="flex flex-wrap items-start justify-between gap-3"><div><h1 className="text-2xl font-semibold">月度生产计划</h1><p className="mt-1 text-sm text-gray-500">用于安排主产品的月度生产数量和日期；审核时冻结用料版本，不会自动生成采购需求。</p></div><Link href="/erp/monthly-production-plans/spare-parts-forecast" className="rounded-lg border px-3 py-2 text-sm">进入月度生产计划备件预测</Link></div>
+    <div className="flex flex-wrap items-start justify-between gap-3"><div><h1 className="text-2xl font-semibold">月度生产计划</h1><p className="mt-1 text-sm text-gray-500">用于安排主产品的月度生产数量和日期；审核时冻结用料版本，不会自动生成采购需求。</p></div>{canManageSpareForecast && <Link href="/erp/monthly-production-plans/spare-parts-forecast" className="rounded-lg border px-3 py-2 text-sm">进入月度生产计划备件预测</Link>}</div>
     <section className="rounded-xl border bg-white p-4">
       <div className="grid gap-3 md:grid-cols-3"><input type="date" className="rounded border p-2 text-sm" value={form.planMonth} onChange={(event) => setForm({ ...form, planMonth: event.target.value })} /><input className="rounded border p-2 text-sm" placeholder="计划名称" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} /><input className="rounded border p-2 text-sm" placeholder="计划说明" value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} /></div>
       {form.items.map((row, index) => <div key={index} className="mt-3 grid gap-2 md:grid-cols-6"><select className="rounded border p-2 text-sm" value={row.productId} onChange={(event) => update(index, { productId: event.target.value, bomId: "" })}><option value="">设备型号</option>{products.map((product) => <option key={product.id} value={product.id}>{product.model}</option>)}</select><input type="number" min="1" className="rounded border p-2 text-sm" value={row.plannedQuantity} onChange={(event) => update(index, { plannedQuantity: event.target.value })} /><input type="date" className="rounded border p-2 text-sm" value={row.plannedStartDate} onChange={(event) => update(index, { plannedStartDate: event.target.value })} /><input type="date" className="rounded border p-2 text-sm" value={row.plannedCompletionDate} onChange={(event) => update(index, { plannedCompletionDate: event.target.value })} /><select className="rounded border p-2 text-sm" value={row.bomId} onChange={(event) => update(index, { bomId: event.target.value })}><option value="">有效用料版本</option>{boms.filter((bom) => bom.productId === row.productId && bom.isActive).map((bom) => <option key={bom.id} value={bom.id}>{bom.version}</option>)}</select><button type="button" disabled={form.items.length === 1} className="rounded border text-sm disabled:opacity-40" onClick={() => setForm({ ...form, items: form.items.filter((_, rowIndex) => rowIndex !== index) })}>删除</button></div>)}

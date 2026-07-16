@@ -901,8 +901,11 @@ jobs:
             assert(recoveredQueueRun.data.results[0]?.status !== "FAILED", "Failed queue job did not recover after the cause was fixed");
 
             const stockDemand = await jsonRequest(purchaseJar, "/api/erp/purchase-demands", "POST", { sourceType: "STOCK_REPLENISHMENT", sourceRecordId: `MERGE-STOCK-${suffix}`, materialId: seed.ids.leafMaterialId, quantity: 5, needByDate: dateOnly(20), stockPurpose: "合并来源验证" }, 201);
+            const productionOrderForDemand = await prisma.productionOrder.findUnique({ where: { id: productionOrderId }, select: { latestKitCheckId: true } });
+            assert(productionOrderForDemand?.latestKitCheckId, "Production order latest kit check is missing");
+            await jsonRequest(purchaseJar, `/api/erp/production-orders/${productionOrderId}/purchase-demands`, "POST", { kitCheckId: productionOrderForDemand.latestKitCheckId }, 201);
             const productionDemand = await prisma.purchaseDemand.findFirst({ where: { sourceType: "PRODUCTION_ORDER", sourceRecordId: productionOrderId, materialId: seed.ids.leafMaterialId, activeSlot: true } });
-            assert(productionDemand, "Production shortage demand was not generated");
+            assert(productionDemand, "Confirmed production shortage did not generate a purchase demand");
             const mergedOrder = await jsonRequest(purchaseJar, "/api/erp/purchase-demands/convert", "POST", { supplierId: seed.ids.supplierId, allocations: [{ purchaseDemandId: productionDemand.id, quantity: Number(productionDemand.suggestedQuantity) }, { purchaseDemandId: stockDemand.data.id, quantity: Number(stockDemand.data.suggestedQuantity) }] }, 201);
             const mergedItems = await prisma.purchaseOrderItem.findMany({ where: { purchaseOrderId: mergedOrder.data.id }, include: { demandSources: true } });
             assert(mergedItems.length === 1 && mergedItems[0].demandSources.length === 2, "Production and stock demand were not merged with two source allocations");
@@ -913,14 +916,18 @@ jobs:
             const plan = (await jsonRequest(superJar, "/api/erp/monthly-production-plans", "POST", { planMonth: `${dateOnly(30).slice(0, 7)}-01`, name: "月度部分转换验证", items: [{ productId: monthlyProduct.id, bomId: monthlyBom.id, plannedQuantity: 10, plannedStartDate: dateOnly(30), plannedCompletionDate: dateOnly(50) }] }, 201)).data;
             await jsonRequest(superJar, `/api/erp/monthly-production-plans/${plan.id}`, "PUT", { status: "PENDING_APPROVAL" });
             await jsonRequest(superJar, `/api/erp/monthly-production-plans/${plan.id}/approve`, "POST", {});
-            const monthlyDemand = await prisma.purchaseDemand.findFirst({ where: { sourceType: "MONTHLY_PRODUCTION_PLAN", sourceRecordId: plan.items[0].id, materialId: monthlyMaterial.id } });
-            assert(Number(monthlyDemand.suggestedQuantity) === 20, "Monthly material shortage should be 20");
+            const monthlyRequirement = await prisma.monthlyMaterialRequirement.findUnique({ where: { planItemId_materialId: { planItemId: plan.items[0].id, materialId: monthlyMaterial.id } } });
+            assert(Number(monthlyRequirement.requiredQuantity) === 20, "Monthly material requirement snapshot should be 20");
+            const automaticMonthlyDemand = await prisma.purchaseDemand.count({ where: { sourceType: "MONTHLY_PRODUCTION_PLAN", sourceRecordId: plan.items[0].id, materialId: monthlyMaterial.id } });
+            assert(automaticMonthlyDemand === 0, "Monthly production plan must not automatically create purchase demand");
             const monthlyOrder = (await jsonRequest(superJar, `/api/erp/monthly-production-plans/${plan.id}/convert`, "POST", { planItemId: plan.items[0].id, quantity: 3, warehouseId: seed.ids.warehouseId, requestKey: `monthly-${suffix}-part-001` }, 201)).data;
-            const monthlyAllocation = await prisma.purchaseDemandProductionAllocation.findUnique({ where: { purchaseDemandId_productionOrderId: { purchaseDemandId: monthlyDemand.id, productionOrderId: monthlyOrder.id } } });
-            assert(Number(monthlyAllocation.allocatedQuantity) === 6, "Monthly partial conversion allocation should be 6");
             await jsonRequest(superJar, `/api/erp/production-orders/${monthlyOrder.id}/issue`, "POST", { confirmStockOrder: true });
-            const duplicateMonthlyDemand = await prisma.purchaseDemand.count({ where: { sourceType: "PRODUCTION_ORDER", sourceRecordId: monthlyOrder.id, materialId: monthlyMaterial.id, activeSlot: true } });
-            assert(duplicateMonthlyDemand === 0, "Monthly plan conversion created duplicate production procurement");
+            const issuedMonthlyOrder = await prisma.productionOrder.findUnique({ where: { id: monthlyOrder.id }, select: { latestKitCheckId: true } });
+            assert(issuedMonthlyOrder?.latestKitCheckId, "Converted monthly work order latest kit check is missing");
+            await jsonRequest(purchaseJar, `/api/erp/production-orders/${monthlyOrder.id}/purchase-demands`, "POST", { kitCheckId: issuedMonthlyOrder.latestKitCheckId }, 201);
+            await jsonRequest(purchaseJar, `/api/erp/production-orders/${monthlyOrder.id}/purchase-demands`, "POST", { kitCheckId: issuedMonthlyOrder.latestKitCheckId }, 201);
+            const monthlyProductionDemands = await prisma.purchaseDemand.findMany({ where: { sourceType: "PRODUCTION_ORDER", sourceRecordId: monthlyOrder.id, materialId: monthlyMaterial.id, activeSlot: true } });
+            assert(monthlyProductionDemands.length === 1 && Number(monthlyProductionDemands[0].suggestedQuantity) === 6, "Confirmed work-order shortage demand should be idempotent and equal 6");
 
             const kitHistoryBeforeTopUp = await prisma.kitCheckResult.findMany({ where: { productionOrderId }, orderBy: { createdAt: "asc" } });
             assert(kitHistoryBeforeTopUp.some((row) => row.status === "SHORTAGE"), "Historical shortage snapshot is missing before inventory top-up");
@@ -937,7 +944,7 @@ jobs:
 
             const queueLogs = await prisma.operationLog.count({ where: { entityType: "KitRecheckQueue", action: { in: ["PROCESS_KIT_RECHECK_QUEUE", "REPLAY_KIT_RECHECK_QUEUE"] } } });
             assert(queueLogs > 0, "Queue execution operation log is missing");
-            const result = { supply: { initialSuggestion: 10, draftReplacementSuggestion: 5, orderedReplacementSuggestion: 5, partialReceiptSuggestion: 5, receivedQuantity: 4 }, sources: { mergedSourceCount: 2 }, monthly: { plannedDemand: 20, convertedQuantity: 3, allocatedDemand: 6, duplicateProductionDemand: 0 }, promise: { historyCount: 3, firstPreserved: true }, reminders: { firstCreated: reminderFirst.data.created, replayCreated: reminderSecond.data.created }, queue: { reclaimedStaleLease: true, replayProcessed: queueReplay.data.processed, failureRecorded: true, recoveredAfterFailure: true, inventoryTopUpAppended: 1, inventoryTopUpStatus: kitHistoryAfterTopUp.at(-1)?.status, inventoryTopUpReplayProcessed: topUpReplay.data.processed, operationLogs: queueLogs }, permissions: { warehousePromise: 403, otherPurchasePromise: 403, warehouseFormalAttachmentDelete: 403 }, persistentAttachmentPath: attachmentPath };
+            const result = { supply: { initialSuggestion: 10, draftReplacementSuggestion: 5, orderedReplacementSuggestion: 5, partialReceiptSuggestion: 5, receivedQuantity: 4 }, sources: { mergedSourceCount: 2 }, monthly: { plannedRequirement: 20, automaticDemand: 0, convertedQuantity: 3, confirmedProductionDemand: 6, idempotentDemandCount: 1 }, promise: { historyCount: 3, firstPreserved: true }, reminders: { firstCreated: reminderFirst.data.created, replayCreated: reminderSecond.data.created }, queue: { reclaimedStaleLease: true, replayProcessed: queueReplay.data.processed, failureRecorded: true, recoveredAfterFailure: true, inventoryTopUpAppended: 1, inventoryTopUpStatus: kitHistoryAfterTopUp.at(-1)?.status, inventoryTopUpReplayProcessed: topUpReplay.data.processed, operationLogs: queueLogs }, permissions: { warehousePromise: 403, otherPurchasePromise: 403, warehouseFormalAttachmentDelete: 403 }, persistentAttachmentPath: attachmentPath };
             fs.writeFileSync(path.join(process.env.SMOKE_DIR, "release-audit.json"), JSON.stringify(result, null, 2));
             console.log(JSON.stringify(result));
           } finally {
