@@ -39,13 +39,13 @@ cd packages/service
 ```
 
 ```bash
-corepack pnpm exec vitest run -c vitest.config.ts test/core/workflow/utils/context.test.ts --coverage=false
+corepack pnpm exec vitest run -c vitest.config.ts test/core/app/mcp.test.ts test/core/workflow/utils/context.test.ts --coverage=false
 ```
 
 随后按 FastGPT 4.15.1 原构建流程生成自定义镜像，并固定标签：
 
 ```text
-dachuan-fastgpt:v4.15.1-identity-poc.1
+dachuan-fastgpt:v4.15.1-identity-acceptance.1
 ```
 
 Compose/Kubernetes 必须引用这个不可变标签或进一步固定 digest，不得使用 `latest`。部署前保存原 FastGPT 镜像标签/digest；回滚时恢复原镜像并重启 FastGPT，不需要修改 CRM/ERP 数据库。
@@ -54,7 +54,7 @@ Compose/Kubernetes 必须引用这个不可变标签或进一步固定 digest，
 
 - Chat Completions 入口读取两个可信头；
 - 工作流 dispatch 将身份放入已有请求级上下文；
-- MCP Streamable HTTP/SSE 出站先移除静态 `X-Dachuan-*` 头，再追加两个请求级可信头；
-- 并发测试验证两个上下文不串值。
+- MCP Streamable HTTP/SSE 出站先移除静态 `X-Dachuan-*` 头；聊天时追加两个请求级可信头，管理端发现时只生成 requestId；
+- 管理端静态伪造头测试和 48 路并发上下文测试验证发现安全与身份隔离。
 
 MCP 固定的 `Authorization` 服务 Key仍由 FastGPT MCP Server 配置提供。补丁传递的只是用户断言和 requestId，三者在 MCP 端共同校验。

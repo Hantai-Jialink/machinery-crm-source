@@ -1,0 +1,231 @@
+name: ${COMPOSE_PROJECT_NAME:-dachuan-identity-acceptance}
+
+services:
+  mysql:
+    image: mysql:8.0.43
+    command: ["--character-set-server=utf8mb4", "--collation-server=utf8mb4_unicode_ci"]
+    environment:
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+    volumes:
+      - identity-mysql:/var/lib/mysql
+    networks: [identity-data]
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  identity-redis:
+    image: redis:7.2-alpine
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD}", "--appendonly", "yes", "--save", "60", "1"]
+    volumes:
+      - identity-redis:/data
+    networks: [identity-data]
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a $$REDIS_PASSWORD ping | grep PONG"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+
+  db-init:
+    build:
+      context: ../..
+      dockerfile: deploy/identity-acceptance/Dockerfile.acceptance
+    image: dachuanpro-identity-acceptance-runner:1.0.0
+    env_file: .env.identity-acceptance
+    command: ["sh", "-c", "node scripts/assert-identity-acceptance-target.mjs && corepack pnpm exec prisma migrate deploy && corepack pnpm exec tsx scripts/seed-identity-acceptance.ts"]
+    depends_on:
+      mysql:
+        condition: service_healthy
+    networks: [identity-data]
+    restart: "no"
+
+  crm:
+    build:
+      context: ../..
+      dockerfile: Dockerfile.mcp
+    image: ${CRM_IMAGE}
+    env_file: .env.identity-acceptance
+    environment:
+      NODE_ENV: production
+      PORT: 3010
+      HOSTNAME: 0.0.0.0
+    depends_on:
+      db-init:
+        condition: service_completed_successfully
+      identity-redis:
+        condition: service_healthy
+    networks: [identity-app, identity-data]
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3010/api/mcp/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+  fastgpt-mongo:
+    image: mongo:5.0.32
+    command: mongod --keyFile /data/mongodb.key --replSet rs0
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: acceptance
+      MONGO_INITDB_ROOT_PASSWORD: ${FASTGPT_MONGO_PASSWORD}
+    entrypoint:
+      - bash
+      - -c
+      - |
+        openssl rand -base64 128 > /data/mongodb.key
+        chmod 400 /data/mongodb.key
+        chown 999:999 /data/mongodb.key
+        echo 'if (rs.status().ok !== 1) rs.initiate({_id:"rs0",members:[{_id:0,host:"fastgpt-mongo:27017"}]})' > /data/initReplicaSet.js
+        exec docker-entrypoint.sh "$$@" &
+        until mongo -u acceptance -p "$$MONGO_INITDB_ROOT_PASSWORD" --authenticationDatabase admin --eval "print('ready')"; do sleep 2; done
+        mongo -u acceptance -p "$$MONGO_INITDB_ROOT_PASSWORD" --authenticationDatabase admin /data/initReplicaSet.js
+        wait $$!
+    volumes:
+      - fastgpt-mongo:/data/db
+    networks: [fastgpt-data]
+    healthcheck:
+      test: ["CMD-SHELL", "mongo -u acceptance -p $$MONGO_INITDB_ROOT_PASSWORD --authenticationDatabase admin --eval \"db.adminCommand('ping')\""]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+
+  fastgpt-redis:
+    image: redis:7.2-alpine
+    command: ["redis-server", "--requirepass", "${FASTGPT_REDIS_PASSWORD}", "--appendonly", "yes"]
+    environment:
+      FASTGPT_REDIS_PASSWORD: ${FASTGPT_REDIS_PASSWORD}
+    volumes:
+      - fastgpt-redis:/data
+    networks: [fastgpt-data]
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a $$FASTGPT_REDIS_PASSWORD ping | grep PONG"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  fastgpt-pg:
+    image: pgvector/pgvector:0.8.0-pg15
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${FASTGPT_PG_PASSWORD}
+      POSTGRES_DB: fastgpt
+    volumes:
+      - fastgpt-pg:/var/lib/postgresql/data
+    networks: [fastgpt-data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d fastgpt"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  fastgpt-minio:
+    image: minio/minio:RELEASE.2025-09-07T16-13-09Z
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${FASTGPT_MINIO_USER}
+      MINIO_ROOT_PASSWORD: ${FASTGPT_MINIO_PASSWORD}
+    volumes:
+      - fastgpt-minio:/data
+    networks: [fastgpt-data]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+  fastgpt:
+    image: ${FASTGPT_IMAGE}
+    environment:
+      DEFAULT_ROOT_PSW: ${FASTGPT_ROOT_PASSWORD}
+      ROOT_KEY: ${FASTGPT_ROOT_KEY}
+      TOKEN_KEY: ${FASTGPT_TOKEN_KEY}
+      FILE_TOKEN_KEY: ${FASTGPT_FILE_TOKEN_KEY}
+      AES256_SECRET_KEY: ${FASTGPT_AES_KEY}
+      INVOKE_TOKEN_SECRET: ${FASTGPT_INVOKE_TOKEN_SECRET}
+      MONGODB_URI: mongodb://acceptance:${FASTGPT_MONGO_PASSWORD}@fastgpt-mongo:27017/fastgpt?authSource=admin
+      REDIS_URL: redis://default:${FASTGPT_REDIS_PASSWORD}@fastgpt-redis:6379
+      PG_URL: postgresql://postgres:${FASTGPT_PG_PASSWORD}@fastgpt-pg:5432/fastgpt
+      STORAGE_VENDOR: minio
+      STORAGE_REGION: us-east-1
+      STORAGE_ACCESS_KEY_ID: ${FASTGPT_MINIO_USER}
+      STORAGE_SECRET_ACCESS_KEY: ${FASTGPT_MINIO_PASSWORD}
+      STORAGE_PUBLIC_BUCKET: fastgpt-public
+      STORAGE_PRIVATE_BUCKET: fastgpt-private
+      STORAGE_S3_ENDPOINT: http://fastgpt-minio:9000
+      STORAGE_EXTERNAL_ENDPOINT: http://127.0.0.1:19000
+      STORAGE_S3_FORCE_PATH_STYLE: "true"
+      AIPROXY_API_ENDPOINT: ${FASTGPT_AIPROXY_API_ENDPOINT}
+      AIPROXY_API_TOKEN: ${FASTGPT_AIPROXY_API_TOKEN}
+      CHECK_INTERNAL_IP: "false"
+      USE_IP_LIMIT: "false"
+      LOG_ENABLE_CONSOLE: "true"
+      LOG_CONSOLE_LEVEL: info
+      HOSTNAME: 0.0.0.0
+      NO_PROXY: localhost,127.0.0.1,nginx,crm,identity-redis,mysql,fastgpt-mongo,fastgpt-redis,fastgpt-pg,fastgpt-minio,host.docker.internal
+      no_proxy: localhost,127.0.0.1,nginx,crm,identity-redis,mysql,fastgpt-mongo,fastgpt-redis,fastgpt-pg,fastgpt-minio,host.docker.internal
+    depends_on:
+      fastgpt-mongo:
+        condition: service_healthy
+      fastgpt-redis:
+        condition: service_healthy
+      fastgpt-pg:
+        condition: service_healthy
+      fastgpt-minio:
+        condition: service_healthy
+    networks: [identity-app, fastgpt-data]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:3000/"]
+      interval: 15s
+      timeout: 10s
+      retries: 30
+      start_period: 30s
+
+  nginx:
+    image: nginx:1.28.0-alpine
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    ports:
+      - "127.0.0.1:18080:8080"
+      - "127.0.0.1:18081:8081"
+      - "127.0.0.1:19000:9000"
+    depends_on:
+      crm:
+        condition: service_healthy
+      fastgpt:
+        condition: service_healthy
+      fastgpt-minio:
+        condition: service_healthy
+    networks: [identity-app, fastgpt-data]
+
+  acceptance-runner:
+    image: dachuanpro-identity-acceptance-runner:1.0.0
+    env_file: .env.identity-acceptance
+    command: ["corepack", "pnpm", "exec", "tsx", "scripts/run-identity-acceptance.ts"]
+    depends_on:
+      nginx:
+        condition: service_started
+      identity-redis:
+        condition: service_healthy
+    networks: [identity-app, identity-data, fastgpt-data]
+    profiles: [acceptance]
+
+networks:
+  identity-app:
+  identity-data:
+    internal: true
+  fastgpt-data:
+    internal: true
+
+volumes:
+  identity-mysql:
+  identity-redis:
+  fastgpt-mongo:
+  fastgpt-redis:
+  fastgpt-pg:
+  fastgpt-minio:

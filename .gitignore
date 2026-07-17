@@ -34,6 +34,9 @@ yarn-error.log*
 .env
 .env.local
 .env.mcp
+deploy/identity-acceptance/.env.identity-acceptance
+deploy/identity-acceptance/.build/
+deploy/identity-acceptance/acceptance-output/
 !.env.example
 
 # vercel

@@ -1,27 +1,48 @@
 diff --git a/packages/service/core/app/mcp.ts b/packages/service/core/app/mcp.ts
-index f896e37..0d13a7f 100644
+index f896e37..00c8b16 100644
 --- a/packages/service/core/app/mcp.ts
 +++ b/packages/service/core/app/mcp.ts
-@@ -14,6 +14,7 @@ import { UserError } from '@fastgpt/global/common/error/utils';
+@@ -14,6 +14,8 @@ import { UserError } from '@fastgpt/global/common/error/utils';
  import $RefParser from '@apidevtools/json-schema-ref-parser';
  import { getLogger, LogCategories } from '../../common/logger';
  import { isInternalAddress, PRIVATE_URL_TEXT } from '../../common/system/utils';
 +import { getTrustedMcpHeaders } from '../workflow/utils/context';
++import { randomUUID } from 'node:crypto';
  
  const logger = getLogger(LogCategories.MODULE.APP.MCP_TOOLS);
  
-@@ -244,6 +245,10 @@ export class MCPClient {
+@@ -212,6 +214,22 @@ const getErrorMessage = (error: unknown) => {
+   return String(error);
+ };
+ 
++export const createMcpRequestHeaders = (
++  configuredHeaders: Record<string, any>,
++  createRequestId: () => string = randomUUID
++) => {
++  const requestHeaders = Object.fromEntries(
++    Object.entries(configuredHeaders).filter(
++      ([name]) => !name.toLowerCase().startsWith('x-dachuan-')
++    )
++  );
++  const trustedHeaders = getTrustedMcpHeaders();
++  requestHeaders['x-dachuan-request-id'] =
++    trustedHeaders['x-dachuan-request-id'] || createRequestId();
++  Object.assign(requestHeaders, trustedHeaders);
++  return requestHeaders;
++};
++
+ export class MCPClient {
+   private client: Client;
+   private url: string;
+@@ -244,6 +262,7 @@ export class MCPClient {
    private async doConnect(): Promise<Client> {
      await assertMCPUrlNotInternal(this.url);
      const safeFetch = createMcpSafeFetch();
-+    const requestHeaders = Object.fromEntries(
-+      Object.entries(this.headers).filter(([name]) => !name.toLowerCase().startsWith('x-dachuan-'))
-+    );
-+    Object.assign(requestHeaders, getTrustedMcpHeaders());
++    const requestHeaders = createMcpRequestHeaders(this.headers);
  
      // 避免连接重复，强制关闭一次
      await this.client.close().catch(() => {});
-@@ -253,7 +258,7 @@ export class MCPClient {
+@@ -253,7 +272,7 @@ export class MCPClient {
        const transport = new StreamableHTTPClientTransport(new URL(this.url), {
          fetch: safeFetch,
          requestInit: {
@@ -30,7 +51,7 @@ index f896e37..0d13a7f 100644
          }
        });
        await this.client.connect(transport);
-@@ -268,12 +273,12 @@ export class MCPClient {
+@@ -268,12 +287,12 @@ export class MCPClient {
            new SSEClientTransport(new URL(this.url), {
              fetch: safeFetch,
              requestInit: {
@@ -101,8 +122,43 @@ index ded706c..171a598 100644
  export const updateWorkflowContextVal = (val: Partial<ContextType>) => {
    const context = getWorkflowContext();
    if (context) {
+diff --git a/packages/service/test/core/app/mcp.test.ts b/packages/service/test/core/app/mcp.test.ts
+index b93be41..2900372 100644
+--- a/packages/service/test/core/app/mcp.test.ts
++++ b/packages/service/test/core/app/mcp.test.ts
+@@ -24,6 +24,7 @@ import { StreamableHTTPError } from '@modelcontextprotocol/sdk/client/streamable
+ import {
+   MCPClient,
+   assertMCPUrlNotInternal,
++  createMcpRequestHeaders,
+   createMcpSafeFetch,
+   getMCPChildren
+ } from '../../../core/app/mcp';
+@@ -90,6 +91,22 @@ const getReachablePrivateHost = () => {
+ describe('MCPClient', () => {
+   const config = { url: 'https://example.com/mcp', headers: { Authorization: 'Bearer test' } };
+ 
++  it('creates a request id for admin discovery without accepting configured user identity', () => {
++    const headers = createMcpRequestHeaders(
++      {
++        Authorization: 'Bearer service-key',
++        'X-Dachuan-User-Assertion': 'untrusted-static-assertion',
++        'X-Dachuan-Request-Id': 'untrusted-static-request'
++      },
++      () => 'admin-discovery-request'
++    );
++
++    expect(headers).toEqual({
++      Authorization: 'Bearer service-key',
++      'x-dachuan-request-id': 'admin-discovery-request'
++    });
++  });
++
+   describe('assertMCPUrlNotInternal', () => {
+     it('should reject localhost MCP endpoints', async () => {
+       await expect(assertMCPUrlNotInternal('http://localhost:3000/mcp')).rejects.toBe(
 diff --git a/packages/service/test/core/workflow/utils/context.test.ts b/packages/service/test/core/workflow/utils/context.test.ts
-index c94f22c..9abc672 100644
+index c94f22c..aff625f 100644
 --- a/packages/service/test/core/workflow/utils/context.test.ts
 +++ b/packages/service/test/core/workflow/utils/context.test.ts
 @@ -3,6 +3,7 @@ import {
@@ -113,7 +169,7 @@ index c94f22c..9abc672 100644
    updateWorkflowContextVal
  } from '../../../../core/workflow/utils/context';
  import { ChatFileTypeEnum } from '@fastgpt/global/core/chat/constants';
-@@ -57,6 +58,36 @@ describe('WorkflowContext', () => {
+@@ -57,6 +58,38 @@ describe('WorkflowContext', () => {
          });
        });
      });
@@ -133,18 +189,20 @@ index c94f22c..9abc672 100644
 +          );
 +        });
 +
-+      const [first, second] = await Promise.all([
-+        run('assertion-user-1', 'request-user-1', 10),
-+        run('assertion-user-2', 'request-user-2', 1)
-+      ]);
++      const expected = Array.from({ length: 48 }, (_, index) => ({
++        assertion: `assertion-user-${index % 4}-tab-${index % 3}`,
++        requestId: `request-user-${index % 4}-tab-${index % 3}-call-${index}`,
++        delay: (47 - index) % 7
++      }));
++      const actual = await Promise.all(
++        expected.map((item) => run(item.assertion, item.requestId, item.delay))
++      );
 +
-+      expect(first).toEqual({
-+        'x-dachuan-user-assertion': 'assertion-user-1',
-+        'x-dachuan-request-id': 'request-user-1'
-+      });
-+      expect(second).toEqual({
-+        'x-dachuan-user-assertion': 'assertion-user-2',
-+        'x-dachuan-request-id': 'request-user-2'
++      actual.forEach((headers, index) => {
++        expect(headers).toEqual({
++          'x-dachuan-user-assertion': expected[index].assertion,
++          'x-dachuan-request-id': expected[index].requestId
++        });
 +      });
 +    });
    });

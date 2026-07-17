@@ -17,7 +17,7 @@ const toolDefinitions = [
   {
     name: "crm_customers_list",
     title: "查询客户列表",
-    description: "按当前用户业务线和负责省市范围查询未删除客户。",
+    description: "查询当前用户可查看的客户记录。",
     schema: listInput.extend({
       status: z.string().trim().max(40).optional(),
       province: z.string().trim().max(40).optional(),
@@ -25,11 +25,11 @@ const toolDefinitions = [
       assignedUserId: z.string().trim().max(100).optional(),
     }),
   },
-  { name: "crm_customer_get", title: "查询客户详情", description: "按 ID 查询有权访问的客户详情。", schema: idInput },
+  { name: "crm_customer_get", title: "查询客户详情", description: "查询当前用户可查看的客户详情。", schema: idInput },
   {
     name: "crm_customer_follows_list",
     title: "查询客户跟进记录",
-    description: "按客户 ID 查询有权访问的跟进记录。",
+    description: "查询当前用户可查看的客户跟进记录。",
     schema: z.object({ customerId: id, page, pageSize }),
   },
   {
@@ -44,18 +44,18 @@ const toolDefinitions = [
   {
     name: "crm_contracts_list",
     title: "查询合同列表",
-    description: "按客户权限范围查询未删除合同。",
+    description: "查询当前用户可查看的合同记录。",
     schema: listInput.extend({
       status: z.enum(["DRAFT", "SIGNED", "CANCELLED", "COMPLETED", "ARCHIVED"]).optional(),
       paymentStatus: z.enum(["UNPAID", "PARTIAL_PAID", "PAID"]).optional(),
       customerId: z.string().trim().max(100).optional(),
     }),
   },
-  { name: "crm_contract_get", title: "查询合同详情", description: "按 ID 查询有权访问的合同、明细和回款摘要。", schema: idInput },
+  { name: "crm_contract_get", title: "查询合同详情", description: "查询当前用户可查看的合同详情和回款摘要。", schema: idInput },
   {
     name: "crm_shipments_list",
     title: "查询发货记录",
-    description: "按客户权限范围查询发货记录和发货状态。",
+    description: "查询当前用户可查看的发货记录和状态。",
     schema: listInput.extend({
       status: z.enum(["NOT_SHIPPED", "PARTIAL_SHIPPED", "SHIPPED"]).optional(),
       contractId: z.string().trim().max(100).optional(),
@@ -64,18 +64,18 @@ const toolDefinitions = [
       dateEnd: z.string().date().optional(),
     }),
   },
-  { name: "crm_shipment_get", title: "查询发货详情", description: "按 ID 查询有权访问的发货记录。", schema: idInput },
+  { name: "crm_shipment_get", title: "查询发货详情", description: "查询当前用户可查看的发货详情。", schema: idInput },
   {
     name: "erp_suppliers_list",
     title: "查询供应商列表",
-    description: "按 ERP 角色权限查询未删除供应商。",
+    description: "查询当前用户可查看的供应商记录。",
     schema: listInput.extend({ active: z.boolean().optional() }),
   },
   { name: "erp_supplier_get", title: "查询供应商详情", description: "按 ID 查询供应商。", schema: idInput },
   {
     name: "erp_purchase_orders_list",
     title: "查询采购订单列表",
-    description: "查询采购订单；仓库角色只能查看已提交、部分到货或全部到货订单。",
+    description: "查询当前用户可查看的采购订单。",
     schema: listInput.extend({
       status: z.enum(["DRAFT", "ORDERED", "PARTIAL_RECEIVED", "RECEIVED", "CANCELLED"]).optional(),
       supplierId: z.string().trim().max(100).optional(),
@@ -108,7 +108,7 @@ const toolDefinitions = [
   {
     name: "erp_stock_movements_list",
     title: "查询库存流水",
-    description: "查询库存变动流水，不接受任意 SQL 或字段表达式。",
+    description: "查询当前用户可查看的库存变动流水。",
     schema: z.object({
       page,
       pageSize,
@@ -128,16 +128,16 @@ const toolDefinitions = [
       active: z.boolean().optional(),
     }),
   },
-  { name: "erp_bom_get", title: "查询用料清单详情", description: "按 ID 查询完整用料层级；沿用现有 BOM 详情权限。", schema: idInput },
+  { name: "erp_bom_get", title: "查询用料清单详情", description: "查询当前用户可查看的完整用料层级。", schema: idInput },
   {
     name: "erp_production_orders_list",
     title: "查询生产工单列表",
-    description: "查询当前版本生产工单；采购角色仅返回采购所需字段。",
+    description: "查询当前用户可查看的生产工单。",
     schema: listInput.extend({
       status: z.enum(["DRAFT", "ISSUED", "CHANGE_PENDING", "CANCELLED"]).optional(),
     }),
   },
-  { name: "erp_production_order_get", title: "查询生产工单详情", description: "按 ID 查询生产工单；采购角色返回受限视图。", schema: idInput },
+  { name: "erp_production_order_get", title: "查询生产工单详情", description: "查询当前用户可查看的生产工单详情。", schema: idInput },
   {
     name: "erp_kit_check",
     title: "只读齐套检查",
@@ -206,7 +206,7 @@ export function registerMcpTools(
   server: McpServer,
   context: {
     requestId: string;
-    user: McpUser;
+    user: McpUser | null;
     dataSource: McpDataSource;
     now: () => Date;
     includeBusinessTools?: boolean;
@@ -216,7 +216,7 @@ export function registerMcpTools(
     MCP_IDENTITY_TOOL_NAME,
     {
       title: "验证当前 ERP 身份",
-      description: "返回服务端依据短期用户断言并实时查询数据库得到的当前用户身份、角色和负责范围。不得传入 userId、角色或区域。",
+      description: "显示当前登录用户可用于本次只读会话的身份摘要。",
       inputSchema: whoAmIInput,
       annotations: {
         title: "验证当前 ERP 身份",
@@ -227,6 +227,14 @@ export function registerMcpTools(
       },
     },
     async () => {
+      if (!context.user) {
+        return createMcpToolErrorResult(
+          context.requestId,
+          MCP_IDENTITY_TOOL_NAME,
+          context.now(),
+          new McpToolError("IDENTITY_REQUIRED", "工具调用需要当前登录用户身份"),
+        );
+      }
       const envelope = resultEnvelope(context.requestId, MCP_IDENTITY_TOOL_NAME, context.now(), {
         userId: context.user.id,
         isActive: context.user.isActive !== false,
@@ -260,6 +268,14 @@ export function registerMcpTools(
         },
       },
       async (args: Record<string, unknown>) => {
+        if (!context.user) {
+          return createMcpToolErrorResult(
+            context.requestId,
+            definition.name,
+            context.now(),
+            new McpToolError("IDENTITY_REQUIRED", "工具调用需要当前登录用户身份"),
+          );
+        }
         try {
           const data = await context.dataSource.execute(
             definition.name,

@@ -92,11 +92,148 @@ function callWhoAmI(assertion: string, requestId: string, args: Record<string, u
 }
 
 describe("MCP strict dual identity PoC", () => {
-  it("requires service key, user assertion and request id together", async () => {
-    for (const missing of ["service", "assertion", "request-id"] as const) {
+  it("allows tools/list with service key and request id but no user assertion", async () => {
+    const deps = dependencies();
+    const response = await createMcpRequestHandler(deps)(request(
+      { jsonrpc: "2.0", id: 1, method: "tools/list", params: {} },
+      { requestId: "catalog-request-1" },
+    ));
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.result.tools.map((tool: { name: string }) => tool.name)).toEqual([
+      "dachuan_identity_who_am_i",
+    ]);
+    expect(deps.dataSource.findUser).not.toHaveBeenCalled();
+    expect(deps.dataSource.writeAudit).toHaveBeenCalledWith(expect.objectContaining({
+      requestId: "catalog-request-1",
+      userId: "audit-user",
+      method: "tools/list",
+      success: true,
+    }));
+  });
+
+  it("publishes a business-facing catalog without implementation or permission details", async () => {
+    const deps = dependencies();
+    deps.config.toolMode = "full-read-only";
+    const response = await createMcpRequestHandler(deps)(request(
+      { jsonrpc: "2.0", id: 1, method: "tools/list", params: {} },
+      { requestId: "catalog-safety-1" },
+    ));
+    const payload = await response.json();
+    const catalogText = payload.result.tools
+      .map((tool: { name: string; title?: string; description?: string }) =>
+        `${tool.name} ${tool.title ?? ""} ${tool.description ?? ""}`)
+      .join("\n");
+
+    expect(payload.result.tools).toHaveLength(22);
+    expect(catalogText).not.toMatch(/Prisma|MySQL|SQL|数据库|数据表|字段表达式/i);
+    expect(catalogText).not.toMatch(/角色|权限|负责省市|业务线|受限视图|SUPER_ADMIN/i);
+    expect(deps.dataSource.findUser).not.toHaveBeenCalled();
+  });
+
+  it("allows initialize and ping with service identity only", async () => {
+    const cases = [
+      {
+        method: "initialize",
+        params: {
+          protocolVersion: "2025-03-26",
+          capabilities: {},
+          clientInfo: { name: "fastgpt-admin", version: "4.15.1" },
+        },
+      },
+      { method: "ping", params: {} },
+    ];
+
+    for (const [index, input] of cases.entries()) {
+      const deps = dependencies();
+      const response = await createMcpRequestHandler(deps)(request(
+        { jsonrpc: "2.0", id: index + 1, ...input },
+        { requestId: `service-method-${index + 1}` },
+      ));
+
+      expect(response.status).toBe(200);
+      expect(deps.dataSource.findUser).not.toHaveBeenCalled();
+      expect(deps.dataSource.writeAudit).toHaveBeenCalledWith(expect.objectContaining({
+        requestId: `service-method-${index + 1}`,
+        userId: "audit-user",
+        method: input.method,
+        success: true,
+      }));
+    }
+  });
+
+  it("accepts the initialized notification with service identity only", async () => {
+    const deps = dependencies();
+    const response = await createMcpRequestHandler(deps)(request(
+      { jsonrpc: "2.0", method: "notifications/initialized", params: {} },
+      { requestId: "initialized-notification" },
+    ));
+
+    expect(response.status).toBe(202);
+    expect(deps.dataSource.findUser).not.toHaveBeenCalled();
+    expect(deps.dataSource.writeAudit).toHaveBeenCalledWith(expect.objectContaining({
+      requestId: "initialized-notification",
+      method: "notifications/initialized",
+      success: true,
+    }));
+  });
+
+  it("requires service identity and request id for discovery methods", async () => {
+    for (const missing of ["service", "request-id"] as const) {
       const deps = dependencies();
       const response = await createMcpRequestHandler(deps)(request(
         { jsonrpc: "2.0", id: 1, method: "tools/list", params: {} },
+        {
+          serviceKey: missing === "service" ? "wrong" : "service-secret",
+          requestId: missing === "request-id" ? undefined : "catalog-auth-check",
+        },
+      ));
+
+      expect(response.status).toBe(missing === "service" ? 401 : 400);
+      expect(deps.dataSource.findUser).not.toHaveBeenCalled();
+      if (missing === "service") {
+        expect(deps.dataSource.writeAudit).toHaveBeenCalledWith(expect.objectContaining({
+          requestId: "catalog-auth-check",
+          rejectionReason: "SERVICE_KEY_INVALID",
+        }));
+      }
+    }
+  });
+
+  it("rejects a business tool without an assertion before any data access", async () => {
+    const deps = dependencies();
+    deps.config.toolMode = "full-read-only";
+    const response = await createMcpRequestHandler(deps)(request(
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: { name: "crm_customers_list", arguments: {} },
+      },
+      { requestId: "business-without-assertion" },
+    ));
+
+    expect(response.status).toBe(400);
+    expect(deps.dataSource.findUser).not.toHaveBeenCalled();
+    expect(deps.dataSource.execute).not.toHaveBeenCalled();
+    expect(deps.dataSource.writeAudit).toHaveBeenCalledWith(expect.objectContaining({
+      requestId: "business-without-assertion",
+      toolName: "crm_customers_list",
+      rejectionReason: "ASSERTION_MISSING",
+    }));
+  });
+
+  it("requires service key, user assertion and request id together for tools/call", async () => {
+    for (const missing of ["service", "assertion", "request-id"] as const) {
+      const deps = dependencies();
+      const response = await createMcpRequestHandler(deps)(request(
+        {
+          jsonrpc: "2.0",
+          id: 1,
+          method: "tools/call",
+          params: { name: "dachuan_identity_who_am_i", arguments: {} },
+        },
         {
           serviceKey: missing === "service" ? "wrong" : "service-secret",
           assertion: missing === "assertion" ? undefined : "assertion-user-1",
@@ -113,7 +250,12 @@ describe("MCP strict dual identity PoC", () => {
     deps.config.apiKeys[0].userId = "erp-user-1";
 
     const response = await createMcpRequestHandler(deps)(request(
-      { jsonrpc: "2.0", id: 1, method: "tools/list", params: {} },
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: { name: "dachuan_identity_who_am_i", arguments: {} },
+      },
       { requestId: "legacy-bypass-denied" },
     ));
 
@@ -223,6 +365,37 @@ describe("MCP strict dual identity PoC", () => {
     expect(firstBody.result.structuredContent.meta.requestId).toBe("concurrent-request-1");
     expect(secondBody.result.structuredContent.data.userId).toBe("erp-user-2");
     expect(secondBody.result.structuredContent.meta.requestId).toBe("concurrent-request-2");
+  });
+
+  it("keeps many sessions and tabs isolated under interleaved MCP load", async () => {
+    const deps = dependencies();
+    vi.mocked(deps.dataSource.findUser!).mockImplementation(async (userId: string) => {
+      await new Promise((resolve) => setTimeout(resolve, userId.endsWith("1") ? 5 : 1));
+      return users[userId] ?? null;
+    });
+    const handle = createMcpRequestHandler(deps);
+    const expected = Array.from({ length: 40 }, (_, index) => ({
+      userId: index % 2 === 0 ? "erp-user-1" : "erp-user-2",
+      assertion: index % 2 === 0 ? "assertion-user-1" : "assertion-user-2",
+      requestId: `load-tab-${index % 5}-request-${index}`,
+    }));
+
+    const responses = await Promise.all(expected.map((item) =>
+      handle(callWhoAmI(item.assertion, item.requestId))));
+    const payloads = await Promise.all(responses.map((response) => response.json()));
+
+    payloads.forEach((payload, index) => {
+      expect(payload.result.structuredContent.data.userId).toBe(expected[index].userId);
+      expect(payload.result.structuredContent.meta.requestId).toBe(expected[index].requestId);
+    });
+    const audits = vi.mocked(deps.dataSource.writeAudit).mock.calls.map(([audit]) => audit);
+    expect(audits).toHaveLength(40);
+    expected.forEach((item) => {
+      expect(audits).toContainEqual(expect.objectContaining({
+        requestId: item.requestId,
+        userId: item.userId,
+      }));
+    });
   });
 
   it("applies user disablement and role changes from the database immediately", async () => {

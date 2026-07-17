@@ -37,7 +37,13 @@ sequenceDiagram
 
 ## 严格鉴权
 
-MCP 正式模式每次请求必须同时具备：
+MCP 正式模式按 JSON-RPC 方法分级鉴权：
+
+- `initialize`、`ping`、`tools/list`（以及握手通知）要求 FastGPT 服务 Key 和 requestId，不要求用户断言，也不读取业务用户；
+- `tools/call` 和其他非发现方法要求 FastGPT 服务 Key、用户断言和 requestId 三者齐全；
+- 任何工具执行都不能从服务身份获得业务身份，缺少用户断言时 `who_am_i` 与业务工具均在执行前拒绝。
+
+工具调用请求头为：
 
 ```text
 Authorization: Bearer <FastGPT 服务 Key>
@@ -45,7 +51,7 @@ X-Dachuan-User-Assertion: <Ed25519 短期用户令牌>
 X-Dachuan-Request-Id: <8～128 位 requestId>
 ```
 
-缺少或无效的任一项都会在执行工具前拒绝。`MCP_LEGACY_USER_BOUND_AUTH` 默认关闭；即使服务 Key 配置中残留 `userId`，也不能绕过用户断言。仅隔离测试可显式设置 `MCP_LEGACY_USER_BOUND_AUTH=true`，生产禁止开启。
+对应方法缺少或携带无效凭证会在执行工具前拒绝。`MCP_LEGACY_USER_BOUND_AUTH` 默认关闭；即使服务 Key 配置中残留 `userId`，也不能绕过用户断言。仅隔离测试可显式设置 `MCP_LEGACY_USER_BOUND_AUTH=true`，生产禁止开启。
 
 断言算法固定为 EdDSA/Ed25519，包含 `kid`、`iss`、`sub`、`aud`、`iat`、`nbf`、`exp`、`jti`。只信任 `sub` 作为候选 User.id；角色和范围不写入令牌。默认有效期 600 秒，配置只允许 300～900 秒。
 
@@ -55,26 +61,27 @@ Redis 保存 JTI 有效/撤销状态和限流窗口，键中只出现输入值�
 
 已检查 FastGPT `v4.15.1` 对应源码提交 `a0aec83f2ae444f5783416d17d0d9d12b7c1dc39`。现有服务端插件调用只支持固定插件 Token 和普通 `systemVar/input`，MCP 配置也只有固定请求头，无法安全动态注入逐用户断言；把断言放入变量或提示词会违反身份边界。因此采用独立最小补丁：
 
-- 只改 5 个 FastGPT 文件；
+- 只改 6 个 FastGPT 文件（其中 2 个为测试）；
 - 复用 FastGPT 已有 `AsyncLocalStorage`，不新增全局身份变量；
 - 将两个可信头绑定当前工作流，并在 Streamable HTTP/SSE MCP 出站时删除所有静态 `X-Dachuan-*` 头后注入当前请求值；
-- 包含两用户并发隔离测试；
+- 管理端工具发现没有用户上下文时生成独立 requestId，但不会生成或接受静态用户断言；
+- 包含 48 路多会话、多标签页并发隔离测试；
 - 应用脚本校验精确提交，可预检、自动应用和反向回滚。
 
-补丁位于 `deploy/fastgpt/v4.15.1/`。自定义镜像必须固定为 `dachuan-fastgpt:v4.15.1-identity-poc.1`，不得使用 `latest`。
+补丁位于 `deploy/fastgpt/v4.15.1/`。隔离验收镜像固定为 `dachuan-fastgpt:v4.15.1-identity-acceptance.1`，不得使用 `latest`；生产候选镜像还必须固定 digest。
 
-FastGPT 管理界面的 `/api/core/app/mcpTools/getTools` 不在聊天工作流上下文中，没有可信用户断言；生产严格模式会按设计拒绝该接口直接刷新工具列表。PoC 工具定义应在隔离非生产环境显式开启兼容模式完成发现后导入，或使用已审查的应用配置，随后恢复 strict 配置再构建生产镜像。生产不得为管理界面开启 legacy。下一阶段必须验证工具配置导入与运行时动态调用两条路径，再开放 21 个业务工具。
+FastGPT 管理界面的 `/api/core/app/mcpTools/getTools` 不在聊天工作流上下文中。补丁会剥离配置中的静态 `X-Dachuan-*` 头，仅为该 MCP 连接生成请求级 requestId；MCP 因此可以完成 `initialize` 和 `tools/list`，但任何 `tools/call` 仍会因缺少用户断言而拒绝。无需、也不得为工具发现开启 legacy。真实聊天请求的断言只来自 Gateway 请求头并绑定当前工作流上下文。
 
 ## 配置与本地验证
 
 1. 生成服务 Key 哈希：`corepack pnpm mcp:keygen`。
 2. 生成 Ed25519 密钥文件：`corepack pnpm agent:keygen -- C:\安全目录\agent-auth-keys.json dachuan-agent-2026-07-a`。脚本拒绝覆盖已有文件，也不会把私钥打印到终端。
 3. 根据 `.env.mcp.example` 把密钥内容写入服务端 Secret/环境配置，不提交该 JSON 文件。
-4. FastGPT MCP Server 使用固定 `Authorization: Bearer <MCP 服务 Key>`；不要配置用户断言静态值。工具发现按上一段的隔离环境流程完成。
+4. FastGPT MCP Server 使用固定 `Authorization: Bearer <MCP 服务 Key>`；不要配置用户断言或 requestId 静态值。管理端发现由固定补丁生成 requestId。
 5. CRM 内嵌入口只请求 `/api/agent-gateway/chat`，不要让浏览器直接持有 FastGPT Chat Key。
 6. 在隔离数据库和 Redis 中运行 PoC，调用 `dachuan_identity_who_am_i`，核对返回 userId、响应 requestId 与 `OperationLog`。
 
-FastGPT 补丁应用和回滚见 `deploy/fastgpt/v4.15.1/README.md`。自动化证据见 `IDENTITY_POC_TEST_REPORT.md`。
+FastGPT 补丁应用和回滚见 `deploy/fastgpt/v4.15.1/README.md`。完整隔离编排和逐项验收见 `deploy/identity-acceptance/README.md`。自动化证据见 `IDENTITY_POC_TEST_REPORT.md`。
 
 ## 密钥轮换
 

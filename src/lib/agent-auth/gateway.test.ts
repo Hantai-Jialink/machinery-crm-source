@@ -79,6 +79,61 @@ describe("agent auth gateway", () => {
     expect(new Set(forwarded.map((item) => item.requestId)).size).toBe(2);
   });
 
+  it("keeps many sessions and browser tabs isolated under interleaved load", async () => {
+    const tokens = tokenService();
+    const forwarded: Array<{ assertion: string; requestId: string; marker: string }> = [];
+    const handler = createAgentGatewayHandler({
+      config: {
+        fastGptChatUrl: "https://fastgpt.internal/api/v1/chat/completions",
+        fastGptApiKey: "fastgpt-chat-key",
+        maxRequestBytes: 100_000,
+        allowedOrigins: ["https://crm.test"],
+      },
+      tokenService: tokens,
+      async loadLoggedInUser(request) {
+        const userId = request.headers.get("x-test-session-user");
+        const delay = Number(request.headers.get("x-test-delay") || "0");
+        await new Promise((resolve) => setTimeout(resolve, delay));
+        return userId ? { id: userId } : null;
+      },
+      async fetchFastGpt(_url, init) {
+        const headers = new Headers(init?.headers);
+        const body = JSON.parse(String(init?.body || "{}")) as { marker: string };
+        await new Promise((resolve) => setTimeout(resolve, Number(body.marker.split("-").at(-1)) % 5));
+        forwarded.push({
+          assertion: headers.get("x-dachuan-user-assertion") || "",
+          requestId: headers.get("x-dachuan-request-id") || "",
+          marker: body.marker,
+        });
+        return Response.json({ marker: body.marker });
+      },
+    });
+
+    const calls = Array.from({ length: 48 }, (_, index) => {
+      const userId = `erp-user-${index % 4}`;
+      const marker = `${userId}-tab-${index % 3}-call-${index}`;
+      return handler(new Request("https://crm.test/api/agent-gateway/chat", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          origin: "https://crm.test",
+          "x-test-session-user": userId,
+          "x-test-delay": String((47 - index) % 7),
+        },
+        body: JSON.stringify({ marker }),
+      }));
+    });
+
+    const responses = await Promise.all(calls);
+    expect(responses.every((response) => response.status === 200)).toBe(true);
+    expect(forwarded).toHaveLength(48);
+    expect(new Set(forwarded.map((item) => item.requestId)).size).toBe(48);
+    for (const item of forwarded) {
+      const verified = await tokens.verify(item.assertion);
+      expect(item.marker.startsWith(`${verified.userId}-tab-`)).toBe(true);
+    }
+  });
+
   it("requires a current logged-in ERP user and never forwards browser credentials", async () => {
     let called = false;
     const handler = createAgentGatewayHandler({
