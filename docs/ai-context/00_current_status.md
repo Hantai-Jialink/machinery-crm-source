@@ -5,10 +5,18 @@
 - 当前开发必须保护已有 CRM 功能、权限和正式数据。
 - 每次重要补丁完成后，需要更新本文件。
 
+## 2026-07-17｜统一 Agent 可信身份桥接 PoC（已开发、未部署）
+
+- 基于 `codex/unified-readonly-mcp` 的 `dd0338f`，新增 CRM 登录 Session → Agent Auth Gateway → FastGPT 4.15.1 请求上下文 → MCP `dachuan_identity_who_am_i` → `OperationLog` 的最小闭环。
+- 用户断言为 Ed25519/EdDSA，默认 10 分钟，包含 kid/iss/sub/aud/iat/nbf/exp/jti；Redis 保存 JTI、撤销和限流状态。服务 Key 不再绑定业务用户，旧路径生产默认关闭。
+- MCP 每次按签名 sub 实时查询 isActive、role、region、territories、viewScope；身份不来自模型变量、提示词、工具参数或全局变量。
+- FastGPT 原生插件无法安全动态注入逐请求身份，已为精确 v4.15.1 提交提供可应用、可回滚的最小 AsyncLocalStorage 补丁和并发隔离测试。
+- PoC 默认只暴露 `dachuan_identity_who_am_i`；搜索策略网关和既有 21 个只读业务工具的新身份权限矩阵尚未进入本阶段。未修改 Prisma/migration，未连接生产数据库、未部署、未推送。
+
 ## 2026-07-17｜统一只读 CRM/ERP MCP v1（已开发、未部署）
 
 - 基于 `29d92da` 新增一个 Streamable HTTP MCP 地址，按 CRM/ERP 模块提供客户、跟进、产品、合同、发货、供应商、采购订单、库存、出入库、BOM、生产工单和齐套检查共 21 个只读工具。
-- API Key 以 SHA-256 保存并绑定现有用户；每次请求实时复用用户角色、启用状态、客户业务线/区域范围及现有 ERP 角色限制。
+- 初版曾将 API Key 哈希绑定现有用户；该认证方式已被上方可信身份 PoC 取代，生产环境禁止开启，仅保留非生产隔离测试兼容路径。
 - 所有协议调用与鉴权拒绝写入现有 `OperationLog`；不新增表、字段或 migration。即时齐套仅计算，不保存结果或变更库存。
 - 新增 Docker、环境变量、Nginx、FastGPT 4.15.1 接入与测试文档；独立容器仅监听本机 3010，建议由独立域名反向代理到 `/api/mcp`。
 - 本功能尚未部署，未连接生产数据库，未修改任何业务数据；最终全量测试结果见 `docs/mcp/TEST_REPORT.md`。

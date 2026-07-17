@@ -25,6 +25,8 @@ function createDependencies(): McpApplicationDependencies {
       rejectedAuditUserId: "audit-user-1",
       allowedHosts: ["mcp.example.com"],
       allowedOrigins: [],
+      legacyUserBindingEnabled: true,
+      toolMode: "full-read-only",
     },
     dataSource: {
       findActiveUser: vi.fn().mockResolvedValue(user),
@@ -95,6 +97,7 @@ describe("DachuanPro MCP request handler", () => {
     expect(response.status).toBe(200);
     const payload = await response.json();
     expect(payload.result.tools.map((tool: { name: string }) => tool.name)).toEqual([
+      "dachuan_identity_who_am_i",
       "crm_customers_list",
       "crm_customer_get",
       "crm_customer_follows_list",
@@ -228,7 +231,7 @@ describe("DachuanPro MCP request handler", () => {
     const result = await client.callTool({ name: "crm_customers_list", arguments: { page: 1, pageSize: 20 } });
     await client.close();
 
-    expect(catalog.tools).toHaveLength(21);
+    expect(catalog.tools).toHaveLength(22);
     expect(result.isError).not.toBe(true);
     expect(result.structuredContent).toMatchObject({ ok: true, meta: { tool: "crm_customers_list" } });
   });

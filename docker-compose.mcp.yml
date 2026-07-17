@@ -1,12 +1,27 @@
 services:
+  dachuanpro-mcp-redis:
+    image: redis:7.4-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--save", "60", "1"]
+    volumes:
+      - dachuanpro-mcp-redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
   dachuanpro-mcp:
     build:
       context: .
       dockerfile: Dockerfile.mcp
-    image: dachuanpro-crm-erp-mcp:1.0.0
+    image: dachuanpro-crm-erp-mcp:1.1.0-identity-poc
     restart: unless-stopped
     env_file:
       - .env.mcp
+    depends_on:
+      dachuanpro-mcp-redis:
+        condition: service_healthy
     ports:
       - "127.0.0.1:3010:3010"
     healthcheck:
@@ -15,3 +30,6 @@ services:
       timeout: 5s
       start_period: 30s
       retries: 3
+
+volumes:
+  dachuanpro-mcp-redis-data:

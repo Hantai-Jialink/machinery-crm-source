@@ -35,3 +35,9 @@
 背景：FastGPT 需要一个地址同时查询 CRM 与 ERP，但不得绕过既有角色/负责范围、开放任意 SQL或引入业务写操作。
 影响范围：新增 `/api/mcp`、21 个只读工具、API Key 哈希绑定、`OperationLog` 审计和独立 Docker/Nginx 配置；不修改 Prisma schema、migration、既有业务 API 或页面。
 回滚或调整方式：停止独立 MCP 容器并移除反向代理，回滚应用提交即可；数据库无需回滚，历史审计日志保留。
+
+日期：2026-07-17
+决策：统一 Agent 使用 FastGPT 服务身份 Key 与每名 ERP 用户 Ed25519 短期断言的双身份体系；FastGPT 4.15.1 通过请求级最小补丁传递断言。
+背景：FastGPT 原生插件只能传固定 Token 和普通变量，不能在 MCP 调用时安全动态注入可信用户身份；共享角色 Key 或把身份写进提示词会造成越权和并发串身份风险。
+影响范围：新增 CRM Agent Auth Gateway、Redis JTI/撤销/限流、`who_am_i`、严格三请求头校验和 FastGPT 固定提交补丁；MCP 每次调用实时查询数据库权限。旧 API Key 绑定用户路径生产默认关闭，PoC 默认隐藏 21 个业务工具。
+回滚或调整方式：回滚 CRM/MCP 提交，反向应用 FastGPT patch 并恢复原固定镜像；不执行数据库回滚，保留既有 OperationLog。若未来 FastGPT 原生提供可信请求上下文插件，可在相同三请求头协议下替换补丁。

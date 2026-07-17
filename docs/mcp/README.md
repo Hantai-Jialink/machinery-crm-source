@@ -2,6 +2,8 @@
 
 服务入口为 `POST https://mcp.dachuan.pro/api/mcp`，传输协议优先使用 Streamable HTTP。服务以现有 Next.js Route Handler 运行，查询只经过固定 Prisma 调用；没有 SQL、资源写入或审批类工具。
 
+当前身份桥接 PoC 默认 `MCP_TOOL_MODE=IDENTITY_POC`，只暴露 `dachuan_identity_who_am_i`。下列 21 个工具保留在代码中但尚未通过新身份体系的完整权限矩阵准入；PoC 验收前不得在生产切换为 `FULL_READ_ONLY`。
+
 ## 工具目录
 
 | 模块 | 工具 |
@@ -21,7 +23,7 @@
 
 ## 鉴权与数据范围
 
-每个 API Key 在 `MCP_API_KEYS_JSON` 中绑定一个现有 `User.id`。服务端只保存 Key 的 SHA-256，每次请求重新读取该用户；禁用用户会立即失效。
+FastGPT 服务 Key 只标识调用服务，不绑定 `User.id`。CRM 内嵌 Gateway 根据现有登录 Session 签发 5～15 分钟 Ed25519 用户断言；MCP 同时校验服务 Key、断言和 requestId，并按断言 `sub` 每次重新读取数据库用户。禁用、角色或负责范围变化立即生效，令牌中的自报角色/区域不存在也不受信任。
 
 - `SALES`、`FOREIGN_TRADE`：客户、跟进、合同和发货沿用业务线及省市负责范围。
 - `SUPER_ADMIN`：沿用现有全局视图；BOM 详情和即时齐套检查仍仅管理员可用。
@@ -56,16 +58,16 @@ corepack pnpm mcp:keygen
 
 ## FastGPT 4.15.1 接入
 
-1. 在 FastGPT 的 MCP Server 配置中选择 HTTP/SSE 类型入口。
-2. 地址填写 `https://mcp.dachuan.pro/api/mcp`。
-3. 自定义请求头填写 `Authorization: Bearer <API_KEY>`。
-4. 保存后刷新工具列表，应发现本页列出的 21 个工具。
-5. 先调用 `crm_products_list` 或该 Key 角色允许的列表工具验证；业务查询错误会出现在统一返回的 `error` 字段。
+1. 对精确 FastGPT 4.15.1 源码应用 `deploy/fastgpt/v4.15.1` 补丁，并固定自定义镜像标签。
+2. 在 FastGPT 的 MCP Server 配置中选择 HTTP/SSE，地址填写 `https://mcp.dachuan.pro/api/mcp`。
+3. 固定请求头只填写 `Authorization: Bearer <MCP_SERVICE_KEY>`；不得静态配置用户断言。
+4. CRM 内嵌入口请求 `/api/agent-gateway/chat`，Gateway 用专用 FastGPT Chat Key 调用 `/api/v1/chat/completions`。
+5. PoC 先调用 `dachuan_identity_who_am_i`，确认响应、审计和当前 ERP 用户一致。
 
-FastGPT 4.15.1 的实现会先尝试 Streamable HTTP；仅在特定 4xx 响应时回退旧 SSE，因此该地址无需另设 SSE 端点。反向代理需允许 POST，并保留 Authorization、Host 和 `MCP-Protocol-Version` 请求头。
+FastGPT 4.15.1 的实现会先尝试 Streamable HTTP；仅在特定 4xx 响应时回退旧 SSE，因此该地址无需另设 SSE 端点。反向代理需允许 POST，并保留 Authorization、`X-Dachuan-User-Assertion`、`X-Dachuan-Request-Id`、Host 和 `MCP-Protocol-Version`；访问日志不得记录两个身份头。
 
 ## 审计
 
-每个 MCP 协议请求写入现有 `OperationLog`：`action=MCP_CALL`、`entityType=McpRequest`。记录请求 ID、Key 名称、协议方法、工具名、参数字段名、成功状态、HTTP 状态和耗时；不记录参数值或明文 API Key，避免客户搜索词、ID 等业务信息进入日志。来源或 Key 被拒绝时，以 `MCP_AUDIT_USER_ID` 指定的既有用户作为日志外键归属。已认证调用若审计写入失败，会返回 503 且不交付查询结果。
+每个 MCP 协议请求写入现有 `OperationLog`：`action=MCP_CALL`、`entityType=McpRequest`。记录可信 ERP userId、请求 ID、Key 名称、协议方法、工具名、参数字段名、成功状态、HTTP 状态、耗时和固定拒绝原因；不记录参数值、查询原文、断言或明文 API Key。无法从无效断言可信确定用户时，以 `MCP_AUDIT_USER_ID` 归属拒绝日志。已认证调用若审计写入失败，会返回 503 且不交付查询结果。
 
-部署和回滚见 [DEPLOYMENT.md](./DEPLOYMENT.md)，验证证据见 [TEST_REPORT.md](./TEST_REPORT.md)。
+身份架构和威胁模型见 [IDENTITY_POC.md](./IDENTITY_POC.md) 与 [IDENTITY_THREAT_MODEL.md](./IDENTITY_THREAT_MODEL.md)。部署和回滚见 [DEPLOYMENT.md](./DEPLOYMENT.md)，验证证据见 [IDENTITY_POC_TEST_REPORT.md](./IDENTITY_POC_TEST_REPORT.md)。

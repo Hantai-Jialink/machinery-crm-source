@@ -9,6 +9,9 @@ const id = z.string().trim().min(1).max(100).describe("记录 ID");
 
 const listInput = z.object({ page, pageSize, search });
 const idInput = z.object({ id });
+const whoAmIInput = z.object({}).strict();
+
+export const MCP_IDENTITY_TOOL_NAME = "dachuan_identity_who_am_i";
 
 const toolDefinitions = [
   {
@@ -206,8 +209,41 @@ export function registerMcpTools(
     user: McpUser;
     dataSource: McpDataSource;
     now: () => Date;
+    includeBusinessTools?: boolean;
   },
 ) {
+  server.registerTool(
+    MCP_IDENTITY_TOOL_NAME,
+    {
+      title: "验证当前 ERP 身份",
+      description: "返回服务端依据短期用户断言并实时查询数据库得到的当前用户身份、角色和负责范围。不得传入 userId、角色或区域。",
+      inputSchema: whoAmIInput,
+      annotations: {
+        title: "验证当前 ERP 身份",
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async () => {
+      const envelope = resultEnvelope(context.requestId, MCP_IDENTITY_TOOL_NAME, context.now(), {
+        userId: context.user.id,
+        isActive: context.user.isActive !== false,
+        role: context.user.role,
+        region: context.user.region,
+        territories: context.user.territories,
+        viewScope: context.user.viewScope,
+      });
+      return {
+        content: [{ type: "text" as const, text: JSON.stringify(envelope) }],
+        structuredContent: envelope,
+      };
+    },
+  );
+
+  if (context.includeBusinessTools === false) return;
+
   for (const definition of toolDefinitions) {
     server.registerTool(
       definition.name,

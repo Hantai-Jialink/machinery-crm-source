@@ -2,11 +2,13 @@ import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { createMcpToolErrorResult, McpToolError, registerMcpTools } from "@/lib/mcp/tools";
+import { AgentAssertionError } from "@/lib/agent-auth/token";
 
 export type McpRole = "SUPER_ADMIN" | "SALES" | "FOREIGN_TRADE" | "PURCHASE" | "WAREHOUSE";
 
 export type McpUser = {
   id: string;
+  isActive?: boolean;
   name?: string | null;
   email?: string | null;
   role: McpRole;
@@ -17,7 +19,7 @@ export type McpUser = {
 
 export type McpApiKeyConfig = {
   name: string;
-  userId: string;
+  userId?: string;
   keyHash: string;
 };
 
@@ -26,6 +28,8 @@ export type McpApplicationConfig = {
   rejectedAuditUserId: string;
   allowedHosts: string[];
   allowedOrigins: string[];
+  legacyUserBindingEnabled?: boolean;
+  toolMode?: "identity-poc" | "full-read-only";
 };
 
 export type McpAuditInput = {
@@ -39,20 +43,39 @@ export type McpAuditInput = {
   statusCode: number;
   durationMs: number;
   createdAt: Date;
+  rejectionReason?: string;
 };
 
 export type McpDataSource = {
-  findActiveUser(userId: string): Promise<McpUser | null>;
+  findUser?(userId: string): Promise<McpUser | null>;
+  findActiveUser?(userId: string): Promise<McpUser | null>;
   execute(toolName: string, args: Record<string, unknown>, user: McpUser): Promise<unknown>;
   writeAudit(input: McpAuditInput): Promise<void>;
+};
+
+export type McpIdentityVerifier = {
+  verify(assertion: string): Promise<{ userId: string; jti: string }>;
 };
 
 export type McpApplicationDependencies = {
   config: McpApplicationConfig;
   dataSource: McpDataSource;
+  identityVerifier?: McpIdentityVerifier;
   now?: () => Date;
   createRequestId?: () => string;
 };
+
+function validRequestId(value: string | null) {
+  if (!value) return null;
+  const normalized = value.trim();
+  return /^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$/.test(normalized) ? normalized : null;
+}
+
+async function findCurrentUser(dataSource: McpDataSource, userId: string) {
+  if (dataSource.findUser) return dataSource.findUser(userId);
+  if (dataSource.findActiveUser) return dataSource.findActiveUser(userId);
+  throw new Error("MCP user data source is not configured");
+}
 
 type JsonRpcRequest = {
   jsonrpc?: string;
@@ -157,15 +180,22 @@ export function createMcpRequestHandler(dependencies: McpApplicationDependencies
 
   return async function handleMcpRequest(request: Request): Promise<Response> {
     const startedAt = now();
-    const requestId = createRequestId();
+    let requestId = createRequestId();
     const rpcRequest = await readJsonRpcRequest(request);
 
-    const rejectWithAudit = async (status: number, code: number, message: string, apiKeyName: string) => {
+    const rejectWithAudit = async (
+      status: number,
+      code: number,
+      message: string,
+      apiKeyName: string,
+      rejectionReason: string,
+      auditUserId = dependencies.config.rejectedAuditUserId,
+    ) => {
       const completedAt = now();
       try {
         await dependencies.dataSource.writeAudit({
           requestId,
-          userId: dependencies.config.rejectedAuditUserId,
+          userId: auditUserId,
           apiKeyName,
           method: rpcRequest.method || "unknown",
           toolName: rpcRequest.method === "tools/call" ? rpcRequest.params?.name : undefined,
@@ -174,6 +204,7 @@ export function createMcpRequestHandler(dependencies: McpApplicationDependencies
           statusCode: status,
           durationMs: Math.max(0, completedAt.getTime() - startedAt.getTime()),
           createdAt: completedAt,
+          rejectionReason,
         });
       } catch {
         return jsonRpcError(503, -32603, "MCP audit log is unavailable", rpcRequest.id);
@@ -182,25 +213,57 @@ export function createMcpRequestHandler(dependencies: McpApplicationDependencies
     };
 
     if (!isAllowedRequestSource(request, dependencies.config)) {
-      return rejectWithAudit(403, -32003, "MCP request source is not allowed", "[source-rejected]");
+      return rejectWithAudit(403, -32003, "MCP request source is not allowed", "[source-rejected]", "SOURCE_NOT_ALLOWED");
     }
 
     const apiKey = findApiKey(request.headers.get("authorization"), dependencies.config.apiKeys);
     if (!apiKey) {
       console.warn(JSON.stringify({ event: "MCP_AUTH_REJECTED", requestId, method: rpcRequest.method || "unknown" }));
-      return rejectWithAudit(401, -32001, "Invalid MCP API key", "[key-rejected]");
+      return rejectWithAudit(401, -32001, "Invalid MCP API key", "[key-rejected]", "SERVICE_KEY_INVALID");
     }
 
-    const user = await dependencies.dataSource.findActiveUser(apiKey.userId);
+    let userId: string | undefined;
+    const assertion = request.headers.get("x-dachuan-user-assertion")?.trim();
+    const headerRequestId = validRequestId(request.headers.get("x-dachuan-request-id"));
+    const useLegacyIdentity = dependencies.config.legacyUserBindingEnabled === true && !assertion;
+
+    if (useLegacyIdentity) {
+      userId = apiKey.userId;
+      if (!userId) {
+        return rejectWithAudit(403, -32003, "Legacy MCP identity is not configured", apiKey.name, "LEGACY_IDENTITY_MISSING");
+      }
+    } else {
+      if (!headerRequestId) {
+        return rejectWithAudit(400, -32600, "Missing or invalid X-Dachuan-Request-Id", apiKey.name, "REQUEST_ID_INVALID");
+      }
+      requestId = headerRequestId;
+      if (!assertion) {
+        return rejectWithAudit(400, -32600, "Missing X-Dachuan-User-Assertion", apiKey.name, "ASSERTION_MISSING");
+      }
+      if (!dependencies.identityVerifier) {
+        return rejectWithAudit(503, -32603, "MCP identity verifier is unavailable", apiKey.name, "IDENTITY_VERIFIER_UNAVAILABLE");
+      }
+      try {
+        userId = (await dependencies.identityVerifier.verify(assertion)).userId;
+      } catch (error) {
+        const reason = error instanceof AgentAssertionError ? error.code : "ASSERTION_INVALID";
+        return rejectWithAudit(401, -32001, "Invalid user assertion", apiKey.name, reason);
+      }
+    }
+
+    const user = await findCurrentUser(dependencies.dataSource, userId);
     if (!user) {
       console.warn(JSON.stringify({ event: "MCP_USER_REJECTED", requestId, apiKeyName: apiKey.name }));
-      return rejectWithAudit(403, -32003, "MCP user is disabled or missing", apiKey.name);
+      return rejectWithAudit(403, -32003, "MCP user is disabled or missing", apiKey.name, "USER_NOT_FOUND");
+    }
+    if (user.isActive === false) {
+      return rejectWithAudit(403, -32003, "MCP user is disabled or missing", apiKey.name, "USER_DISABLED", user.id);
     }
 
     const server = new McpServer(
       { name: "dachuanpro-crm-erp", version: "1.0.0" },
       {
-        instructions: "DachuanPro CRM/ERP 只读查询服务。所有工具均受当前 API Key 所绑定用户的角色和负责范围限制。",
+        instructions: "DachuanPro CRM/ERP 只读查询服务。服务 API Key 只标识 FastGPT；当前用户由短期签名断言确定，并在每次调用时实时读取数据库权限。",
       },
     );
     const transport = new WebStandardStreamableHTTPServerTransport({
@@ -212,6 +275,7 @@ export function createMcpRequestHandler(dependencies: McpApplicationDependencies
       user,
       dataSource: dependencies.dataSource,
       now,
+      includeBusinessTools: dependencies.config.toolMode !== "identity-poc",
     });
 
     let response: Response;

@@ -1075,11 +1075,12 @@ async function queryProductionOrder(client: PrismaClient, args: QueryArgs, user:
 
 export function createPrismaMcpDataSource(client: PrismaClient): McpDataSource {
   return {
-    async findActiveUser(userId) {
-      const user = await client.user.findFirst({
-        where: { id: userId, isActive: true },
+    async findUser(userId) {
+      const user = await client.user.findUnique({
+        where: { id: userId },
         select: {
           id: true,
+          isActive: true,
           name: true,
           email: true,
           role: true,
@@ -1172,6 +1173,7 @@ export function createPrismaMcpDataSource(client: PrismaClient): McpDataSource {
             success: input.success,
             statusCode: input.statusCode,
             durationMs: input.durationMs,
+            rejectionReason: input.rejectionReason || null,
             createdAt: input.createdAt,
           }),
         },

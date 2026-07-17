@@ -30,10 +30,10 @@ function parseApiKeys(value: string | undefined) {
     const name = String(input.name || "").trim();
     const userId = String(input.userId || "").trim();
     const keyHash = String(input.keyHash || "").trim().toLowerCase().replace(/^sha256:/, "");
-    if (!name || !userId || !/^[a-f0-9]{64}$/.test(keyHash)) {
-      throw new Error(`MCP API key entry ${index + 1} requires name, userId and a SHA-256 keyHash`);
+    if (!name || !/^[a-f0-9]{64}$/.test(keyHash)) {
+      throw new Error(`MCP API key entry ${index + 1} requires name and a SHA-256 keyHash`);
     }
-    return { name, userId, keyHash };
+    return { name, ...(userId ? { userId } : {}), keyHash };
   });
 }
 
@@ -43,10 +43,25 @@ export function loadMcpConfig(environment: McpEnvironment = process.env): McpApp
   const rejectedAuditUserId = String(environment.MCP_AUDIT_USER_ID || "").trim();
   if (!rejectedAuditUserId) throw new Error("MCP_AUDIT_USER_ID is required");
 
+  const legacyUserBindingEnabled = environment.MCP_LEGACY_USER_BOUND_AUTH?.trim().toLowerCase() === "true";
+  if (legacyUserBindingEnabled && environment.NODE_ENV?.trim().toLowerCase() === "production") {
+    throw new Error("Legacy MCP user-bound auth is forbidden in production");
+  }
+  const apiKeys = parseApiKeys(environment.MCP_API_KEYS_JSON);
+  if (legacyUserBindingEnabled && apiKeys.some((entry) => !entry.userId)) {
+    throw new Error("Legacy MCP user-bound auth requires userId on every API key entry");
+  }
+  const toolMode = environment.MCP_TOOL_MODE?.trim().toUpperCase() || "IDENTITY_POC";
+  if (!["IDENTITY_POC", "FULL_READ_ONLY"].includes(toolMode)) {
+    throw new Error("MCP_TOOL_MODE must be IDENTITY_POC or FULL_READ_ONLY");
+  }
+
   return {
-    apiKeys: parseApiKeys(environment.MCP_API_KEYS_JSON),
+    apiKeys,
     rejectedAuditUserId,
     allowedHosts,
     allowedOrigins: splitCsv(environment.MCP_ALLOWED_ORIGINS),
+    legacyUserBindingEnabled,
+    toolMode: toolMode === "FULL_READ_ONLY" ? "full-read-only" : "identity-poc",
   };
 }

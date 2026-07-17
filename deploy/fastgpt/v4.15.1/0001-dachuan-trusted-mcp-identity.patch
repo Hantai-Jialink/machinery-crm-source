@@ -1,0 +1,186 @@
+diff --git a/packages/service/core/app/mcp.ts b/packages/service/core/app/mcp.ts
+index f896e37..0d13a7f 100644
+--- a/packages/service/core/app/mcp.ts
++++ b/packages/service/core/app/mcp.ts
+@@ -14,6 +14,7 @@ import { UserError } from '@fastgpt/global/common/error/utils';
+ import $RefParser from '@apidevtools/json-schema-ref-parser';
+ import { getLogger, LogCategories } from '../../common/logger';
+ import { isInternalAddress, PRIVATE_URL_TEXT } from '../../common/system/utils';
++import { getTrustedMcpHeaders } from '../workflow/utils/context';
+ 
+ const logger = getLogger(LogCategories.MODULE.APP.MCP_TOOLS);
+ 
+@@ -244,6 +245,10 @@ export class MCPClient {
+   private async doConnect(): Promise<Client> {
+     await assertMCPUrlNotInternal(this.url);
+     const safeFetch = createMcpSafeFetch();
++    const requestHeaders = Object.fromEntries(
++      Object.entries(this.headers).filter(([name]) => !name.toLowerCase().startsWith('x-dachuan-'))
++    );
++    Object.assign(requestHeaders, getTrustedMcpHeaders());
+ 
+     // 避免连接重复，强制关闭一次
+     await this.client.close().catch(() => {});
+@@ -253,7 +258,7 @@ export class MCPClient {
+       const transport = new StreamableHTTPClientTransport(new URL(this.url), {
+         fetch: safeFetch,
+         requestInit: {
+-          headers: this.headers
++          headers: requestHeaders
+         }
+       });
+       await this.client.connect(transport);
+@@ -268,12 +273,12 @@ export class MCPClient {
+           new SSEClientTransport(new URL(this.url), {
+             fetch: safeFetch,
+             requestInit: {
+-              headers: this.headers
++              headers: requestHeaders
+             },
+             eventSourceInit: {
+               fetch: (url, init) => {
+                 const mergedHeaders = {
+-                  ...this.headers
++                  ...requestHeaders
+                 };
+ 
+                 Object.assign(mergedHeaders, headersInitToRecord(init?.headers));
+diff --git a/packages/service/core/workflow/dispatch/index.ts b/packages/service/core/workflow/dispatch/index.ts
+index f5700e6..79534c3 100644
+--- a/packages/service/core/workflow/dispatch/index.ts
++++ b/packages/service/core/workflow/dispatch/index.ts
+@@ -103,6 +103,10 @@ type Props = Omit<
+   defaultSkipNodeQueue?: WorkflowDebugResponse['skipNodeQueue'];
+   nodeResponseWriteConfig: WorkflowNodeResponseWriteConfig;
+   agentSandboxPrepareActions?: AgentSandboxPrepareAction[];
++  trustedMcpIdentity?: {
++    assertion: string;
++    requestId: string;
++  };
+ };
+ type NodeResponseType = DispatchNodeResultType<{
+   [key: string]: any;
+@@ -261,7 +265,8 @@ export async function dispatchWorkFlow({
+     runWithContext(
+       {
+         queryUrlTypeMap: {},
+-        mcpClientMemory: {}
++        mcpClientMemory: {},
++        trustedMcpIdentity: data.trustedMcpIdentity
+       },
+       (ctx) => {
+         runWorkflow({
+diff --git a/packages/service/core/workflow/utils/context.ts b/packages/service/core/workflow/utils/context.ts
+index ded706c..171a598 100644
+--- a/packages/service/core/workflow/utils/context.ts
++++ b/packages/service/core/workflow/utils/context.ts
+@@ -9,6 +9,10 @@ import type { MCPClient } from '../../app/mcp';
+ type ContextType = {
+   queryUrlTypeMap: Record<string, ChatFileTypeEnum>;
+   mcpClientMemory: Record<string, MCPClient>;
++  trustedMcpIdentity?: {
++    assertion: string;
++    requestId: string;
++  };
+ };
+ 
+ export const WorkflowContext = new AsyncLocalStorage<ContextType>();
+@@ -24,6 +28,15 @@ export const getWorkflowContext = (): ContextType => {
+   return WorkflowContext.getStore()!;
+ };
+ 
++export const getTrustedMcpHeaders = (): Record<string, string> => {
++  const identity = WorkflowContext.getStore()?.trustedMcpIdentity;
++  if (!identity) return {};
++  return {
++    'x-dachuan-user-assertion': identity.assertion,
++    'x-dachuan-request-id': identity.requestId
++  };
++};
++
+ export const updateWorkflowContextVal = (val: Partial<ContextType>) => {
+   const context = getWorkflowContext();
+   if (context) {
+diff --git a/packages/service/test/core/workflow/utils/context.test.ts b/packages/service/test/core/workflow/utils/context.test.ts
+index c94f22c..9abc672 100644
+--- a/packages/service/test/core/workflow/utils/context.test.ts
++++ b/packages/service/test/core/workflow/utils/context.test.ts
+@@ -3,6 +3,7 @@ import {
+   parseUrlToFileType,
+   runWithContext,
+   getWorkflowContext,
++  getTrustedMcpHeaders,
+   updateWorkflowContextVal
+ } from '../../../../core/workflow/utils/context';
+ import { ChatFileTypeEnum } from '@fastgpt/global/core/chat/constants';
+@@ -57,6 +58,36 @@ describe('WorkflowContext', () => {
+         });
+       });
+     });
++
++    it('keeps trusted MCP identity headers isolated across concurrent workflows', async () => {
++      const run = (assertion: string, requestId: string, delay: number) =>
++        new Promise<Record<string, string>>((resolve) => {
++          runWithContext(
++            {
++              ...createWorkflowContext({}),
++              trustedMcpIdentity: { assertion, requestId }
++            },
++            async () => {
++              await new Promise((done) => setTimeout(done, delay));
++              resolve(getTrustedMcpHeaders());
++            }
++          );
++        });
++
++      const [first, second] = await Promise.all([
++        run('assertion-user-1', 'request-user-1', 10),
++        run('assertion-user-2', 'request-user-2', 1)
++      ]);
++
++      expect(first).toEqual({
++        'x-dachuan-user-assertion': 'assertion-user-1',
++        'x-dachuan-request-id': 'request-user-1'
++      });
++      expect(second).toEqual({
++        'x-dachuan-user-assertion': 'assertion-user-2',
++        'x-dachuan-request-id': 'request-user-2'
++      });
++    });
+   });
+ 
+   describe('updateWorkflowContextVal', () => {
+diff --git a/projects/app/src/pages/api/v1/chat/completions.ts b/projects/app/src/pages/api/v1/chat/completions.ts
+index a91f5c4..0afaf81 100644
+--- a/projects/app/src/pages/api/v1/chat/completions.ts
++++ b/projects/app/src/pages/api/v1/chat/completions.ts
+@@ -318,6 +318,19 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
+       void titleSender.start();
+     }
+ 
++    const trustedMcpIdentity = (() => {
++      const assertion = req.headers['x-dachuan-user-assertion'];
++      const requestId = req.headers['x-dachuan-request-id'];
++      if (
++        typeof assertion !== 'string' ||
++        typeof requestId !== 'string' ||
++        !/^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$/.test(requestId)
++      ) {
++        return undefined;
++      }
++      return { assertion, requestId };
++    })();
++
+     /* start flow controller */
+     const {
+       flowUsages,
+@@ -364,7 +377,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
+       nodeResponseWriteConfig: {
+         persistToDb: preparedRound.shouldPersistChatRound,
+         retainInMemory: shouldCollectFinalResponseData
+-      }
++      },
++      trustedMcpIdentity
+     });
+ 
+     const aiResponse: AIChatItemType & { dataId?: string } = {

@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db";
 import { createMcpRequestHandler } from "@/lib/mcp/application";
 import { loadMcpConfig } from "@/lib/mcp/config";
 import { createPrismaMcpDataSource } from "@/lib/mcp/prisma-data-source";
+import { getAgentAuthRuntime } from "@/lib/agent-auth/runtime";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -11,7 +12,12 @@ const dataSource = createPrismaMcpDataSource(prisma);
 
 async function handle(request: Request) {
   try {
-    const handler = createMcpRequestHandler({ config: loadMcpConfig(), dataSource });
+    const agentAuth = await getAgentAuthRuntime();
+    const handler = createMcpRequestHandler({
+      config: loadMcpConfig(),
+      dataSource,
+      identityVerifier: agentAuth.tokenService,
+    });
     return await handler(request);
   } catch {
     return NextResponse.json(
