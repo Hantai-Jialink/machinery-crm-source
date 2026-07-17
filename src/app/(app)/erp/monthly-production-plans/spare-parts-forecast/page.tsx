@@ -67,7 +67,7 @@ export default function MonthlySparePartsForecastPage() {
     <section className="rounded-xl border bg-white p-4">
       <div className="grid gap-3 md:grid-cols-2"><label className="text-sm">预测月份<input type="month" value={forecastMonth} onChange={(event) => setForecastMonth(event.target.value)} className="mt-1 w-full rounded-lg border px-3 py-2" /></label><label className="text-sm">预测说明<input value={remark} onChange={(event) => setRemark(event.target.value)} placeholder="例如：售后常用备件" className="mt-1 w-full rounded-lg border px-3 py-2" /></label></div>
       <div className="mt-4 space-y-3">
-        {items.map((line, index) => <div key={index} className="grid gap-2 rounded-lg border p-3 md:grid-cols-[minmax(280px,1fr)_140px_170px_40px]">
+        {items.map((line, index) => <div key={index} className="grid gap-2 rounded-lg border p-3 sm:grid-cols-2 xl:grid-cols-[minmax(0,1fr)_140px_170px_40px]">
           <MaterialCombobox materials={materials} value={line.materialId} onChange={(materialId) => updateLine(index, { materialId })} />
           <input type="number" min="0.01" step="0.01" value={line.quantity} onChange={(event) => updateLine(index, { quantity: event.target.value })} placeholder="预测数量" className="rounded-lg border px-3 py-2 text-sm" />
           <input type="date" value={line.needByDate} onChange={(event) => updateLine(index, { needByDate: event.target.value })} className="rounded-lg border px-3 py-2 text-sm" />

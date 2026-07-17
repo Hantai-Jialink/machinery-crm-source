@@ -2,11 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { getSessionUser, canAccessERP, canManageSuppliers } from "@/lib/permissions";
 import { writeOperationLog } from "@/lib/sales-items";
-
-function cleanText(value: unknown) {
-  const text = String(value || "").trim();
-  return text || null;
-}
+import { validateNewSupplierInput } from "@/lib/supplier-input";
 
 export async function GET(request: NextRequest) {
   const user = await getSessionUser();
@@ -51,23 +47,17 @@ export async function POST(request: NextRequest) {
   if (!canManageSuppliers(user)) return NextResponse.json({ error: "无权限维护供应商" }, { status: 403 });
 
   const body = await request.json();
-  const name = cleanText(body.name);
-  if (!name) return NextResponse.json({ error: "供应商名称为必填项" }, { status: 400 });
+  let input;
+  try { input = validateNewSupplierInput(body); }
+  catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "供应商信息不完整" }, { status: 400 }); }
 
-  const duplicated = await prisma.supplier.findFirst({ where: { name, deletedAt: null }, select: { id: true } });
+  const duplicated = await prisma.supplier.findFirst({ where: { name: input.name, deletedAt: null }, select: { id: true } });
   if (duplicated) return NextResponse.json({ error: "供应商名称已存在" }, { status: 409 });
 
   const supplier = await prisma.$transaction(async (tx) => {
     const created = await tx.supplier.create({
       data: {
-        name,
-        contactName: cleanText(body.contactName),
-        phone: cleanText(body.phone),
-        wechat: cleanText(body.wechat),
-        email: cleanText(body.email),
-        address: cleanText(body.address),
-        mainCategory: cleanText(body.mainCategory),
-        remark: cleanText(body.remark),
+        ...input,
       },
     });
     await writeOperationLog(tx, {

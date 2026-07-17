@@ -116,7 +116,7 @@ export function MaterialCombobox({
   </div>;
 
   return (
-    <div ref={containerRef} className="relative min-w-[260px] flex-1 sm:min-w-[340px]">
+    <div ref={containerRef} className="relative min-w-0 w-full flex-1">
       <button
         ref={buttonRef}
         type="button"

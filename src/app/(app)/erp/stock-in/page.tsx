@@ -241,7 +241,7 @@ function StockInContent() {
             </div>
             <div className="space-y-2">
               {items.map((item, idx) => (
-                <div key={idx} className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                <div key={idx} className="flex flex-col gap-2 lg:flex-row lg:items-center">
                   {purchaseSource ? <div className="min-w-[220px] flex-1 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700">{(() => { const material = materials.find((value) => value.id === item.materialId); return material ? `${material.code} - ${material.name}` : "采购物料"; })()}</div> : <MaterialCombobox materials={materials} value={item.materialId} onChange={(materialId) => updateItem(idx, "materialId", materialId)} />}
                   <div className="w-full sm:w-28"><input type="number" min="0.01" max={purchaseSource ? item.maxQuantity : undefined} step="0.01" placeholder="数量" value={item.quantity} onChange={(e) => updateItem(idx, "quantity", e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" />{purchaseSource && <p className="mt-1 text-xs text-gray-500">最多 {Number(item.maxQuantity).toLocaleString()}</p>}</div>
                   <input type="number" placeholder="单价" value={item.unitPrice} onChange={(e) => updateItem(idx, "unitPrice", e.target.value)}

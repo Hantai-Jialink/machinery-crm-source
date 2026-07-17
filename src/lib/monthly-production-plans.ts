@@ -9,6 +9,13 @@ export function monthlyDemandAllocation(suggestedQuantity: Prisma.Decimal.Value,
   return new Prisma.Decimal(suggestedQuantity).mul(convertedQuantity).div(planned).toDecimalPlaces(4);
 }
 
+export function parsePlanMonth(value: unknown) {
+  const text = String(value || "").trim();
+  const match = /^(\d{4})-(0[1-9]|1[0-2])(?:-01)?$/.exec(text);
+  if (!match) throw new Error("计划月份格式无效");
+  return new Date(`${match[1]}-${match[2]}-01T00:00:00.000Z`);
+}
+
 export async function approveMonthlyProductionPlan(tx: Prisma.TransactionClient, input: { planId: string; approvedById: string }) {
   const plan = await tx.monthlyProductionPlan.findFirst({
     where: { id: input.planId, status: "PENDING_APPROVAL" },

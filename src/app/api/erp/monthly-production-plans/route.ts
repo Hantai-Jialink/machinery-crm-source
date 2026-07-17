@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { getSessionUser, canAccessERP, isSuperAdmin } from "@/lib/permissions";
-import { monthlyPlanNo } from "@/lib/monthly-production-plans";
+import { monthlyPlanNo, parsePlanMonth } from "@/lib/monthly-production-plans";
 import { writeOperationLog } from "@/lib/sales-items";
 
 export async function GET() {
@@ -17,8 +17,10 @@ export async function POST(request: NextRequest) {
   if (!user) return NextResponse.json({ error: "未登录" }, { status: 401 });
   if (!isSuperAdmin(user)) return NextResponse.json({ error: "仅管理员可创建月度生产计划" }, { status: 403 });
   const body = await request.json();
-  const month = new Date(String(body.planMonth || ""));
-  if (Number.isNaN(month.getTime()) || !body.name || !Array.isArray(body.items) || !body.items.length) return NextResponse.json({ error: "计划月份、名称和明细为必填项" }, { status: 400 });
+  let month: Date;
+  try { month = parsePlanMonth(body.planMonth); }
+  catch { return NextResponse.json({ error: "计划月份格式无效" }, { status: 400 }); }
+  if (!body.name || !Array.isArray(body.items) || !body.items.length) return NextResponse.json({ error: "计划月份、名称和明细为必填项" }, { status: 400 });
   try {
     const result = await prisma.$transaction(async (tx) => {
       const latest = await tx.monthlyProductionPlan.findFirst({ where: { planMonth: month }, orderBy: { version: "desc" }, select: { version: true } });

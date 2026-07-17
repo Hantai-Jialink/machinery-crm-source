@@ -168,7 +168,7 @@ export default function StockOutPage() {
             </div>
             <div className="space-y-2">
               {items.map((item, idx) => (
-                <div key={idx} className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                <div key={idx} className="flex flex-col gap-2 lg:flex-row lg:items-center">
                   <MaterialCombobox
                     materials={materials}
                     value={item.materialId}

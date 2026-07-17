@@ -66,7 +66,10 @@ export default function SuppliersPage() {
   };
 
   const saveSupplier = async () => {
-    if (!form.name.trim()) return;
+    if (!form.name.trim() || (!editId && (!form.contactName.trim() || !form.phone.trim()))) {
+      setMessage("供应商名称、联系人和联系电话均为必填项");
+      return;
+    }
     setSaving(true);
     setMessage("");
     const res = await fetch(editId ? `/api/erp/suppliers/${editId}` : "/api/erp/suppliers", {
@@ -164,8 +167,8 @@ export default function SuppliersPage() {
             <h2 className="mb-4 text-lg font-semibold">{editId ? "编辑供应商" : "新增供应商"}</h2>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <Field label="供应商名称 *" value={form.name} onChange={(value) => setForm({ ...form, name: value })} />
-              <Field label="联系人" value={form.contactName} onChange={(value) => setForm({ ...form, contactName: value })} />
-              <Field label="联系电话" value={form.phone} onChange={(value) => setForm({ ...form, phone: value })} />
+              <Field label={`联系人${editId ? "" : " *"}`} value={form.contactName} onChange={(value) => setForm({ ...form, contactName: value })} required={!editId} />
+              <Field label={`联系电话${editId ? "" : " *"}`} value={form.phone} onChange={(value) => setForm({ ...form, phone: value })} required={!editId} />
               <Field label="微信" value={form.wechat} onChange={(value) => setForm({ ...form, wechat: value })} />
               <Field label="邮箱" value={form.email} onChange={(value) => setForm({ ...form, email: value })} />
               <Field label="主营品类" value={form.mainCategory} onChange={(value) => setForm({ ...form, mainCategory: value })} />
@@ -175,7 +178,7 @@ export default function SuppliersPage() {
             {message && <p className="mt-3 text-sm text-red-600">{message}</p>}
             <div className="mt-5 flex justify-end gap-2">
               <button onClick={() => setShowModal(false)} className="rounded-lg border border-gray-300 px-4 py-2 text-sm text-gray-700">取消</button>
-              <button onClick={saveSupplier} disabled={saving || !form.name.trim()} className="rounded-lg bg-gray-900 px-4 py-2 text-sm text-white hover:bg-gray-800 disabled:opacity-50">{saving ? "保存中..." : "保存"}</button>
+              <button onClick={saveSupplier} disabled={saving || !form.name.trim() || (!editId && (!form.contactName.trim() || !form.phone.trim()))} className="rounded-lg bg-gray-900 px-4 py-2 text-sm text-white hover:bg-gray-800 disabled:opacity-50">{saving ? "保存中..." : "保存"}</button>
             </div>
           </div>
         </div>
@@ -184,6 +187,6 @@ export default function SuppliersPage() {
   );
 }
 
-function Field({ label, value, onChange, multiline = false }: { label: string; value: string; onChange: (value: string) => void; multiline?: boolean }) {
-  return <label className="block text-xs font-medium text-gray-600"><span className="mb-1 block">{label}</span>{multiline ? <textarea value={value} onChange={(event) => onChange(event.target.value)} rows={3} className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm" /> : <input value={value} onChange={(event) => onChange(event.target.value)} className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm" />}</label>;
+function Field({ label, value, onChange, multiline = false, required = false }: { label: string; value: string; onChange: (value: string) => void; multiline?: boolean; required?: boolean }) {
+  return <label className="block text-xs font-medium text-gray-600"><span className="mb-1 block">{label}</span>{multiline ? <textarea required={required} value={value} onChange={(event) => onChange(event.target.value)} rows={3} className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm" /> : <input required={required} value={value} onChange={(event) => onChange(event.target.value)} className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm" />}</label>;
 }

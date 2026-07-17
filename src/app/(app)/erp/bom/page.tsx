@@ -60,6 +60,23 @@ function isPackageMaterial(material: any) {
   return String(material?.category?.name || "").includes("零件包");
 }
 
+function orderTreeItems<T>(items: T[], idOf: (item: T) => string, parentOf: (item: T) => string) {
+  const children = new Map<string, T[]>();
+  for (const item of items) children.set(parentOf(item), [...(children.get(parentOf(item)) || []), item]);
+  const ordered: T[] = [];
+  const visited = new Set<string>();
+  const visit = (item: T) => {
+    const id = idOf(item);
+    if (visited.has(id)) return;
+    visited.add(id);
+    ordered.push(item);
+    for (const child of children.get(id) || []) visit(child);
+  };
+  for (const root of children.get("") || []) visit(root);
+  for (const item of items) visit(item);
+  return ordered;
+}
+
 export default function BomPage() {
   const { data: session } = useSession();
   const userRole = (session?.user as any)?.role;
@@ -93,6 +110,7 @@ export default function BomPage() {
   const [materialSearch, setMaterialSearch] = useState("");
   const [materialCategoryId, setMaterialCategoryId] = useState("");
   const [selectedMaterialIds, setSelectedMaterialIds] = useState<string[]>([]);
+  const [selectedMaterialQuantities, setSelectedMaterialQuantities] = useState<Record<string, string>>({});
   const [pickerParentKey, setPickerParentKey] = useState("");
   const [collapsedKeys, setCollapsedKeys] = useState<Set<string>>(new Set());
 
@@ -100,14 +118,8 @@ export default function BomPage() {
     () => new Map(materials.map((material) => [material.id, material])),
     [materials]
   );
-  const orderedFormItems = useMemo(() => {
-    const children = new Map<string, BomLine[]>();
-    for (const item of form.items) children.set(item.parentClientKey, [...(children.get(item.parentClientKey) || []), item]);
-    const ordered: BomLine[] = [];
-    const visit = (item: BomLine) => { ordered.push(item); for (const child of children.get(item.clientKey) || []) visit(child); };
-    for (const root of children.get("") || []) visit(root);
-    return ordered.length === form.items.length ? ordered : form.items;
-  }, [form.items]);
+  const orderedFormItems = useMemo(() => orderTreeItems(form.items, (item) => item.clientKey, (item) => item.parentClientKey), [form.items]);
+  const orderedDetailItems = useMemo(() => orderTreeItems<any>(detail?.items || [], (item) => item.id, (item) => item.parentItemId || ""), [detail]);
   const addedInPickerTargetSet = useMemo(
     () => new Set(
       form.items
@@ -124,9 +136,17 @@ export default function BomPage() {
       if (!query) return true;
       const haystack = `${material.code || ""} ${material.drawingNo || ""} ${material.name || ""} ${material.spec || ""} ${material.category?.name || ""}`.toLowerCase();
       return haystack.includes(query);
+    }).sort((left, right) => {
+      if (!query) return 0;
+      const direct = (material: any) => `${material.code || ""} ${material.drawingNo || ""} ${material.name || ""}`.toLowerCase().includes(query) ? 0 : 1;
+      return direct(left) - direct(right);
     });
   }, [materials, materialSearch, materialCategoryId]);
   const flatCategories = useMemo(() => flattenCategories(categories), [categories]);
+  const pickerParentMaterial = useMemo(() => {
+    const parentLine = form.items.find((item) => item.clientKey === pickerParentKey);
+    return parentLine ? materialMap.get(parentLine.materialId) : null;
+  }, [form.items, materialMap, pickerParentKey]);
 
   const loadBoms = async () => {
     setLoading(true);
@@ -174,6 +194,7 @@ export default function BomPage() {
     setPickerParentKey("");
     setCollapsedKeys(new Set());
     setSelectedMaterialIds([]);
+    setSelectedMaterialQuantities({});
     setForm({
       productId: products[0]?.id || "",
       version: "v1.0",
@@ -192,6 +213,7 @@ export default function BomPage() {
     setPickerParentKey("");
     setCollapsedKeys(new Set());
     setSelectedMaterialIds([]);
+    setSelectedMaterialQuantities({});
     setForm({
       productId: bom.productId || "",
       version: bom.version || "v1.0",
@@ -218,10 +240,14 @@ export default function BomPage() {
       );
       const nextLines = selectedMaterialIds
         .filter((materialId) => materialId && !existing.has(materialId))
-        .map((materialId) => makeLine(materialId, pickerParentKey));
+        .map((materialId) => ({
+          ...makeLine(materialId, pickerParentKey),
+          quantity: selectedMaterialQuantities[materialId] || "1",
+        }));
       return { ...current, items: [...current.items, ...nextLines] };
     });
     setSelectedMaterialIds([]);
+    setSelectedMaterialQuantities({});
     setShowMaterialPicker(false);
   };
 
@@ -247,11 +273,22 @@ export default function BomPage() {
   const openMaterialPicker = (parentClientKey = "", onlyPackages = false) => {
     setPickerParentKey(parentClientKey);
     setSelectedMaterialIds([]);
+    setSelectedMaterialQuantities({});
     if (onlyPackages) {
       const packageCategory = flatCategories.find((category) => category.name.includes("零件包"));
       setMaterialCategoryId(packageCategory?.id || "");
     } else setMaterialCategoryId("");
     setShowMaterialPicker(true);
+  };
+
+  const togglePickerMaterial = (materialId: string, checked: boolean) => {
+    setSelectedMaterialIds((current) => checked ? [...current, materialId] : current.filter((id) => id !== materialId));
+    setSelectedMaterialQuantities((current) => {
+      const next = { ...current };
+      if (checked) next[materialId] = next[materialId] || "1";
+      else delete next[materialId];
+      return next;
+    });
   };
 
   const moveLine = (index: number, direction: -1 | 1) => {
@@ -285,7 +322,7 @@ export default function BomPage() {
 
   const saveBom = async () => {
     if (!form.productId) return;
-    const items = form.items
+    const items = orderedFormItems
       .filter((item) => item.materialId && item.quantity)
       .map((item, index) => ({
         ...item,
@@ -437,6 +474,7 @@ export default function BomPage() {
                   <div>
                     <h2 className="text-base font-semibold text-gray-900">{productModel(detail.product)} 用料清单</h2>
                     <p className="text-xs text-gray-500 mt-1">版本 {detail.version} · {detail.isActive ? "启用" : "停用"}</p>
+                    <p className="mt-1 text-xs text-gray-500">零件包是分组；缩进的子物料数量会与零件包数量、生产台数相乘，用于工单缺料测算。</p>
                   </div>
                   <Boxes className="w-5 h-5 text-gray-400" />
                 </div>
@@ -447,20 +485,24 @@ export default function BomPage() {
                       <tr>
                         <th className="text-left px-3 py-2 font-medium text-gray-600">物料</th>
                         <th className="text-right px-3 py-2 font-medium text-gray-600">单台用量</th>
-                        <th className="text-center px-3 py-2 font-medium text-gray-600">层级</th>
+                        <th className="text-center px-3 py-2 font-medium text-gray-600">结构</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {detail.items?.map((item: any) => (
+                      {orderedDetailItems.map((item: any) => {
+                        const hasChildren = detail.items.some((candidate: any) => candidate.parentItemId === item.id);
+                        const depth = Math.max(Number(item.level || 1) - 1, 0);
+                        return (
                         <tr key={item.id} className="border-b border-gray-100">
-                          <td className="px-3 py-2">
+                          <td className="px-3 py-2" style={{ paddingLeft: 12 + depth * 20 }}>
                             <p className="font-medium text-gray-900">{item.material?.name}</p>
                             <p className="text-xs text-gray-500">{item.material?.code} {item.material?.spec || ""}</p>
                           </td>
                           <td className="px-3 py-2 text-right">{quantity(item.quantity)} {item.material?.unit}</td>
-                          <td className="px-3 py-2 text-center">{item.level || 1}</td>
+                          <td className="px-3 py-2 text-center"><span className={`rounded px-1.5 py-0.5 text-[11px] ${hasChildren ? "bg-blue-50 text-blue-700" : depth > 0 ? "bg-amber-50 text-amber-700" : "bg-gray-100 text-gray-600"}`}>{hasChildren ? "零件包" : depth > 0 ? "子物料" : "整机物料"}</span></td>
                         </tr>
-                      ))}
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
@@ -615,8 +657,9 @@ export default function BomPage() {
               <div className="flex h-[76vh] w-[78vw] max-w-5xl flex-col overflow-hidden rounded-xl bg-white shadow-xl" onClick={(event) => event.stopPropagation()}>
                 <div className="flex items-start justify-between gap-4 border-b border-gray-200 p-5">
                   <div>
-                    <h3 className="text-base font-semibold text-gray-900">批量选择物料</h3>
-                    <p className="text-xs text-gray-500 mt-1">已选 {selectedMaterialIds.length} 项；同一层级不重复加入，同一叶子物料可用于不同零件包。</p>
+                    <h3 className="text-base font-semibold text-gray-900">{pickerParentMaterial ? `向“${pickerParentMaterial.name}”添加子物料` : "批量选择物料"}</h3>
+                    <p className="text-xs text-gray-500 mt-1">已选 {selectedMaterialIds.length} 项；同一层级不重复加入，同一子物料可用于不同零件包。</p>
+                    {pickerParentMaterial && <p className="mt-1 text-xs text-amber-700">只有物料管理中独立存在的物料才能单独设置数量；零件包规格中的文字说明不会自动拆成子物料。</p>}
                   </div>
                   <button onClick={() => setShowMaterialPicker(false)} className="text-sm text-gray-500 hover:text-gray-900">关闭</button>
                 </div>
@@ -667,6 +710,7 @@ export default function BomPage() {
                         <th className="px-3 py-2 text-left font-medium text-gray-600">分类</th>
                         <th className="px-3 py-2 text-left font-medium text-gray-600">规格</th>
                         <th className="px-3 py-2 text-left font-medium text-gray-600">单位</th>
+                        <th className="px-3 py-2 text-right font-medium text-gray-600">加入数量</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -680,13 +724,7 @@ export default function BomPage() {
                                 type="checkbox"
                                 checked={alreadyAdded || checked}
                                 disabled={alreadyAdded}
-                                onChange={(event) =>
-                                  setSelectedMaterialIds((current) =>
-                                    event.target.checked
-                                      ? [...current, material.id]
-                                      : current.filter((id) => id !== material.id)
-                                  )
-                                }
+                                onChange={(event) => togglePickerMaterial(material.id, event.target.checked)}
                               />
                             </td>
                             <td className="px-3 py-2 font-mono text-xs">{material.code}</td>
@@ -694,21 +732,20 @@ export default function BomPage() {
                             <td className="px-3 py-2">{material.category?.name || "-"}</td>
                             <td className="px-3 py-2">{material.spec || "-"}</td>
                             <td className="px-3 py-2">{material.unit || "件"}</td>
+                            <td className="px-3 py-2 text-right"><input type="number" min={["件", "个", "台", "套", "包", "组", "根"].includes(material.unit || "件") ? "1" : "0.01"} step={["件", "个", "台", "套", "包", "组", "根"].includes(material.unit || "件") ? "1" : "0.01"} disabled={alreadyAdded || !checked} value={checked ? selectedMaterialQuantities[material.id] || "1" : ""} onChange={(event) => setSelectedMaterialQuantities((current) => ({ ...current, [material.id]: event.target.value }))} placeholder="1" className="w-24 rounded border px-2 py-1.5 text-right disabled:bg-gray-50" /></td>
                           </tr>
                         );
                       })}
+                      {filteredMaterials.length === 0 && <tr><td colSpan={7} className="px-4 py-10 text-center text-sm text-gray-500">未找到独立物料。请先在“物料管理”中新建该物料，再返回添加并设置数量。</td></tr>}
                     </tbody>
                   </table>
-                  {filteredMaterials.length === 0 && (
-                    <p className="py-10 text-center text-sm text-gray-500">未找到匹配的物料</p>
-                  )}
                 </div>
 
                 <div className="flex items-center justify-end gap-2 border-t border-gray-200 p-4">
                   <button onClick={() => setShowMaterialPicker(false)} className="rounded-lg border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">取消</button>
                   <button
                     onClick={addSelectedMaterials}
-                    disabled={selectedMaterialIds.length === 0}
+                    disabled={selectedMaterialIds.length === 0 || selectedMaterialIds.some((materialId) => Number(selectedMaterialQuantities[materialId] || 1) <= 0)}
                     className="rounded-lg bg-gray-900 px-4 py-2 text-sm text-white hover:bg-gray-800 disabled:opacity-50"
                   >
                     加入清单
