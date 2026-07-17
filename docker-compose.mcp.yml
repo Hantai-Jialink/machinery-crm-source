@@ -1,0 +1,17 @@
+services:
+  dachuanpro-mcp:
+    build:
+      context: .
+      dockerfile: Dockerfile.mcp
+    image: dachuanpro-crm-erp-mcp:1.0.0
+    restart: unless-stopped
+    env_file:
+      - .env.mcp
+    ports:
+      - "127.0.0.1:3010:3010"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3010/api/mcp/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 3

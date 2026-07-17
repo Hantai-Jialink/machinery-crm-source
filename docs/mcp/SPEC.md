@@ -1,0 +1,22 @@
+# DachuanPro 统一只读 MCP v1 规格
+
+基线提交：`29d92dae606112def7c17b0530940210ebb0dfe7`
+
+## 验收范围
+
+- 一个 Streamable HTTP 地址同时暴露 CRM 与 ERP 工具，内部按 `crm_`、`erp_` 前缀分组。
+- 覆盖客户及跟进、产品、合同、供应商、采购订单、库存及出入库、整机用料清单、生产工单、齐套检查、发货状态。
+- 第一版只有查询。不得提供新增、修改、审批、删除或任意 SQL 工具。
+- 复用现有 Next.js、Prisma、MySQL 和角色/负责范围规则，不修改业务功能、Prisma schema、migration 或业务数据结构。
+- API Key 仅保存 SHA-256，固定绑定现有用户；每次调用实时读取用户启用状态、角色和负责范围。
+- MCP 协议调用和鉴权拒绝均写入现有 `OperationLog`；已认证调用审计失败时不得返回查询结果。
+- 工具返回统一为 `{ ok, data, meta, error }`，同时提供文本内容和 `structuredContent`。
+- 兼容 FastGPT 4.15.1 的 Streamable HTTP 连接方式和自定义 Authorization 请求头。
+- 提供容器构建、环境变量模板、反向代理示例、接入说明和测试报告。
+
+## 非目标
+
+- 不增加数据库表或字段，不执行 migration。
+- 不改变 CRM/ERP 页面、既有 API 或 Session 登录流程。
+- 不在 MCP 中暴露附件 URL、任意字段选择、任意排序或任意 SQL。
+- 不部署、不推送分支、不操作生产数据库。
