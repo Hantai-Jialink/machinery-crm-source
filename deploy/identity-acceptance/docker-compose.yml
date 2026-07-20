@@ -299,8 +299,16 @@ services:
     networks: [identity-app, fastgpt-data]
 
   acceptance-runner:
+    build:
+      context: ../..
+      dockerfile: deploy/identity-acceptance/Dockerfile.acceptance
     image: dachuanpro-identity-acceptance-runner:1.0.0
     env_file: .env.identity-acceptance
+    environment:
+      ACCEPTANCE_EVIDENCE_DIR: /evidence
+      ACCEPTANCE_EVIDENCE_FILE: ${ACCEPTANCE_EVIDENCE_FILE:-/evidence/result.json}
+    volumes:
+      - ./acceptance-output:/evidence
     command: ["corepack", "pnpm", "exec", "tsx", "scripts/run-identity-acceptance.ts"]
     depends_on:
       nginx:

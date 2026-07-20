@@ -6,6 +6,17 @@ import {
   acceptanceLoginUsers,
   runAcceptanceLoginPreflight,
 } from "./identity-acceptance-crm-login";
+import {
+  armNaturalExitWatchdog,
+  cleanupAcceptanceResources,
+  createAcceptanceResourceTracker,
+  readTrackedResponseText,
+  requestIdSummary,
+  safeFailureMessage,
+  trackedFetch,
+  writeAcceptanceEvidenceAtomic,
+  type AcceptanceEvidence,
+} from "./identity-acceptance-runner-support";
 
 type RpcBody = {
   result?: {
@@ -43,8 +54,13 @@ required("AGENT_GATEWAY_FASTGPT_API_KEY");
 
 const prisma = new PrismaClient();
 const runtime = await createAgentAuthRuntime(loadAgentAuthConfig());
+const resourceTracker = createAcceptanceResourceTracker();
 const transcripts: string[] = [];
 const passed: string[] = [];
+const evidenceRequestIds: string[] = [];
+const startedAt = new Date().toISOString();
+let acceptanceError: unknown;
+let sensitiveScanStatus: AcceptanceEvidence["sensitiveScanStatus"] = "NOT_RUN";
 
 function check(value: unknown, message: string): asserts value {
   if (!value) throw new Error(message);
@@ -66,19 +82,21 @@ async function rpc(
   params: Record<string, unknown>,
   options: { assertion?: string; requestId?: string; service?: string } = {},
 ): Promise<RpcResult> {
+  const requestId = options.requestId || `accept-${randomUUID()}`;
+  evidenceRequestIds.push(requestId);
   const headers = new Headers({
     accept: "application/json, text/event-stream",
     authorization: `Bearer ${options.service ?? serviceKey}`,
     "content-type": "application/json",
-    "x-dachuan-request-id": options.requestId || `accept-${randomUUID()}`,
+    "x-dachuan-request-id": requestId,
   });
   if (options.assertion) headers.set("x-dachuan-user-assertion", options.assertion);
-  const response = await fetch(mcpUrl, {
+  const response = await trackedFetch(resourceTracker, mcpUrl, {
     method: "POST",
     headers,
     body: JSON.stringify({ jsonrpc: "2.0", id: randomUUID(), method, params }),
   });
-  const text = await response.text();
+  const text = await readTrackedResponseText(resourceTracker, response);
   transcripts.push(text);
   let body: RpcBody | null = null;
   try { body = JSON.parse(text) as RpcBody; } catch { /* surfaced by assertions below */ }
@@ -123,10 +141,10 @@ async function customToken(options: {
 }
 
 async function fastGptAdminToken() {
-  const preLogin = await fetch(`${fastGptUrl}/api/support/user/account/preLogin?username=root`);
-  const preLoginBody = unwrap<{ code: string }>(await preLogin.json());
+  const preLogin = await trackedFetch(resourceTracker, `${fastGptUrl}/api/support/user/account/preLogin?username=root`);
+  const preLoginBody = unwrap<{ code: string }>(JSON.parse(await readTrackedResponseText(resourceTracker, preLogin)));
   check(preLogin.ok && preLoginBody.code, "FastGPT pre-login failed");
-  const login = await fetch(`${fastGptUrl}/api/support/user/account/loginByPassword`, {
+  const login = await trackedFetch(resourceTracker, `${fastGptUrl}/api/support/user/account/loginByPassword`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
@@ -136,7 +154,7 @@ async function fastGptAdminToken() {
       language: "zh-CN",
     }),
   });
-  const loginBody = unwrap<{ token: string }>(await login.json());
+  const loginBody = unwrap<{ token: string }>(JSON.parse(await readTrackedResponseText(resourceTracker, login)));
   check(login.ok && loginBody.token, "FastGPT root login failed");
   return loginBody.token;
 }
@@ -257,7 +275,7 @@ try {
   });
 
   const fastGptToken = await fastGptAdminToken();
-  const discovery = await fetch(`${fastGptUrl}/api/core/app/mcpTools/getTools`, {
+  const discovery = await trackedFetch(resourceTracker, `${fastGptUrl}/api/core/app/mcpTools/getTools`, {
     method: "POST",
     headers: { "content-type": "application/json", token: fastGptToken },
     body: JSON.stringify({
@@ -265,7 +283,7 @@ try {
       headerSecret: { Authorization: { value: `Bearer ${serviceKey}` } },
     }),
   });
-  const discoveryText = await discovery.text();
+  const discoveryText = await readTrackedResponseText(resourceTracker, discovery);
   transcripts.push(discoveryText);
   const discovered = unwrap<Array<{ name?: string }>>(JSON.parse(discoveryText) as unknown);
   check(discovery.ok && Array.isArray(discovered), "FastGPT admin MCP discovery failed");
@@ -278,7 +296,7 @@ try {
     marker: `user-${index % 2}-tab-${index % 6}-call-${index}`,
     stream: index % 5 === 0,
   }));
-  const chatResponses = await Promise.all(gatewayCases.map((item) => fetch(`${crmUrl}/api/agent-gateway/chat`, {
+  const chatResponses = await Promise.all(gatewayCases.map((item) => trackedFetch(resourceTracker, `${crmUrl}/api/agent-gateway/chat`, {
     method: "POST",
     headers: {
       accept: item.stream ? "text/event-stream" : "application/json",
@@ -293,7 +311,7 @@ try {
       messages: [{ role: "user", content: "调用 dachuan_identity_who_am_i，只返回当前 ERP userId。" }],
     }),
   })));
-  const chatTexts = await Promise.all(chatResponses.map((response) => response.text()));
+  const chatTexts = await Promise.all(chatResponses.map((response) => readTrackedResponseText(resourceTracker, response)));
   transcripts.push(...chatTexts);
   check(chatResponses.every((response) => response.ok), "CRM Gateway to FastGPT chat failed");
   gatewayCases.forEach((item, index) => {
@@ -305,6 +323,7 @@ try {
   });
   const requestIds = chatResponses.map((response) => response.headers.get("x-dachuan-request-id"));
   check(requestIds.every(Boolean) && new Set(requestIds).size === 24, "Gateway requestIds are missing or reused");
+  evidenceRequestIds.push(...requestIds.filter((value): value is string => Boolean(value)));
   const chatAudits = await prisma.operationLog.findMany({
     where: { entityId: { in: requestIds as string[] }, action: "MCP_CALL" },
     select: { userId: true, entityId: true, afterData: true },
@@ -348,9 +367,11 @@ try {
   const dynamicSecretPattern = /eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}/;
   check(!dynamicSecretPattern.test(auditText), "JWT-shaped assertion found in OperationLog");
   check(transcripts.every((text) => !dynamicSecretPattern.test(text)), "JWT-shaped assertion found in a tool or chat response");
+  sensitiveScanStatus = "PASS";
   record("OperationLog is attributable and audit/tool outputs contain no configured secrets");
-
-  console.log(`IDENTITY_ACCEPTANCE_RESULT=PASS (${passed.length} checks)`);
+} catch (error) {
+  acceptanceError = error;
+  throw error;
 } finally {
   await prisma.user.updateMany({
     where: { id: "identity-acceptance-sales-a" },
@@ -362,5 +383,22 @@ try {
       viewScope: "TERRITORY",
     },
   }).catch(() => undefined);
-  await prisma.$disconnect();
+  const evidence: AcceptanceEvidence = {
+    overallStatus: acceptanceError ? "FAIL" : "PASS",
+    checks: [...passed],
+    imageIds: {
+      fastGpt: String(process.env.ACCEPTANCE_FASTGPT_IMAGE_ID || "unknown"),
+      crmMcp: String(process.env.ACCEPTANCE_CRM_IMAGE_ID || "unknown"),
+      runner: String(process.env.ACCEPTANCE_RUNNER_IMAGE_ID || "unknown"),
+    },
+    startedAt,
+    completedAt: new Date().toISOString(),
+    requestIdSummary: requestIdSummary(evidenceRequestIds),
+    sensitiveScanStatus,
+    ...(acceptanceError ? { failure: safeFailureMessage(acceptanceError) } : {}),
+  };
+  writeAcceptanceEvidenceAtomic(evidence);
+  if (!acceptanceError) console.log(`IDENTITY_ACCEPTANCE_RESULT=PASS (${passed.length} checks)`);
+  armNaturalExitWatchdog();
+  await cleanupAcceptanceResources({ prisma, stateStore: runtime.stateStore, tracker: resourceTracker });
 }

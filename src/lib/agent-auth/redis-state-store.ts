@@ -4,6 +4,7 @@ import type { AgentJtiStore } from "@/lib/agent-auth/token";
 
 export type AgentAuthStateStore = AgentJtiStore & {
   consume(subject: string, limit: number, windowSeconds: number): Promise<boolean>;
+  close(): Promise<void>;
 };
 
 function digest(value: string) {
@@ -58,6 +59,15 @@ export function createRedisAgentAuthStateStore(
         { keys: [key], arguments: [String(windowSeconds)] },
       );
       return Number(count) <= limit;
+    },
+    async close() {
+      await connecting?.catch(() => undefined);
+      if (!client.isOpen) return;
+      try {
+        await client.quit();
+      } catch {
+        await client.disconnect().catch(() => undefined);
+      }
     },
   };
 }
