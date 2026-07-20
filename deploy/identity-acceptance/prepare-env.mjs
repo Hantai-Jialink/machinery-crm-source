@@ -35,6 +35,10 @@ const replacements = {
   GENERATE_FASTGPT_REDIS_PASSWORD: secret(24),
   GENERATE_FASTGPT_MINIO_PASSWORD: secret(24),
   GENERATE_FASTGPT_PG_PASSWORD: secret(24),
+  GENERATE_FASTGPT_PLUGIN_TOKEN: secret(32),
+  GENERATE_FASTGPT_SANDBOX_TOKEN: secret(32),
+  GENERATE_FASTGPT_AIPROXY_PG_PASSWORD: secret(24),
+  GENERATE_FASTGPT_AIPROXY_API_TOKEN: secret(32),
 };
 let content = readFileSync(template, "utf8");
 for (const [placeholder, value] of Object.entries(replacements)) content = content.replaceAll(placeholder, value);

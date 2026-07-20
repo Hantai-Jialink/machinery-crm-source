@@ -38,6 +38,8 @@ services:
       dockerfile: deploy/identity-acceptance/Dockerfile.acceptance
     image: dachuanpro-identity-acceptance-runner:1.0.0
     env_file: .env.identity-acceptance
+    environment:
+      IDENTITY_ACCEPTANCE_DATABASE_NETWORK: identity-data
     command: ["sh", "-c", "node scripts/assert-identity-acceptance-target.mjs && corepack pnpm exec prisma migrate deploy && corepack pnpm exec tsx scripts/seed-identity-acceptance.ts"]
     depends_on:
       mysql:
@@ -48,7 +50,7 @@ services:
   crm:
     build:
       context: ../..
-      dockerfile: Dockerfile.mcp
+      dockerfile: deploy/identity-acceptance/Dockerfile.mcp
     image: ${CRM_IMAGE}
     env_file: .env.identity-acceptance
     environment:
@@ -139,6 +141,89 @@ services:
       timeout: 5s
       retries: 20
 
+  fastgpt-code-sandbox:
+    image: ghcr.io/labring/fastgpt-code-sandbox:v4.15.0
+    environment:
+      SANDBOX_TOKEN: ${FASTGPT_SANDBOX_TOKEN}
+      SANDBOX_POOL_SIZE: "2"
+      CHECK_INTERNAL_IP: "true"
+    security_opt:
+      - no-new-privileges:true
+    networks: [fastgpt-data]
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+  fastgpt-plugin:
+    image: ghcr.io/labring/fastgpt-plugin:v1.0.0
+    environment:
+      MONGODB_URI: mongodb://acceptance:${FASTGPT_MONGO_PASSWORD}@fastgpt-mongo:27017/fastgpt-plugin?authSource=admin
+      REDIS_URL: redis://default:${FASTGPT_REDIS_PASSWORD}@fastgpt-redis:6379
+      STORAGE_VENDOR: minio
+      STORAGE_REGION: us-east-1
+      STORAGE_ACCESS_KEY_ID: ${FASTGPT_MINIO_USER}
+      STORAGE_SECRET_ACCESS_KEY: ${FASTGPT_MINIO_PASSWORD}
+      STORAGE_PUBLIC_BUCKET: fastgpt-public
+      STORAGE_PRIVATE_BUCKET: fastgpt-private
+      STORAGE_S3_ENDPOINT: http://fastgpt-minio:9000
+      STORAGE_EXTERNAL_ENDPOINT: http://fastgpt-minio:9000
+      STORAGE_S3_FORCE_PATH_STYLE: "true"
+      AUTH_TOKEN: ${FASTGPT_PLUGIN_TOKEN}
+      DB_MAX_LINK: "20"
+      SERVICE_REQUEST_MAX_CONTENT_LENGTH: "10"
+      MAX_API_SIZE: "10"
+      NO_PROXY: localhost,127.0.0.1,fastgpt-mongo,fastgpt-redis,fastgpt-minio
+      no_proxy: localhost,127.0.0.1,fastgpt-mongo,fastgpt-redis,fastgpt-minio
+    depends_on:
+      fastgpt-mongo:
+        condition: service_healthy
+      fastgpt-redis:
+        condition: service_healthy
+      fastgpt-minio:
+        condition: service_healthy
+    networks: [fastgpt-data]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:3000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+  fastgpt-aiproxy-pg:
+    image: pgvector/pgvector:0.8.0-pg15
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_DB: aiproxy
+      POSTGRES_PASSWORD: ${FASTGPT_AIPROXY_PG_PASSWORD}
+    volumes:
+      - fastgpt-aiproxy-pg:/var/lib/postgresql/data
+    networks: [fastgpt-data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d aiproxy"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  fastgpt-aiproxy:
+    image: ghcr.io/labring/aiproxy:v0.6.5
+    environment:
+      ADMIN_KEY: ${FASTGPT_AIPROXY_API_TOKEN}
+      SQL_DSN: postgresql://postgres:${FASTGPT_AIPROXY_PG_PASSWORD}@fastgpt-aiproxy-pg:5432/aiproxy
+      LOG_DETAIL_STORAGE_HOURS: "1"
+      RETRY_TIMES: "3"
+      BILLING_ENABLED: "false"
+      DISABLE_MODEL_CONFIG: "true"
+    depends_on:
+      fastgpt-aiproxy-pg:
+        condition: service_healthy
+    networks: [fastgpt-data]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:3000/api/status"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
   fastgpt:
     image: ${FASTGPT_IMAGE}
     environment:
@@ -158,8 +243,12 @@ services:
       STORAGE_PUBLIC_BUCKET: fastgpt-public
       STORAGE_PRIVATE_BUCKET: fastgpt-private
       STORAGE_S3_ENDPOINT: http://fastgpt-minio:9000
-      STORAGE_EXTERNAL_ENDPOINT: http://127.0.0.1:19000
+      STORAGE_EXTERNAL_ENDPOINT: http://fastgpt-minio:9000
       STORAGE_S3_FORCE_PATH_STYLE: "true"
+      PLUGIN_BASE_URL: http://fastgpt-plugin:3000
+      PLUGIN_TOKEN: ${FASTGPT_PLUGIN_TOKEN}
+      CODE_SANDBOX_URL: http://fastgpt-code-sandbox:3000
+      CODE_SANDBOX_TOKEN: ${FASTGPT_SANDBOX_TOKEN}
       AIPROXY_API_ENDPOINT: ${FASTGPT_AIPROXY_API_ENDPOINT}
       AIPROXY_API_TOKEN: ${FASTGPT_AIPROXY_API_TOKEN}
       CHECK_INTERNAL_IP: "false"
@@ -167,8 +256,8 @@ services:
       LOG_ENABLE_CONSOLE: "true"
       LOG_CONSOLE_LEVEL: info
       HOSTNAME: 0.0.0.0
-      NO_PROXY: localhost,127.0.0.1,nginx,crm,identity-redis,mysql,fastgpt-mongo,fastgpt-redis,fastgpt-pg,fastgpt-minio,host.docker.internal
-      no_proxy: localhost,127.0.0.1,nginx,crm,identity-redis,mysql,fastgpt-mongo,fastgpt-redis,fastgpt-pg,fastgpt-minio,host.docker.internal
+      NO_PROXY: localhost,127.0.0.1,nginx,crm,identity-redis,mysql,fastgpt-mongo,fastgpt-redis,fastgpt-pg,fastgpt-minio,fastgpt-plugin,fastgpt-code-sandbox,fastgpt-aiproxy,fastgpt-aiproxy-pg,host.docker.internal
+      no_proxy: localhost,127.0.0.1,nginx,crm,identity-redis,mysql,fastgpt-mongo,fastgpt-redis,fastgpt-pg,fastgpt-minio,fastgpt-plugin,fastgpt-code-sandbox,fastgpt-aiproxy,fastgpt-aiproxy-pg,host.docker.internal
     depends_on:
       fastgpt-mongo:
         condition: service_healthy
@@ -177,6 +266,12 @@ services:
       fastgpt-pg:
         condition: service_healthy
       fastgpt-minio:
+        condition: service_healthy
+      fastgpt-plugin:
+        condition: service_healthy
+      fastgpt-code-sandbox:
+        condition: service_healthy
+      fastgpt-aiproxy:
         condition: service_healthy
     networks: [identity-app, fastgpt-data]
     healthcheck:
@@ -229,3 +324,4 @@ volumes:
   fastgpt-redis:
   fastgpt-pg:
   fastgpt-minio:
+  fastgpt-aiproxy-pg:

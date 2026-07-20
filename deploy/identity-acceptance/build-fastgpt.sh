@@ -21,11 +21,37 @@ patch_file="$repo_root/deploy/fastgpt/v4.15.1/0001-dachuan-trusted-mcp-identity.
 if ! git -C "$source_dir" apply --check -R "$patch_file" 2>/dev/null; then
   "$repo_root/deploy/fastgpt/v4.15.1/apply.sh" "$source_dir"
 fi
-(cd "$source_dir" && corepack pnpm install --frozen-lockfile)
-(cd "$source_dir/packages/service" && corepack pnpm exec vitest run -c vitest.config.ts test/core/app/mcp.test.ts test/core/workflow/utils/context.test.ts --coverage=false)
-docker build --pull \
+dockerfile="$acceptance_dir/Dockerfile.fastgpt"
+test -f "$dockerfile" || { echo "Missing $dockerfile" >&2; exit 1; }
+
+# All pnpm calls, lifecycle scripts and identity patch tests run inside the
+# pinned Docker toolchain. Never resolve pnpm from the Linux host PATH here.
+docker build \
+  --progress=plain \
   --label "org.opencontainers.image.revision=$expected_commit" \
   --label "dachuan.identity.acceptance=true" \
   --label "dachuan.identity.tests=mcp-and-context-97-pass" \
-  -f "$source_dir/projects/app/Dockerfile" -t "$image" "$source_dir"
+  --label "dachuan.pnpm.version=10.33.4" \
+  -f "$dockerfile" -t "$image" "$source_dir"
+docker run --rm --entrypoint node "$image" -e "const {createCanvas}=require('canvas'); const c=createCanvas(10,10); console.log(c.width,c.height)"
+docker run --rm --entrypoint sh "$image" -c '
+set -eu
+node_file="$(find /app/node_modules/canvas -name canvas.node -type f -print -quit)"
+test -n "$node_file"
+echo "CANVAS_NODE=$node_file"
+ldd_output="$(ldd "$node_file" 2>&1 || true)"
+printf "%s\n" "$ldd_output" | sed -n "/=>/p"
+if printf "%s\n" "$ldd_output" | grep -E "=> not found|Error loading shared library .*: No such file or directory"; then
+  echo "CANVAS_LDD=FAIL" >&2
+  exit 1
+fi
+echo "CANVAS_LDD=PASS_NO_SHARED_LIBRARY_NOT_FOUND"
+for tool in python3 make g++; do
+  if command -v "$tool" >/dev/null 2>&1; then
+    echo "RUNTIME_TOOLCHAIN_GATE=FAIL tool=$tool" >&2
+    exit 1
+  fi
+done
+echo "RUNTIME_TOOLCHAIN_GATE=PASS"
+'
 echo "FASTGPT_IMAGE_READY=$image"

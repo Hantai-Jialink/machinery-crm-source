@@ -20,8 +20,18 @@ if (
   || settings.COMPOSE_PROJECT_NAME !== "dachuan-identity-acceptance"
   || settings.MCP_TOOL_MODE !== "IDENTITY_POC"
   || databaseUrl.hostname !== "mysql"
+  || databaseUrl.port !== "3306"
   || databaseUrl.pathname !== `/${expectedDatabase}`
   || settings.MYSQL_DATABASE !== expectedDatabase
+  || settings.FASTGPT_IMAGE !== "dachuan-fastgpt:v4.15.1-identity-acceptance.1"
+  || settings.CRM_IMAGE !== "dachuanpro-crm-erp-mcp:1.2.0-identity-acceptance.1"
+  || settings.FASTGPT_AIPROXY_API_ENDPOINT !== "http://fastgpt-aiproxy:3000"
+  || [
+    "FASTGPT_PLUGIN_TOKEN",
+    "FASTGPT_SANDBOX_TOKEN",
+    "FASTGPT_AIPROXY_PG_PASSWORD",
+    "FASTGPT_AIPROXY_API_TOKEN",
+  ].some((name) => !settings[name] || /^(GENERATE_|REPLACE_)/.test(settings[name]))
 ) {
   throw new Error("Environment does not target the fixed IDENTITY_POC isolation project");
 }

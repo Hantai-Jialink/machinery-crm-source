@@ -4,7 +4,9 @@ const actualDatabase = databaseUrl.pathname.replace(/^\//, "");
 if (
   process.env.IDENTITY_ACCEPTANCE_ENV !== "isolated"
   || process.env.COMPOSE_PROJECT_NAME !== "dachuan-identity-acceptance"
+  || process.env.IDENTITY_ACCEPTANCE_DATABASE_NETWORK !== "identity-data"
   || databaseUrl.hostname !== "mysql"
+  || databaseUrl.port !== "3306"
   || actualDatabase !== expectedDatabase
   || process.env.MYSQL_DATABASE !== expectedDatabase
 ) {

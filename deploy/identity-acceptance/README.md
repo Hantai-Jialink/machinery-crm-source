@@ -13,6 +13,10 @@
 | Redis | `redis:7.2-alpine` |
 | MongoDB | `mongo:5.0.32` |
 | pgvector | `pgvector/pgvector:0.8.0-pg15` |
+| FastGPT Plugin | `ghcr.io/labring/fastgpt-plugin:v1.0.0` |
+| FastGPT Code Sandbox | `ghcr.io/labring/fastgpt-code-sandbox:v4.15.0` |
+| AIProxy | `ghcr.io/labring/aiproxy:v0.6.5` |
+| MinIO | `minio/minio:RELEASE.2025-09-07T16-13-09Z` |
 
 MySQL、Redis、MongoDB、PostgreSQL 和 MinIO 只使用本 Compose 项目的命名卷。数据库初始化只执行仓库现有 migration；固定 seed 脚本同时检查 `IDENTITY_ACCEPTANCE_ENV=isolated` 和数据库主机名 `mysql`，不满足即拒绝。没有生产地址、生产账号或生产数据导入步骤。
 
@@ -30,9 +34,15 @@ Linux：
 ./deploy/identity-acceptance/start.sh
 ```
 
-首次执行会：生成仅保存在忽略文件中的随机密钥；克隆并校验精确 FastGPT 提交；应用可回滚补丁；运行 FastGPT 定向测试；构建固定镜像；启动隔离 MySQL、Redis、CRM/Gateway/MCP、FastGPT 依赖和 Nginx；应用现有 migration 并写入六名显式标记的验收用户。
+首次执行会：生成仅保存在忽略文件中的随机密钥；克隆并校验精确 FastGPT 提交；应用可回滚补丁；运行 FastGPT 定向测试；构建固定镜像；先启动隔离 MySQL/Redis；创建但不启动 migration 容器；确认 migration 与 MySQL 实际只连接内部 `identity-data` 网络且未发布宿主端口；再应用现有 migration、写入六名显式标记的验收用户并启动 CRM/Gateway/MCP、FastGPT 依赖和 Nginx。
+
+Windows 脚本使用明确的 `docker build` 构建三个本地镜像，Compose 仅执行 `up --no-build`，从而兼容仓库所在的中文目录并避开 Compose/Bake 的 gRPC 元数据限制。FastGPT 镜像内统一固定 `pnpm 10.33.4`，Canvas 原生编译工具只存在于 builder，最终运行镜像只保留所需共享库。
 
 本机入口：CRM `http://127.0.0.1:18080`，FastGPT `http://127.0.0.1:18081`，MCP `http://127.0.0.1:18080/api/mcp`。Nginx 日志格式不记录 Header、Cookie 或请求正文。
+
+`/api/mcp` 及其子路径不使用 CRM 网页 Session 中间件，而由 MCP handler 自身执行服务 Key、requestId 和用户断言校验；其他 CRM/ERP API 仍保持原有登录和角色权限校验。
+
+当前身份 PoC 不验收 FastGPT 文件上传。Compose 将对象存储外部地址保留为容器内 MinIO 地址，避免隔离服务回连宿主；若后续验收浏览器上传/下载，应另行设计只绑定回环端口的外部地址并新增专项测试，不能直接沿用到生产。
 
 ## FastGPT 一次性验收配置
 

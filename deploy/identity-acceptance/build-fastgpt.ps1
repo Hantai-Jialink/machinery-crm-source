@@ -39,21 +39,38 @@ if ($LASTEXITCODE -ne 0) {
   & (Join-Path $repoRoot "deploy\fastgpt\v4.15.1\apply.ps1") -FastGptSource $FastGptSource
 }
 
-Push-Location $FastGptSource
-try {
-  corepack pnpm install --frozen-lockfile
-  if ($LASTEXITCODE -ne 0) { throw "FastGPT test dependencies failed to install." }
-} finally {
-  Pop-Location
-}
-Push-Location (Join-Path $FastGptSource "packages\service")
-try {
-  corepack pnpm exec vitest run -c vitest.config.ts test/core/app/mcp.test.ts test/core/workflow/utils/context.test.ts --coverage=false
-  if ($LASTEXITCODE -ne 0) { throw "FastGPT identity patch tests failed." }
-} finally {
-  Pop-Location
-}
+$dockerfile = Join-Path $acceptanceDir "Dockerfile.fastgpt"
+if (-not (Test-Path -LiteralPath $dockerfile)) { throw "Missing $dockerfile." }
 
-docker build --pull --label "org.opencontainers.image.revision=$expectedCommit" --label "dachuan.identity.acceptance=true" --label "dachuan.identity.tests=mcp-and-context-97-pass" -f (Join-Path $FastGptSource "projects\app\Dockerfile") -t $image $FastGptSource
+# Dependency installation, lifecycle scripts and identity patch tests all run
+# inside Dockerfile.fastgpt with the pinned Corepack pnpm toolchain. Do not add
+# host pnpm invocations here: Windows PATH must not influence this build.
+docker build --progress=plain --label "org.opencontainers.image.revision=$expectedCommit" --label "dachuan.identity.acceptance=true" --label "dachuan.identity.tests=mcp-and-context-97-pass" --label "dachuan.pnpm.version=10.33.4" -f $dockerfile -t $image $FastGptSource
 if ($LASTEXITCODE -ne 0) { throw "FastGPT custom image build failed." }
+
+docker run --rm --entrypoint node $image -e "const {createCanvas}=require('canvas'); const c=createCanvas(10,10); console.log(c.width,c.height)"
+if ($LASTEXITCODE -ne 0) { throw "FastGPT canvas runtime check failed." }
+
+$runtimeGate = @'
+set -eu
+node_file="$(find /app/node_modules/canvas -name canvas.node -type f -print -quit)"
+test -n "$node_file"
+echo "CANVAS_NODE=$node_file"
+ldd_output="$(ldd "$node_file" 2>&1 || true)"
+printf '%s\n' "$ldd_output" | sed -n '/=>/p'
+if printf '%s\n' "$ldd_output" | grep -E '=> not found|Error loading shared library .*: No such file or directory'; then
+  echo 'CANVAS_LDD=FAIL' >&2
+  exit 1
+fi
+echo 'CANVAS_LDD=PASS_NO_SHARED_LIBRARY_NOT_FOUND'
+for tool in python3 make g++; do
+  if command -v "$tool" >/dev/null 2>&1; then
+    echo "RUNTIME_TOOLCHAIN_GATE=FAIL tool=$tool" >&2
+    exit 1
+  fi
+done
+echo 'RUNTIME_TOOLCHAIN_GATE=PASS'
+'@
+docker run --rm --entrypoint sh $image -c $runtimeGate
+if ($LASTEXITCODE -ne 0) { throw "FastGPT canvas shared-library/runtime-toolchain gate failed." }
 Write-Output "FASTGPT_IMAGE_READY=$image"

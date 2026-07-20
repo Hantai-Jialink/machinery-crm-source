@@ -23,13 +23,13 @@ stamp="$(date +%Y%m%d-%H%M%S)"
 runner_output="$output_dir/$stamp-runner.log"
 service_logs="$output_dir/$stamp-services.log"
 (cd "$acceptance_dir" && docker compose -p dachuan-identity-acceptance --env-file "$env_file" --profile acceptance run --rm acceptance-runner) 2>&1 | tee "$runner_output"
-(cd "$acceptance_dir" && docker compose -p dachuan-identity-acceptance --env-file "$env_file" logs --no-color crm fastgpt nginx identity-redis mysql fastgpt-mongo fastgpt-redis fastgpt-pg fastgpt-minio) > "$service_logs"
+(cd "$acceptance_dir" && docker compose -p dachuan-identity-acceptance --env-file "$env_file" logs --no-color crm fastgpt nginx identity-redis mysql fastgpt-mongo fastgpt-redis fastgpt-pg fastgpt-minio fastgpt-plugin fastgpt-code-sandbox fastgpt-aiproxy fastgpt-aiproxy-pg) > "$service_logs"
 node - "$env_file" "$runner_output" "$service_logs" <<'NODE'
 const fs = require('fs');
 const [envPath, ...logs] = process.argv.slice(2);
 const settings = Object.fromEntries(fs.readFileSync(envPath, 'utf8').split(/\r?\n/).filter(x => x && !x.startsWith('#')).map(x => { const i=x.indexOf('='); return [x.slice(0,i),x.slice(i+1)]; }));
 const keyPart = JSON.parse(settings.AGENT_AUTH_KEYS_JSON)[0].privateJwk.d;
-const secrets = ['MCP_SERVICE_KEY','MYSQL_PASSWORD','MYSQL_ROOT_PASSWORD','REDIS_PASSWORD','AUTH_SECRET','AGENT_GATEWAY_FASTGPT_API_KEY','ACCEPTANCE_USER_PASSWORD','FASTGPT_ROOT_PASSWORD','FASTGPT_ROOT_KEY','FASTGPT_TOKEN_KEY','FASTGPT_FILE_TOKEN_KEY','FASTGPT_AES_KEY','FASTGPT_INVOKE_TOKEN_SECRET','FASTGPT_MONGO_PASSWORD','FASTGPT_REDIS_PASSWORD','FASTGPT_MINIO_PASSWORD','FASTGPT_PG_PASSWORD','FASTGPT_AIPROXY_API_TOKEN'].map(k => settings[k]).concat(keyPart).filter(x => x && x.length >= 8 && !x.startsWith('REPLACE_'));
+const secrets = ['MCP_SERVICE_KEY','MYSQL_PASSWORD','MYSQL_ROOT_PASSWORD','REDIS_PASSWORD','AUTH_SECRET','AGENT_GATEWAY_FASTGPT_API_KEY','ACCEPTANCE_USER_PASSWORD','FASTGPT_ROOT_PASSWORD','FASTGPT_ROOT_KEY','FASTGPT_TOKEN_KEY','FASTGPT_FILE_TOKEN_KEY','FASTGPT_AES_KEY','FASTGPT_INVOKE_TOKEN_SECRET','FASTGPT_MONGO_PASSWORD','FASTGPT_REDIS_PASSWORD','FASTGPT_MINIO_PASSWORD','FASTGPT_PG_PASSWORD','FASTGPT_PLUGIN_TOKEN','FASTGPT_SANDBOX_TOKEN','FASTGPT_AIPROXY_PG_PASSWORD','FASTGPT_AIPROXY_API_TOKEN'].map(k => settings[k]).concat(keyPart).filter(x => x && x.length >= 8 && !x.startsWith('REPLACE_'));
 const text = logs.map(x => fs.readFileSync(x, 'utf8')).join('\n');
 if (secrets.some(x => text.includes(x))) throw new Error('Sensitive information scan failed.');
 if (/eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}/.test(text) || /x-dachuan-user-assertion\s*[:=]\s*\S+/i.test(text)) throw new Error('Dynamic assertion found in logs.');

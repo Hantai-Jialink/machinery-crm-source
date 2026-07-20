@@ -33,7 +33,7 @@ Push-Location $acceptanceDir
 try {
   docker compose -p dachuan-identity-acceptance --env-file $envFile --profile acceptance run --rm acceptance-runner 2>&1 | Tee-Object -FilePath $runnerOutput
   if ($LASTEXITCODE -ne 0) { throw "Identity acceptance runner failed." }
-  docker compose -p dachuan-identity-acceptance --env-file $envFile logs --no-color crm fastgpt nginx identity-redis mysql fastgpt-mongo fastgpt-redis fastgpt-pg fastgpt-minio | Set-Content -LiteralPath $serviceLogs -Encoding utf8
+  docker compose -p dachuan-identity-acceptance --env-file $envFile logs --no-color crm fastgpt nginx identity-redis mysql fastgpt-mongo fastgpt-redis fastgpt-pg fastgpt-minio fastgpt-plugin fastgpt-code-sandbox fastgpt-aiproxy fastgpt-aiproxy-pg | Set-Content -LiteralPath $serviceLogs -Encoding utf8
 } finally {
   Pop-Location
 }
@@ -61,6 +61,9 @@ $secrets = @(
   $settings["FASTGPT_REDIS_PASSWORD"],
   $settings["FASTGPT_MINIO_PASSWORD"],
   $settings["FASTGPT_PG_PASSWORD"],
+  $settings["FASTGPT_PLUGIN_TOKEN"],
+  $settings["FASTGPT_SANDBOX_TOKEN"],
+  $settings["FASTGPT_AIPROXY_PG_PASSWORD"],
   $settings["FASTGPT_AIPROXY_API_TOKEN"],
   $privateKeyPart
 ) | Where-Object { $_ -and $_.Length -ge 8 -and -not $_.StartsWith("REPLACE_") }
