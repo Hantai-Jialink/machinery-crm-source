@@ -2,6 +2,8 @@ import { createHash, randomUUID } from "node:crypto";
 import { PrismaClient } from "@prisma/client";
 import { importJWK, SignJWT, type JWK } from "jose";
 import { createAgentAuthRuntime, loadAgentAuthConfig } from "@/lib/agent-auth/config";
+import { MCP_TOOL_NAMES, MCP_TOOL_ROLE_MATRIX } from "@/lib/mcp/tools";
+import type { McpRole } from "@/lib/mcp/application";
 import {
   acceptanceLoginUsers,
   runAcceptanceLoginPreflight,
@@ -25,6 +27,7 @@ type RpcBody = {
     structuredContent?: {
       data?: Record<string, unknown>;
       meta?: { requestId?: string };
+      error?: { code?: string } | null;
     };
   };
   error?: unknown;
@@ -58,6 +61,7 @@ const resourceTracker = createAcceptanceResourceTracker();
 const transcripts: string[] = [];
 const passed: string[] = [];
 const evidenceRequestIds: string[] = [];
+const expectedAuditUserIds = new Map<string, string>();
 const startedAt = new Date().toISOString();
 let acceptanceError: unknown;
 let sensitiveScanStatus: AcceptanceEvidence["sensitiveScanStatus"] = "NOT_RUN";
@@ -80,16 +84,16 @@ function unwrap<T = unknown>(payload: unknown): T {
 async function rpc(
   method: string,
   params: Record<string, unknown>,
-  options: { assertion?: string; requestId?: string; service?: string } = {},
+  options: { assertion?: string; requestId?: string | null; service?: string } = {},
 ): Promise<RpcResult> {
-  const requestId = options.requestId || `accept-${randomUUID()}`;
-  evidenceRequestIds.push(requestId);
+  const requestId = options.requestId === null ? null : options.requestId || `accept-${randomUUID()}`;
+  if (requestId) evidenceRequestIds.push(requestId);
   const headers = new Headers({
     accept: "application/json, text/event-stream",
     authorization: `Bearer ${options.service ?? serviceKey}`,
     "content-type": "application/json",
-    "x-dachuan-request-id": requestId,
   });
+  if (requestId) headers.set("x-dachuan-request-id", requestId);
   if (options.assertion) headers.set("x-dachuan-user-assertion", options.assertion);
   const response = await trackedFetch(resourceTracker, mcpUrl, {
     method: "POST",
@@ -106,6 +110,12 @@ async function rpc(
 function toolData(result: RpcResult) {
   return result.body?.result?.structuredContent?.data;
 }
+
+function toolErrorCode(result: RpcResult) {
+  return result.body?.result?.structuredContent?.error?.code;
+}
+
+const fullReadOnly = String(process.env.MCP_TOOL_MODE || "").toUpperCase() === "FULL_READ_ONLY";
 
 const keys = JSON.parse(required("AGENT_AUTH_KEYS_JSON")) as Array<{
   kid: string;
@@ -179,11 +189,18 @@ try {
   check(initialize.status === 200 && initialize.body?.result?.serverInfo, "MCP initialize failed");
   const catalog = await rpc("tools/list", {});
   check(catalog.status === 200, "MCP tools/list failed");
-  check(catalog.body?.result?.tools?.length === 1, "IDENTITY_POC must expose exactly one tool");
-  check(catalog.body.result.tools[0].name === "dachuan_identity_who_am_i", "Unexpected PoC tool catalog");
+  const expectedCatalog = ["dachuan_identity_who_am_i", ...(fullReadOnly ? MCP_TOOL_NAMES : [])];
+  check(catalog.body?.result?.tools?.length === expectedCatalog.length, `${fullReadOnly ? "FULL_READ_ONLY" : "IDENTITY_POC"} tool count mismatch`);
+  check(expectedCatalog.every((name) => catalog.body?.result?.tools?.some((tool) => tool.name === name)), "Unexpected MCP tool catalog");
   const ping = await rpc("ping", {});
   check(ping.status === 200 && ping.body?.result, "MCP ping failed");
-  record("FastGPT service identity can initialize and discover IDENTITY_POC catalog");
+  record(`FastGPT service identity can initialize and discover ${fullReadOnly ? "22-tool FULL_READ_ONLY" : "IDENTITY_POC"} catalog`);
+
+  const missingCatalogRequestId = await rpc("tools/list", {}, { requestId: null });
+  check(missingCatalogRequestId.status === 400, "tools/list without caller requestId was not rejected");
+  const invalidCatalogService = await rpc("tools/list", {}, { service: "invalid-service-key" });
+  check(invalidCatalogService.status === 401, "tools/list with an invalid service key was not rejected");
+  record("tools/list requires service key and caller requestId without requiring a user assertion");
 
   const noAssertion = await rpc("tools/call", {
     name: "dachuan_identity_who_am_i",
@@ -200,6 +217,201 @@ try {
   });
   check(normal.status === 200 && toolData(normal)?.userId === "identity-acceptance-sales-a", "Normal user identity failed");
   record("normal ERP user resolves from a signed assertion");
+
+  if (fullReadOnly) {
+    const userIdsByRole: Record<McpRole, string> = {
+      SUPER_ADMIN: "identity-acceptance-admin",
+      SALES: "identity-acceptance-sales-a",
+      FOREIGN_TRADE: "identity-acceptance-sales-b",
+      PURCHASE: "identity-acceptance-purchase",
+      WAREHOUSE: "identity-acceptance-warehouse",
+    };
+    const [superAdminToken, salesToken, foreignTradeToken, purchaseToken, warehouseToken] = await Promise.all([
+      runtime.tokenService.issue(userIdsByRole.SUPER_ADMIN),
+      runtime.tokenService.issue(userIdsByRole.SALES),
+      runtime.tokenService.issue(userIdsByRole.FOREIGN_TRADE),
+      runtime.tokenService.issue(userIdsByRole.PURCHASE),
+      runtime.tokenService.issue(userIdsByRole.WAREHOUSE),
+    ]);
+    const issuedByRole: Record<McpRole, { token: string; jti: string }> = {
+      SUPER_ADMIN: superAdminToken,
+      SALES: salesToken,
+      FOREIGN_TRADE: foreignTradeToken,
+      PURCHASE: purchaseToken,
+      WAREHOUSE: warehouseToken,
+    };
+    const roles = Object.keys(userIdsByRole) as McpRole[];
+    const validArguments: Record<string, Record<string, unknown>> = {
+      crm_customers_list: {},
+      crm_customer_get: { id: "identity-acceptance-customer-sales-a" },
+      crm_customer_follows_list: { customerId: "identity-acceptance-customer-sales-a" },
+      crm_products_list: {},
+      crm_product_get: { id: "identity-acceptance-product" },
+      crm_contracts_list: {},
+      crm_contract_get: { id: "identity-acceptance-contract-sales-a" },
+      crm_shipments_list: {},
+      crm_shipment_get: { id: "identity-acceptance-shipment-sales-a" },
+      erp_suppliers_list: {},
+      erp_supplier_get: { id: "identity-acceptance-supplier" },
+      erp_purchase_orders_list: {},
+      erp_purchase_order_get: { id: "identity-acceptance-purchase-order" },
+      erp_inventory_list: {},
+      erp_stock_documents_list: { direction: "IN" },
+      erp_stock_movements_list: {},
+      erp_boms_list: {},
+      erp_bom_get: { id: "identity-acceptance-bom" },
+      erp_production_orders_list: {},
+      erp_production_order_get: { id: "identity-acceptance-production-order" },
+      erp_kit_check: { productionOrderId: "identity-acceptance-production-order" },
+    };
+    const forgedIdentity = {
+      userId: "forged-user",
+      role: "SUPER_ADMIN",
+      region: "全国",
+      territories: [{ province: "任意", cities: [] }],
+      viewScope: "ALL",
+    };
+
+    for (const [index, toolName] of MCP_TOOL_NAMES.entries()) {
+      const allowedRole = MCP_TOOL_ROLE_MATRIX[toolName][0];
+      const forbiddenRole = roles.find((role) => !MCP_TOOL_ROLE_MATRIX[toolName].includes(role));
+      check(forbiddenRole, `${toolName} has no forbidden role fixture`);
+      const allowed = await rpc("tools/call", { name: toolName, arguments: validArguments[toolName] }, {
+        assertion: issuedByRole[allowedRole].token,
+        requestId: `full-allow-${index}`,
+      });
+      expectedAuditUserIds.set(`full-allow-${index}`, userIdsByRole[allowedRole]);
+      check(allowed.status === 200 && toolErrorCode(allowed) === undefined && toolData(allowed) !== undefined, `${toolName} allowed role did not complete a successful read`);
+
+      const denied = await rpc("tools/call", { name: toolName, arguments: validArguments[toolName] }, {
+        assertion: issuedByRole[forbiddenRole].token,
+        requestId: `full-deny-${index}`,
+      });
+      expectedAuditUserIds.set(`full-deny-${index}`, userIdsByRole[forbiddenRole]);
+      check(toolErrorCode(denied) === "FORBIDDEN", `${toolName} forbidden role was not denied`);
+
+      const forged = await rpc("tools/call", { name: toolName, arguments: { ...validArguments[toolName], ...forgedIdentity } }, {
+        assertion: issuedByRole[allowedRole].token,
+        requestId: `full-forged-${index}`,
+      });
+      expectedAuditUserIds.set(`full-forged-${index}`, userIdsByRole[allowedRole]);
+      check(toolErrorCode(forged) === "INVALID_ARGUMENT", `${toolName} accepted forged identity arguments`);
+    }
+    record("all 21 business tools enforce allowed role, forbidden role and strict identity-free arguments");
+
+    const [salesAList, salesBList] = await Promise.all([
+      rpc("tools/call", { name: "crm_customers_list", arguments: { search: "身份验收" } }, {
+        assertion: issuedByRole.SALES.token,
+        requestId: "full-sales-a-region",
+      }),
+      rpc("tools/call", { name: "crm_customers_list", arguments: { search: "身份验收" } }, {
+        assertion: issuedByRole.FOREIGN_TRADE.token,
+        requestId: "full-sales-b-region",
+      }),
+    ]);
+    const salesAItems = (toolData(salesAList)?.items || []) as Array<{ id?: string }>;
+    const salesBItems = (toolData(salesBList)?.items || []) as Array<{ id?: string }>;
+    check(salesAItems.some((item) => item.id === "identity-acceptance-customer-sales-a"), "Domestic sales did not receive its own regional customer");
+    check(!salesAItems.some((item) => item.id === "identity-acceptance-customer-sales-b"), "Domestic sales received foreign-trade data");
+    check(salesBItems.some((item) => item.id === "identity-acceptance-customer-sales-b"), "Foreign trade did not receive its own business-line customer");
+    check(!salesBItems.some((item) => item.id === "identity-acceptance-customer-sales-a"), "Foreign trade received domestic regional data");
+    record("two concurrent sales identities remain isolated by business line and territory");
+
+    const scopedCases = [
+      {
+        name: "crm_customer_get",
+        ownArgs: { id: "identity-acceptance-customer-sales-a" },
+        crossArgs: { id: "identity-acceptance-customer-sales-b" },
+        ownId: "identity-acceptance-customer-sales-a",
+        crossMode: "NOT_FOUND",
+      },
+      {
+        name: "crm_customer_follows_list",
+        ownArgs: { customerId: "identity-acceptance-customer-sales-a" },
+        crossArgs: { customerId: "identity-acceptance-customer-sales-b" },
+        ownId: "identity-acceptance-follow-sales-a",
+        crossMode: "EMPTY_LIST",
+      },
+      {
+        name: "crm_contracts_list",
+        ownArgs: { customerId: "identity-acceptance-customer-sales-a" },
+        crossArgs: { customerId: "identity-acceptance-customer-sales-b" },
+        ownId: "identity-acceptance-contract-sales-a",
+        crossMode: "EMPTY_LIST",
+      },
+      {
+        name: "crm_contract_get",
+        ownArgs: { id: "identity-acceptance-contract-sales-a" },
+        crossArgs: { id: "identity-acceptance-contract-sales-b" },
+        ownId: "identity-acceptance-contract-sales-a",
+        crossMode: "NOT_FOUND",
+      },
+      {
+        name: "crm_shipments_list",
+        ownArgs: { customerId: "identity-acceptance-customer-sales-a" },
+        crossArgs: { customerId: "identity-acceptance-customer-sales-b" },
+        ownId: "identity-acceptance-shipment-sales-a",
+        crossMode: "EMPTY_LIST",
+      },
+      {
+        name: "crm_shipment_get",
+        ownArgs: { id: "identity-acceptance-shipment-sales-a" },
+        crossArgs: { id: "identity-acceptance-shipment-sales-b" },
+        ownId: "identity-acceptance-shipment-sales-a",
+        crossMode: "NOT_FOUND",
+      },
+    ] as const;
+    for (const [index, scopedCase] of scopedCases.entries()) {
+      const own = await rpc("tools/call", { name: scopedCase.name, arguments: scopedCase.ownArgs }, {
+        assertion: issuedByRole.SALES.token,
+        requestId: `full-scope-own-${index}`,
+      });
+      const ownData = toolData(own);
+      const ownItems = (ownData?.items || []) as Array<{ id?: string }>;
+      check(
+        toolErrorCode(own) === undefined && (ownData?.id === scopedCase.ownId || ownItems.some((item) => item.id === scopedCase.ownId)),
+        `${scopedCase.name} did not return the domestic sales fixture`,
+      );
+      const cross = await rpc("tools/call", { name: scopedCase.name, arguments: scopedCase.crossArgs }, {
+        assertion: issuedByRole.SALES.token,
+        requestId: `full-scope-cross-${index}`,
+      });
+      if (scopedCase.crossMode === "NOT_FOUND") {
+        check(toolErrorCode(cross) === "NOT_FOUND", `${scopedCase.name} exposed a cross-business-line detail`);
+      } else {
+        check(toolErrorCode(cross) === undefined && ((toolData(cross)?.items || []) as unknown[]).length === 0, `${scopedCase.name} exposed a cross-business-line list item`);
+      }
+    }
+    const [domesticProducts, foreignProducts] = await Promise.all([
+      rpc("tools/call", { name: "crm_products_list", arguments: { search: "IDENTITY-ACCEPTANCE" } }, {
+        assertion: issuedByRole.SALES.token,
+        requestId: "full-global-products-sales",
+      }),
+      rpc("tools/call", { name: "crm_products_list", arguments: { search: "IDENTITY-ACCEPTANCE" } }, {
+        assertion: issuedByRole.FOREIGN_TRADE.token,
+        requestId: "full-global-products-foreign",
+      }),
+    ]);
+    check(toolErrorCode(domesticProducts) === undefined && toolErrorCode(foreignProducts) === undefined, "Global product master was not readable by both CRM business lines");
+    const [domesticProduct, foreignProduct] = await Promise.all([
+      rpc("tools/call", { name: "crm_product_get", arguments: { id: "identity-acceptance-product" } }, {
+        assertion: issuedByRole.SALES.token,
+        requestId: "full-global-product-get-sales",
+      }),
+      rpc("tools/call", { name: "crm_product_get", arguments: { id: "identity-acceptance-product" } }, {
+        assertion: issuedByRole.FOREIGN_TRADE.token,
+        requestId: "full-global-product-get-foreign",
+      }),
+    ]);
+    check(
+      toolErrorCode(domesticProduct) === undefined
+        && toolErrorCode(foreignProduct) === undefined
+        && toolData(domesticProduct)?.id === "identity-acceptance-product"
+        && toolData(foreignProduct)?.id === "identity-acceptance-product",
+      "Global product detail was not readable by both CRM business lines",
+    );
+    record("all region-scoped CRM tools reject cross-business data; global and ERP tools follow their explicit module scopes");
+  }
 
   const concurrentExpected = Array.from({ length: 48 }, (_, index) => ({
     userId: index % 2 ? "identity-acceptance-sales-b" : "identity-acceptance-sales-a",
@@ -334,13 +546,36 @@ try {
   record("24 real multi-session/tab streaming and non-streaming calls traverse Gateway, FastGPT and MCP without identity crossover");
 
   const audits = await prisma.operationLog.findMany({
-    where: { entityId: { startsWith: "accept-" }, action: "MCP_CALL" },
+    where: { entityId: { in: [...new Set(evidenceRequestIds)] }, action: "MCP_CALL" },
     orderBy: { createdAt: "desc" },
-    take: 300,
+    take: 500,
     select: { userId: true, entityId: true, afterData: true },
   });
   check(audits.some((item) => item.userId === "identity-acceptance-sales-a"), "Concrete ERP user missing from OperationLog");
   check(audits.some((item) => item.entityId === "accept-invalid-audience"), "Rejected request missing from OperationLog");
+  if (fullReadOnly) {
+    const allowedAuditKeys = ["apiKeyName", "createdAt", "durationMs", "method", "rejectionReason", "requestId", "statusCode", "success", "toolName"];
+    for (const [index, toolName] of MCP_TOOL_NAMES.entries()) {
+      const expected = [
+        { requestId: `full-allow-${index}`, success: true, rejectionReason: null },
+        { requestId: `full-deny-${index}`, success: false, rejectionReason: "FORBIDDEN" },
+        { requestId: `full-forged-${index}`, success: false, rejectionReason: "INVALID_ARGUMENT" },
+      ];
+      for (const item of expected) {
+        const audit = audits.find((entry) => entry.entityId === item.requestId);
+        check(audit, `${item.requestId} has no OperationLog record`);
+        check(audit.userId === expectedAuditUserIds.get(item.requestId), `${item.requestId} OperationLog userId mismatch`);
+        const afterData = audit.afterData && typeof audit.afterData === "object" && !Array.isArray(audit.afterData)
+          ? audit.afterData as Record<string, unknown>
+          : {};
+        check(afterData.requestId === item.requestId, `${item.requestId} audit requestId mismatch`);
+        check(afterData.toolName === toolName, `${item.requestId} audit toolName mismatch`);
+        check(afterData.success === item.success, `${item.requestId} audit success mismatch`);
+        check((afterData.rejectionReason ?? null) === item.rejectionReason, `${item.requestId} audit rejectionReason mismatch`);
+        check(Object.keys(afterData).sort().join(",") === [...allowedAuditKeys].sort().join(","), `${item.requestId} audit contains non-minimal fields`);
+      }
+    }
+  }
   const auditText = JSON.stringify(audits);
   const sensitiveValues = [
     serviceKey,

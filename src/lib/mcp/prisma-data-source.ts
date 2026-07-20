@@ -1,12 +1,14 @@
 import { Prisma, type PrismaClient } from "@prisma/client";
 import type { McpAuditInput, McpDataSource, McpUser } from "@/lib/mcp/application";
-import { McpToolError } from "@/lib/mcp/tools";
+import { canCallMcpBusinessTool, McpToolError } from "@/lib/mcp/tools";
 import { buildCustomerWhereClause, customerIsolationWhere, parseTerritories } from "@/lib/customer-permissions";
 import { toPlainJson } from "@/lib/sales-items";
 import { canExecuteKitCheck, canManageBom, canManageSuppliers, canViewERP } from "@/lib/erp-roles";
 import { calculateKitMaterialQuantities } from "@/lib/production-orders";
 
 type QueryArgs = Record<string, unknown>;
+
+const INVENTORY_ALERT_MATERIAL_LIMIT = 500;
 
 function text(args: QueryArgs, key: string) {
   return typeof args[key] === "string" ? args[key].trim() : "";
@@ -25,15 +27,21 @@ function paginated(items: unknown[], total: number, page: number, pageSize: numb
   };
 }
 
-function auditArgumentKeys(value: unknown) {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return [];
-  return Object.keys(value).slice(0, 100).sort();
+function dateRange(args: QueryArgs) {
+  const startValue = text(args, "dateStart");
+  const endValue = text(args, "dateEnd");
+  if (!startValue || !endValue) return undefined;
+  const end = new Date(`${endValue}T00:00:00.000Z`);
+  end.setUTCDate(end.getUTCDate() + 1);
+  return { gte: new Date(`${startValue}T00:00:00.000Z`), lt: end };
 }
 
 async function queryCustomers(client: PrismaClient, args: QueryArgs, user: McpUser) {
   const { page, pageSize, skip } = pagination(args);
   const search = text(args, "search");
   const where: any = buildCustomerWhereClause(user);
+  const createdAt = dateRange(args);
+  if (createdAt) where.createdAt = createdAt;
   if (search) {
     where.AND = [{
       OR: [
@@ -75,7 +83,7 @@ async function queryCustomers(client: PrismaClient, args: QueryArgs, user: McpUs
         customerLevel: true,
         status: true,
         interestTags: true,
-        assignedUser: { select: { id: true, name: true, email: true, isActive: true } },
+        assignedUser: { select: { id: true, name: true, isActive: true } },
         lastFollowDate: true,
         nextFollowDate: true,
         createdAt: true,
@@ -111,7 +119,7 @@ const customerSelect = {
   status: true,
   interestTags: true,
   remark: true,
-  assignedUser: { select: { id: true, name: true, email: true, isActive: true } },
+  assignedUser: { select: { id: true, name: true, isActive: true } },
   lastFollowDate: true,
   nextFollowDate: true,
   createdAt: true,
@@ -130,15 +138,17 @@ async function queryCustomer(client: PrismaClient, args: QueryArgs, user: McpUse
 
 async function queryCustomerFollows(client: PrismaClient, args: QueryArgs, user: McpUser) {
   const customerId = text(args, "customerId");
-  const customer = await client.customer.findFirst({
-    where: { ...buildCustomerWhereClause(user), id: customerId },
-    select: { id: true },
-  });
-  if (!customer) throw new McpToolError("NOT_FOUND", "客户不存在或无权访问");
   const { page, pageSize, skip } = pagination(args);
+  const search = text(args, "search");
+  const followWhere: Prisma.FollowRecordWhereInput = {
+    customerId,
+    customer: buildCustomerWhereClause(user),
+    ...(dateRange(args) ? { createdAt: dateRange(args) } : {}),
+    ...(search ? { OR: [{ content: { contains: search } }, { result: { contains: search } }] } : {}),
+  };
   const [items, total] = await Promise.all([
     client.followRecord.findMany({
-      where: { customerId },
+      where: followWhere,
       select: {
         id: true,
         customerId: true,
@@ -155,7 +165,7 @@ async function queryCustomerFollows(client: PrismaClient, args: QueryArgs, user:
       skip,
       take: pageSize,
     }),
-    client.followRecord.count({ where: { customerId } }),
+    client.followRecord.count({ where: followWhere }),
   ]);
   return paginated(items, total, page, pageSize);
 }
@@ -164,7 +174,7 @@ async function queryProducts(client: PrismaClient, args: QueryArgs) {
   const { page, pageSize, skip } = pagination(args);
   const search = text(args, "search");
   const productType = text(args, "productType");
-  const where: any = { isActive: true };
+  const where: any = { isActive: true, ...(dateRange(args) ? { updatedAt: dateRange(args) } : {}) };
   if (productType) where.productType = productType;
   if (search) {
     where.OR = [
@@ -202,8 +212,8 @@ async function queryProducts(client: PrismaClient, args: QueryArgs) {
 }
 
 async function queryProduct(client: PrismaClient, args: QueryArgs) {
-  const product = await client.product.findUnique({
-    where: { id: text(args, "id") },
+  const product = await client.product.findFirst({
+    where: { id: text(args, "id"), isActive: true },
     select: {
       id: true,
       model: true,
@@ -227,6 +237,8 @@ async function queryProduct(client: PrismaClient, args: QueryArgs) {
 
 function contractWhere(args: QueryArgs, user: McpUser) {
   const where: any = { deletedAt: null, customer: customerIsolationWhere(user) };
+  const signedDate = dateRange(args);
+  if (signedDate) where.signedDate = signedDate;
   const search = text(args, "search");
   const status = text(args, "status");
   const paymentStatus = text(args, "paymentStatus");
@@ -268,7 +280,7 @@ async function queryContracts(client: PrismaClient, args: QueryArgs, user: McpUs
         createdAt: true,
         updatedAt: true,
         customer: { select: { id: true, companyName: true, contactName: true, province: true, city: true, businessLine: true } },
-        salesUser: { select: { id: true, name: true, email: true } },
+        salesUser: { select: { id: true, name: true } },
         _count: { select: { items: true, payments: true, shipments: true } },
       },
       orderBy: { signedDate: "desc" },
@@ -300,7 +312,7 @@ async function queryContract(client: PrismaClient, args: QueryArgs, user: McpUse
       createdAt: true,
       updatedAt: true,
       customer: { select: { id: true, companyName: true, contactName: true, province: true, city: true, businessLine: true } },
-      salesUser: { select: { id: true, name: true, email: true } },
+      salesUser: { select: { id: true, name: true } },
       items: {
         select: { id: true, itemType: true, productId: true, productNameSnapshot: true, productModelSnapshot: true, contractPrice: true, quantity: true, estimatedShipmentDate: true, sortOrder: true },
         orderBy: { sortOrder: "asc" },
@@ -417,6 +429,15 @@ async function queryKitReadiness(client: PrismaClient, args: QueryArgs, user: Mc
   }
   const materials = await client.productionOrderMaterial.findMany({
     where: { productionOrderId: order.id },
+    select: {
+      materialId: true,
+      materialCodeSnapshot: true,
+      materialNameSnapshot: true,
+      materialSpecSnapshot: true,
+      unitSnapshot: true,
+      perUnitQuantity: true,
+      requiredQuantity: true,
+    },
     orderBy: { sortOrder: "asc" },
   });
   if (materials.length === 0) throw new McpToolError("INVALID_STATE", "生产工单缺少物料快照，无法执行齐套检查");
@@ -431,8 +452,14 @@ async function queryKitReadiness(client: PrismaClient, args: QueryArgs, user: Mc
       where: { deletedAt: null, status: { in: ["ORDERED", "PARTIAL_RECEIVED"] } },
       select: { id: true },
     }),
-    client.stockOut.findMany({ where: { productionOrderId: order.id }, include: { items: true } }),
-    client.stockIn.findMany({ where: { productionOrderId: order.id }, include: { items: true } }),
+    client.stockOut.findMany({
+      where: { productionOrderId: order.id },
+      select: { items: { select: { materialId: true, quantity: true } } },
+    }),
+    client.stockIn.findMany({
+      where: { productionOrderId: order.id },
+      select: { items: { select: { materialId: true, quantity: true } } },
+    }),
   ]);
   const purchaseItems = openPurchaseOrders.length > 0
     ? await client.purchaseOrderItem.findMany({
@@ -504,7 +531,7 @@ async function queryKitReadiness(client: PrismaClient, args: QueryArgs, user: Mc
 async function querySuppliers(client: PrismaClient, args: QueryArgs) {
   const { page, pageSize, skip } = pagination(args);
   const search = text(args, "search");
-  const where: any = { deletedAt: null };
+  const where: any = { deletedAt: null, ...(dateRange(args) ? { updatedAt: dateRange(args) } : {}) };
   if (typeof args.active === "boolean") where.isActive = args.active;
   if (search) {
     where.OR = [
@@ -570,7 +597,7 @@ async function queryPurchaseOrders(client: PrismaClient, args: QueryArgs, user: 
   const search = text(args, "search");
   const status = text(args, "status");
   const supplierId = text(args, "supplierId");
-  const where: any = { deletedAt: null };
+  const where: any = { deletedAt: null, ...(dateRange(args) ? { orderDate: dateRange(args) } : {}) };
   if (user.role === "WAREHOUSE") where.status = { in: ["ORDERED", "PARTIAL_RECEIVED", "RECEIVED"] };
   if (status) where.status = status;
   if (supplierId) where.supplierId = supplierId;
@@ -620,8 +647,12 @@ async function queryPurchaseOrders(client: PrismaClient, args: QueryArgs, user: 
 }
 
 async function queryPurchaseOrder(client: PrismaClient, args: QueryArgs, user: McpUser) {
+  const where: Prisma.PurchaseOrderWhereInput = { id: text(args, "id"), deletedAt: null };
+  if (user.role === "WAREHOUSE") {
+    where.status = { in: ["ORDERED", "PARTIAL_RECEIVED", "RECEIVED"] };
+  }
   const order = await client.purchaseOrder.findFirst({
-    where: { id: text(args, "id"), deletedAt: null },
+    where,
     select: {
       id: true,
       orderNo: true,
@@ -633,15 +664,11 @@ async function queryPurchaseOrder(client: PrismaClient, args: QueryArgs, user: M
       remark: true,
       sourceProductionOrderId: true,
       sourceKitCheckId: true,
-      sourceShortageDetail: true,
       createdAt: true,
       updatedAt: true,
     },
   });
-  if (!order) throw new McpToolError("NOT_FOUND", "采购订单不存在");
-  if (user.role === "WAREHOUSE" && !["ORDERED", "PARTIAL_RECEIVED", "RECEIVED"].includes(order.status)) {
-    throw new McpToolError("FORBIDDEN", "仓库管理只能查看已提交或已批准的采购订单");
-  }
+  if (!order) throw new McpToolError("NOT_FOUND", "采购订单不存在或无权访问");
   const [items, supplier] = await Promise.all([
     client.purchaseOrderItem.findMany({
       where: { purchaseOrderId: order.id },
@@ -667,8 +694,8 @@ async function queryPurchaseOrder(client: PrismaClient, args: QueryArgs, user: M
       },
       orderBy: { sortOrder: "asc" },
     }),
-    client.supplier.findUnique({
-      where: { id: order.supplierId },
+    client.supplier.findFirst({
+      where: { id: order.supplierId, deletedAt: null },
       select: { id: true, name: true, contactName: true, phone: true, isActive: true },
     }),
   ]);
@@ -703,16 +730,17 @@ async function queryInventory(client: PrismaClient, args: QueryArgs) {
   const search = text(args, "search");
   const warehouseId = text(args, "warehouseId");
   const categoryId = text(args, "categoryId");
+  const materialWhere: Prisma.MaterialWhereInput = {
+    deletedAt: null,
+    isActive: true,
+    ...(categoryId ? { categoryId } : {}),
+    ...(search ? { OR: [{ name: { contains: search } }, { code: { contains: search } }] } : {}),
+  };
+  const inventoryUpdatedAt = dateRange(args);
   const where: Prisma.InventoryWhereInput = {
+    ...(inventoryUpdatedAt ? { updatedAt: inventoryUpdatedAt } : {}),
     ...(warehouseId ? { warehouseId } : {}),
-    ...(categoryId || search
-      ? {
-          material: {
-            ...(categoryId ? { categoryId } : {}),
-            ...(search ? { OR: [{ name: { contains: search } }, { code: { contains: search } }] } : {}),
-          },
-        }
-      : {}),
+    material: materialWhere,
   };
   const select = {
     id: true,
@@ -727,12 +755,46 @@ async function queryInventory(client: PrismaClient, args: QueryArgs) {
   } as const;
 
   if (args.alertOnly === true) {
-    const rows = await client.inventory.findMany({ where, select, orderBy: { materialId: "asc" } });
-    const items = rows.filter((row) => {
-      const threshold = inventoryThreshold(row.material);
-      return threshold !== null && Number(row.quantity) <= threshold;
+    const thresholdMaterials = await client.material.findMany({
+      where: {
+        ...materialWhere,
+        AND: [
+          {
+            OR: [
+              { safetyStock: { not: null } },
+              { safetyStock: null, category: { warningThreshold: { not: null } } },
+            ],
+          },
+          {
+            inventories: {
+              some: {
+                ...(warehouseId ? { warehouseId } : {}),
+                ...(inventoryUpdatedAt ? { updatedAt: inventoryUpdatedAt } : {}),
+              },
+            },
+          },
+        ],
+      },
+      select: { id: true, safetyStock: true, category: { select: { warningThreshold: true } } },
+      orderBy: { id: "asc" },
+      take: INVENTORY_ALERT_MATERIAL_LIMIT + 1,
     });
-    return paginated(items.slice(skip, skip + pageSize), items.length, page, pageSize);
+    if (thresholdMaterials.length > INVENTORY_ALERT_MATERIAL_LIMIT) {
+      throw new McpToolError("QUERY_SCOPE_TOO_LARGE", "库存预警候选物料超过 500 条，请增加仓库或搜索条件后重试");
+    }
+    const alertConditions: Prisma.InventoryWhereInput[] = thresholdMaterials.flatMap((material) => {
+      const threshold = inventoryThreshold(material);
+      return threshold === null ? [] : [{ materialId: material.id, quantity: { lte: threshold } }];
+    });
+    const alertWhere: Prisma.InventoryWhereInput = {
+      ...where,
+      ...(alertConditions.length > 0 ? { OR: alertConditions } : { materialId: { in: [] } }),
+    };
+    const [items, total] = await Promise.all([
+      client.inventory.findMany({ where: alertWhere, select, orderBy: { materialId: "asc" }, skip, take: pageSize }),
+      client.inventory.count({ where: alertWhere }),
+    ]);
+    return paginated(items, total, page, pageSize);
   }
 
   const [items, total] = await Promise.all([
@@ -747,9 +809,17 @@ async function queryStockDocuments(client: PrismaClient, args: QueryArgs) {
   const warehouseId = text(args, "warehouseId");
   const productionOrderId = text(args, "productionOrderId");
   const purchaseOrderId = text(args, "purchaseOrderId");
-  const commonWhere = {
+  const search = text(args, "search");
+  const commonWhere: any = {
     ...(warehouseId ? { warehouseId } : {}),
     ...(productionOrderId ? { productionOrderId } : {}),
+    ...(dateRange(args) ? { createdAt: dateRange(args) } : {}),
+    ...(search ? {
+      OR: [
+        { batchNo: { contains: search } },
+        { items: { some: { OR: [{ materialCodeSnapshot: { contains: search } }, { materialNameSnapshot: { contains: search } }] } } },
+      ],
+    } : {}),
   };
   const itemSelect = {
     id: true,
@@ -823,7 +893,17 @@ async function queryStockDocuments(client: PrismaClient, args: QueryArgs) {
 
 async function queryStockMovements(client: PrismaClient, args: QueryArgs) {
   const { page, pageSize, skip } = pagination(args);
-  const where: Prisma.StockMovementWhereInput = {};
+  const search = text(args, "search");
+  const where: Prisma.StockMovementWhereInput = {
+    ...(dateRange(args) ? { createdAt: dateRange(args) } : {}),
+    ...(search ? {
+      OR: [
+        { refType: { contains: search } },
+        { refId: { contains: search } },
+        { material: { OR: [{ code: { contains: search } }, { name: { contains: search } }] } },
+      ],
+    } : {}),
+  };
   for (const key of ["warehouseId", "materialId", "type", "refType", "refId"] as const) {
     const value = text(args, key);
     if (value) (where as Record<string, unknown>)[key] = value;
@@ -896,11 +976,13 @@ async function queryBoms(client: PrismaClient, args: QueryArgs) {
   const productId = text(args, "productId");
   const matchedProducts = search
     ? await client.product.findMany({
-        where: { OR: [{ model: { contains: search } }, { translations: { some: { name: { contains: search } } } }] },
+        where: { isActive: true, OR: [{ model: { contains: search } }, { translations: { some: { name: { contains: search } } } }] },
         select: { id: true },
+        take: 100,
       })
     : [];
   const where: Prisma.BomHeaderWhereInput = {
+    ...(dateRange(args) ? { updatedAt: dateRange(args) } : {}),
     ...(productId ? { productId } : {}),
     ...(typeof args.active === "boolean" ? { isActive: args.active } : {}),
     ...(search ? { OR: [{ version: { contains: search } }, { productId: { in: matchedProducts.map((item) => item.id) } }] } : {}),
@@ -921,7 +1003,7 @@ async function queryBoms(client: PrismaClient, args: QueryArgs) {
 
 async function queryBom(client: PrismaClient, args: QueryArgs, user: McpUser) {
   if (!canManageBom(user.role)) throw new McpToolError("FORBIDDEN", "当前用户无权查看用料清单详情");
-  const bom = await client.bomHeader.findUnique({
+  const bom = await client.bomHeader.findFirst({
     where: { id: text(args, "id") },
     select: { id: true, productId: true, version: true, isActive: true, remark: true, supersedesId: true, createdAt: true, updatedAt: true, items: { select: bomItemSelect, orderBy: { sortOrder: "asc" } } },
   });
@@ -937,9 +1019,35 @@ async function queryProductionOrders(client: PrismaClient, args: QueryArgs, user
   const where: Prisma.ProductionOrderWhereInput = {
     deletedAt: null,
     isCurrent: true,
+    ...(dateRange(args) ? { createdAt: dateRange(args) } : {}),
     ...(status ? { status: status as Prisma.EnumProductionOrderStatusFilter } : {}),
     ...(search ? { OR: [{ orderNo: { contains: search } }, { contractNoSnapshot: { contains: search } }, { productModelSnapshot: { contains: search } }, { productNameSnapshot: { contains: search } }] } : {}),
   };
+  if (user.role === "PURCHASE") {
+    const [orders, total] = await Promise.all([
+      client.productionOrder.findMany({
+        where,
+        select: {
+          id: true,
+          orderNo: true,
+          productModelSnapshot: true,
+          productNameSnapshot: true,
+          quantity: true,
+          plannedDate: true,
+          status: true,
+          kitCheckResults: { orderBy: { createdAt: "desc" }, take: 1, select: { id: true, status: true, shortageCount: true, totalMaterials: true, createdAt: true } },
+        },
+        orderBy: { createdAt: "desc" },
+        skip,
+        take: pageSize,
+      }),
+      client.productionOrder.count({ where }),
+    ]);
+    return paginated(orders.map(({ kitCheckResults, ...order }) => ({
+      ...order,
+      latestKitCheckResult: kitCheckResults[0] || null,
+    })), total, page, pageSize);
+  }
   const [orders, total] = await Promise.all([
     client.productionOrder.findMany({
       where,
@@ -974,22 +1082,10 @@ async function queryProductionOrders(client: PrismaClient, args: QueryArgs, user
     }),
     client.productionOrder.count({ where }),
   ]);
-  const items = orders.map(({ kitCheckResults, ...order }) => {
-    const latestKitCheckResult = kitCheckResults[0] || null;
-    if (user.role === "PURCHASE") {
-      return {
-        id: order.id,
-        orderNo: order.orderNo,
-        productModelSnapshot: order.productModelSnapshot,
-        productNameSnapshot: order.productNameSnapshot,
-        quantity: order.quantity,
-        plannedDate: order.plannedDate,
-        status: order.status,
-        latestKitCheckResult,
-      };
-    }
-    return { ...order, latestKitCheckResult };
-  });
+  const items = orders.map(({ kitCheckResults, ...order }) => ({
+    ...order,
+    latestKitCheckResult: kitCheckResults[0] || null,
+  }));
   return paginated(items, total, page, pageSize);
 }
 
@@ -1031,7 +1127,7 @@ async function queryProductionOrder(client: PrismaClient, args: QueryArgs, user:
     });
   }
   const order = await client.productionOrder.findFirst({
-    where: { id, deletedAt: null },
+    where: { id, deletedAt: null, isCurrent: true },
     select: {
       id: true,
       orderNo: true,
@@ -1060,7 +1156,21 @@ async function queryProductionOrder(client: PrismaClient, args: QueryArgs, user:
       remark: true,
       createdAt: true,
       updatedAt: true,
-      materials: { orderBy: { sortOrder: "asc" } },
+      materials: {
+        orderBy: { sortOrder: "asc" },
+        select: {
+          id: true,
+          materialId: true,
+          materialCodeSnapshot: true,
+          materialNameSnapshot: true,
+          materialSpecSnapshot: true,
+          unitSnapshot: true,
+          perUnitQuantity: true,
+          requiredQuantity: true,
+          bomVersionSnapshot: true,
+          sortOrder: true,
+        },
+      },
       kitCheckResults: { orderBy: { createdAt: "desc" }, take: 10, select: { id: true, status: true, shortageCount: true, totalMaterials: true, detail: true, triggerType: true, createdAt: true } },
       changeRequests: { orderBy: { createdAt: "desc" }, take: 20, select: { id: true, status: true, reason: true, approvalRemark: true, createdAt: true, approvedAt: true, rejectedAt: true } },
     },
@@ -1068,7 +1178,7 @@ async function queryProductionOrder(client: PrismaClient, args: QueryArgs, user:
   if (!order) throw new McpToolError("NOT_FOUND", "生产工单不存在");
   const [warehouse, responsible] = await Promise.all([
     client.warehouse.findUnique({ where: { id: order.warehouseId }, select: { id: true, name: true, code: true, isActive: true } }),
-    order.responsibleId ? client.user.findUnique({ where: { id: order.responsibleId }, select: { id: true, name: true, email: true } }) : null,
+    order.responsibleId ? client.user.findUnique({ where: { id: order.responsibleId }, select: { id: true, name: true, isActive: true } }) : null,
   ]);
   return toPlainJson({ ...order, warehouse, productionResponsible: responsible, latestKitCheckResult: order.kitCheckResults[0] || null });
 }
@@ -1081,8 +1191,6 @@ export function createPrismaMcpDataSource(client: PrismaClient): McpDataSource {
         select: {
           id: true,
           isActive: true,
-          name: true,
-          email: true,
           role: true,
           region: true,
           territories: true,
@@ -1098,6 +1206,9 @@ export function createPrismaMcpDataSource(client: PrismaClient): McpDataSource {
     },
 
     async execute(toolName, args, user) {
+      if (!canCallMcpBusinessTool(toolName, user.role)) {
+        throw new McpToolError("FORBIDDEN", "当前角色无权调用此工具");
+      }
       if (toolName.startsWith("erp_") && !canViewERP(user.role)) {
         throw new McpToolError("FORBIDDEN", "当前用户无权访问 ERP");
       }
@@ -1169,7 +1280,6 @@ export function createPrismaMcpDataSource(client: PrismaClient): McpDataSource {
             apiKeyName: input.apiKeyName,
             method: input.method,
             toolName: input.toolName || null,
-            argumentKeys: auditArgumentKeys(input.arguments),
             success: input.success,
             statusCode: input.statusCode,
             durationMs: input.durationMs,

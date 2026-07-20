@@ -98,7 +98,236 @@ try {
       },
     });
   }
-  console.log(`Seeded ${fixtures.length} isolated identity acceptance users`);
+  const customerFixtures = [
+    {
+      id: "identity-acceptance-customer-sales-a",
+      companyName: "身份验收山东客户",
+      contactName: "验收联系人甲",
+      province: "山东省",
+      city: "济南市",
+      region: "华东",
+      businessLine: "国内销售",
+      assignedUserId: "identity-acceptance-sales-a",
+    },
+    {
+      id: "identity-acceptance-customer-sales-b",
+      companyName: "身份验收外贸客户",
+      contactName: "验收联系人乙",
+      province: "海外",
+      city: null,
+      region: "海外",
+      businessLine: "外贸",
+      assignedUserId: "identity-acceptance-sales-b",
+    },
+  ];
+  for (const fixture of customerFixtures) {
+    await prisma.customer.upsert({
+      where: { id: fixture.id },
+      create: {
+        ...fixture,
+        customerSource: "身份验收隔离数据",
+        customerType: "END_USER",
+        customerLevel: "B",
+        interestTags: [],
+      },
+      update: {
+        companyName: fixture.companyName,
+        contactName: fixture.contactName,
+        province: fixture.province,
+        city: fixture.city,
+        region: fixture.region,
+        businessLine: fixture.businessLine,
+        assignedUserId: fixture.assignedUserId,
+        deletedAt: null,
+      },
+    });
+  }
+  const acceptanceDate = new Date("2026-07-20T00:00:00.000Z");
+  await prisma.product.upsert({
+    where: { id: "identity-acceptance-product" },
+    create: {
+      id: "identity-acceptance-product",
+      model: "IDENTITY-ACCEPTANCE-MACHINE",
+      category: "隔离验收设备",
+      productType: "MAIN",
+      isActive: true,
+    },
+    update: { category: "隔离验收设备", productType: "MAIN", isActive: true },
+  });
+  for (const suffix of ["a", "b"] as const) {
+    const customerId = `identity-acceptance-customer-sales-${suffix}`;
+    const userId = `identity-acceptance-sales-${suffix}`;
+    await prisma.followRecord.upsert({
+      where: { id: `identity-acceptance-follow-sales-${suffix}` },
+      create: {
+        id: `identity-acceptance-follow-sales-${suffix}`,
+        customerId,
+        userId,
+        followType: "PHONE",
+        content: `身份验收跟进记录-${suffix}`,
+        result: "隔离验收完成",
+      },
+      update: { customerId, userId, content: `身份验收跟进记录-${suffix}`, result: "隔离验收完成" },
+    });
+    await prisma.contract.upsert({
+      where: { id: `identity-acceptance-contract-sales-${suffix}` },
+      create: {
+        id: `identity-acceptance-contract-sales-${suffix}`,
+        contractNo: `IDENTITY-ACCEPTANCE-CONTRACT-${suffix.toUpperCase()}`,
+        signedDate: acceptanceDate,
+        customerId,
+        salesUserId: userId,
+        productId: "identity-acceptance-product",
+        equipmentName: "隔离验收设备",
+        equipmentModel: "IDENTITY-ACCEPTANCE-MACHINE",
+        amount: 1,
+        unpaidAmount: 1,
+        createdById: userId,
+      },
+      update: {
+        signedDate: acceptanceDate,
+        customerId,
+        salesUserId: userId,
+        productId: "identity-acceptance-product",
+        equipmentName: "隔离验收设备",
+        equipmentModel: "IDENTITY-ACCEPTANCE-MACHINE",
+        amount: 1,
+        unpaidAmount: 1,
+        deletedAt: null,
+      },
+    });
+    await prisma.shipment.upsert({
+      where: { id: `identity-acceptance-shipment-sales-${suffix}` },
+      create: {
+        id: `identity-acceptance-shipment-sales-${suffix}`,
+        contractId: `identity-acceptance-contract-sales-${suffix}`,
+        shipmentDate: acceptanceDate,
+        receivingAddress: `身份验收地址-${suffix}`,
+        driverPhone: "00000000000",
+        equipmentName: "隔离验收设备",
+        quantity: 1,
+        createdById: userId,
+      },
+      update: {
+        contractId: `identity-acceptance-contract-sales-${suffix}`,
+        shipmentDate: acceptanceDate,
+        receivingAddress: `身份验收地址-${suffix}`,
+        driverPhone: "00000000000",
+        equipmentName: "隔离验收设备",
+        quantity: 1,
+        createdById: userId,
+      },
+    });
+  }
+  await prisma.supplier.upsert({
+    where: { id: "identity-acceptance-supplier" },
+    create: { id: "identity-acceptance-supplier", name: "身份验收供应商", contactName: "验收联系人", phone: "00000000000" },
+    update: { name: "身份验收供应商", contactName: "验收联系人", phone: "00000000000", isActive: true, deletedAt: null },
+  });
+  await prisma.warehouse.upsert({
+    where: { id: "identity-acceptance-warehouse-record" },
+    create: { id: "identity-acceptance-warehouse-record", name: "身份验收仓库", code: "IDENTITY-ACCEPTANCE-WH" },
+    update: { name: "身份验收仓库", isActive: true },
+  });
+  await prisma.materialCategory.upsert({
+    where: { id: "identity-acceptance-material-category" },
+    create: { id: "identity-acceptance-material-category", name: "身份验收物料分类", code: "IDENTITY-ACCEPTANCE-MC", warningThreshold: 5 },
+    update: { name: "身份验收物料分类", warningThreshold: 5 },
+  });
+  await prisma.material.upsert({
+    where: { id: "identity-acceptance-material" },
+    create: {
+      id: "identity-acceptance-material",
+      code: "IDENTITY-ACCEPTANCE-MATERIAL",
+      name: "身份验收物料",
+      categoryId: "identity-acceptance-material-category",
+      safetyStock: 5,
+      isActive: true,
+    },
+    update: { name: "身份验收物料", categoryId: "identity-acceptance-material-category", safetyStock: 5, isActive: true, deletedAt: null },
+  });
+  await prisma.inventory.upsert({
+    where: { id: "identity-acceptance-inventory" },
+    create: {
+      id: "identity-acceptance-inventory",
+      warehouseId: "identity-acceptance-warehouse-record",
+      materialId: "identity-acceptance-material",
+      quantity: 2,
+      totalAmount: 2,
+    },
+    update: { warehouseId: "identity-acceptance-warehouse-record", materialId: "identity-acceptance-material", quantity: 2, totalAmount: 2 },
+  });
+  await prisma.purchaseOrder.upsert({
+    where: { id: "identity-acceptance-purchase-order" },
+    create: {
+      id: "identity-acceptance-purchase-order",
+      orderNo: "IDENTITY-ACCEPTANCE-PO",
+      supplierId: "identity-acceptance-supplier",
+      supplierNameSnapshot: "身份验收供应商",
+      orderDate: acceptanceDate,
+      status: "ORDERED",
+      createdById: "identity-acceptance-purchase",
+    },
+    update: { supplierId: "identity-acceptance-supplier", supplierNameSnapshot: "身份验收供应商", orderDate: acceptanceDate, status: "ORDERED", deletedAt: null },
+  });
+  await prisma.bomHeader.upsert({
+    where: { id: "identity-acceptance-bom" },
+    create: { id: "identity-acceptance-bom", productId: "identity-acceptance-product", version: "identity-acceptance-v1", isActive: true },
+    update: { productId: "identity-acceptance-product", version: "identity-acceptance-v1", isActive: true },
+  });
+  await prisma.productionOrder.upsert({
+    where: { id: "identity-acceptance-production-order" },
+    create: {
+      id: "identity-acceptance-production-order",
+      orderNo: "IDENTITY-ACCEPTANCE-PRODUCTION",
+      productId: "identity-acceptance-product",
+      productModelSnapshot: "IDENTITY-ACCEPTANCE-MACHINE",
+      productNameSnapshot: "隔离验收设备",
+      quantity: 1,
+      bomId: "identity-acceptance-bom",
+      bomVersionSnapshot: "identity-acceptance-v1",
+      warehouseId: "identity-acceptance-warehouse-record",
+      status: "ISSUED",
+      createdById: "identity-acceptance-admin",
+    },
+    update: {
+      productId: "identity-acceptance-product",
+      productModelSnapshot: "IDENTITY-ACCEPTANCE-MACHINE",
+      productNameSnapshot: "隔离验收设备",
+      quantity: 1,
+      bomId: "identity-acceptance-bom",
+      bomVersionSnapshot: "identity-acceptance-v1",
+      warehouseId: "identity-acceptance-warehouse-record",
+      status: "ISSUED",
+      isCurrent: true,
+      deletedAt: null,
+    },
+  });
+  await prisma.productionOrderMaterial.upsert({
+    where: { id: "identity-acceptance-production-material" },
+    create: {
+      id: "identity-acceptance-production-material",
+      productionOrderId: "identity-acceptance-production-order",
+      materialId: "identity-acceptance-material",
+      materialCodeSnapshot: "IDENTITY-ACCEPTANCE-MATERIAL",
+      materialNameSnapshot: "身份验收物料",
+      unitSnapshot: "件",
+      perUnitQuantity: 1,
+      requiredQuantity: 1,
+      bomVersionSnapshot: "identity-acceptance-v1",
+    },
+    update: {
+      productionOrderId: "identity-acceptance-production-order",
+      materialId: "identity-acceptance-material",
+      materialCodeSnapshot: "IDENTITY-ACCEPTANCE-MATERIAL",
+      materialNameSnapshot: "身份验收物料",
+      unitSnapshot: "件",
+      perUnitQuantity: 1,
+      requiredQuantity: 1,
+      bomVersionSnapshot: "identity-acceptance-v1",
+    },
+  });
+  console.log(`Seeded ${fixtures.length} isolated identity acceptance users and FULL_READ_ONLY fixtures`);
 } finally {
   await prisma.$disconnect();
 }

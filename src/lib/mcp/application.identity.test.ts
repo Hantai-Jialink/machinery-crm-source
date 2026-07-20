@@ -58,7 +58,6 @@ function dependencies(): McpApplicationDependencies {
       execute: vi.fn(),
       writeAudit: vi.fn().mockResolvedValue(undefined),
     },
-    createRequestId: () => "server-fallback-request-id",
     now: () => new Date("2026-07-17T08:00:00.000Z"),
   };
 }
@@ -196,6 +195,11 @@ describe("MCP strict dual identity PoC", () => {
         expect(deps.dataSource.writeAudit).toHaveBeenCalledWith(expect.objectContaining({
           requestId: "catalog-auth-check",
           rejectionReason: "SERVICE_KEY_INVALID",
+        }));
+      } else {
+        expect(deps.dataSource.writeAudit).toHaveBeenCalledWith(expect.objectContaining({
+          requestId: "request-id-missing",
+          rejectionReason: "REQUEST_ID_INVALID",
         }));
       }
     }
@@ -338,7 +342,13 @@ describe("MCP strict dual identity PoC", () => {
     const response = await createMcpRequestHandler(deps)(callWhoAmI(
       "assertion-user-1",
       "request-forged",
-      { userId: "erp-user-2", role: "SUPER_ADMIN", region: "全国" },
+      {
+        userId: "erp-user-2",
+        role: "SUPER_ADMIN",
+        region: "全国",
+        territories: [{ province: "任意", cities: [] }],
+        viewScope: "ALL",
+      },
     ));
     const payload = await response.json();
 

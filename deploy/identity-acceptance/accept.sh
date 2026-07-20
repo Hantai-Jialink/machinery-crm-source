@@ -3,8 +3,10 @@ set -euo pipefail
 
 acceptance_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 env_file="$acceptance_dir/.env.identity-acceptance"
+expected_tool_mode="${EXPECTED_MCP_TOOL_MODE:-IDENTITY_POC}"
+[[ "$expected_tool_mode" == "IDENTITY_POC" || "$expected_tool_mode" == "FULL_READ_ONLY" ]] || { echo "EXPECTED_MCP_TOOL_MODE must be IDENTITY_POC or FULL_READ_ONLY." >&2; exit 1; }
 test -f "$env_file" || { echo "Missing $env_file; run start.sh first." >&2; exit 1; }
-grep -qx 'MCP_TOOL_MODE=IDENTITY_POC' "$env_file" || { echo "Acceptance requires IDENTITY_POC." >&2; exit 1; }
+grep -qx "MCP_TOOL_MODE=$expected_tool_mode" "$env_file" || { echo "Acceptance requires MCP_TOOL_MODE=$expected_tool_mode." >&2; exit 1; }
 ! grep -q '^AGENT_GATEWAY_FASTGPT_API_KEY=REPLACE_' "$env_file" || { echo "Configure the isolated FastGPT Agent/API key first." >&2; exit 1; }
 node "$acceptance_dir/validate-env.mjs" "$env_file"
 fastgpt_image="$(sed -n 's/^FASTGPT_IMAGE=//p' "$env_file")"

@@ -1,6 +1,6 @@
 # 身份桥接隔离环境验收
 
-本目录只用于 PoC 真实链路验收，不是生产部署模板。默认且唯一准入模式是 `MCP_TOOL_MODE=IDENTITY_POC`。在 `accept` 输出完整 PASS 前，禁止切换 `FULL_READ_ONLY`，也禁止开始 21 个业务工具的第二阶段身份适配。
+本目录只用于真实链路隔离验收，不是生产部署模板。默认模式是 `MCP_TOOL_MODE=IDENTITY_POC`；第一阶段完整 PASS 后，可仅在该隔离环境把模式切换为 `FULL_READ_ONLY`，验证身份工具加 21 个业务工具的 22 项目录。
 
 ## 固定版本与边界
 
@@ -71,6 +71,14 @@ Linux：
 ```bash
 ./deploy/identity-acceptance/accept.sh
 ```
+
+FULL_READ_ONLY 验收前，仅修改被 Git 忽略的隔离 `.env.identity-acceptance`，重建 CRM 和验收 Runner 镜像后执行：
+
+```powershell
+.\deploy\identity-acceptance\accept.ps1 -ExpectedToolMode FULL_READ_ONLY
+```
+
+Linux 使用 `EXPECTED_MCP_TOOL_MODE=FULL_READ_ONLY ./deploy/identity-acceptance/accept.sh`。验收完成后应把隔离环境切回 `IDENTITY_POC`；不得修改生产环境变量。
 
 验收 runner 逐项检查：
 

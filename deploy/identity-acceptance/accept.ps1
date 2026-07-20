@@ -1,3 +1,8 @@
+param(
+  [ValidateSet("IDENTITY_POC", "FULL_READ_ONLY")]
+  [string]$ExpectedToolMode = "IDENTITY_POC"
+)
+
 $ErrorActionPreference = "Stop"
 $acceptanceDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $envFile = Join-Path $acceptanceDir ".env.identity-acceptance"
@@ -8,7 +13,7 @@ $settings = @{}
 Get-Content -LiteralPath $envFile | ForEach-Object {
   if ($_ -match '^([^#=]+)=(.*)$') { $settings[$Matches[1]] = $Matches[2] }
 }
-if ($settings["MCP_TOOL_MODE"] -ne "IDENTITY_POC") { throw "Acceptance gate requires MCP_TOOL_MODE=IDENTITY_POC." }
+if ($settings["MCP_TOOL_MODE"] -ne $ExpectedToolMode) { throw "Acceptance gate requires MCP_TOOL_MODE=$ExpectedToolMode." }
 if ($settings["AGENT_GATEWAY_FASTGPT_API_KEY"] -like "REPLACE_*") { throw "Create the isolated FastGPT Agent/API key before acceptance." }
 node (Join-Path $acceptanceDir "validate-env.mjs") $envFile
 if ($LASTEXITCODE -ne 0) { throw "Isolated environment validation failed." }

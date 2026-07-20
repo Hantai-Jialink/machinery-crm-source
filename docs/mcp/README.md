@@ -2,7 +2,7 @@
 
 服务入口为 `POST https://mcp.dachuan.pro/api/mcp`，传输协议优先使用 Streamable HTTP。服务以现有 Next.js Route Handler 运行，查询只经过固定 Prisma 调用；没有 SQL、资源写入或审批类工具。
 
-当前身份桥接 PoC 默认 `MCP_TOOL_MODE=IDENTITY_POC`，只暴露 `dachuan_identity_who_am_i`。下列 21 个工具保留在代码中但尚未通过新身份体系的完整权限矩阵准入；PoC 验收前不得在生产切换为 `FULL_READ_ONLY`。
+`MCP_TOOL_MODE=IDENTITY_POC` 只暴露 `dachuan_identity_who_am_i`；`MCP_TOOL_MODE=FULL_READ_ONLY` 暴露该身份工具和下列 21 个只读业务工具，共 22 个。模式只能在隔离验收或经准入的服务器测试环境切换，不能把隔离配置直接复制到生产。
 
 ## 工具目录
 
@@ -27,8 +27,8 @@ FastGPT 服务 Key 只标识调用服务，不绑定 `User.id`。CRM 内嵌 Gate
 
 - `SALES`、`FOREIGN_TRADE`：客户、跟进、合同和发货沿用业务线及省市负责范围。
 - `SUPER_ADMIN`：沿用现有全局视图；BOM 详情和即时齐套检查仍仅管理员可用。
-- `PURCHASE`：可访问 ERP，生产工单只返回采购所需视图。
-- `WAREHOUSE`：采购订单只允许既有仓库可见状态；其他 ERP 查询沿用现有查看权限。
+- `PURCHASE`：数据库真实采购角色；按现有 GET 权限可查询供应商、采购订单、库存、出入库、库存流水、BOM 列表和生产工单；供应商详情可用，BOM 详情与即时齐套不可用。
+- `WAREHOUSE`：数据库真实仓库角色；按现有 GET 权限可查询供应商列表、库存、出入库、库存流水、BOM 列表、生产工单及已提交/已批准采购订单；供应商详情、BOM 详情与即时齐套不可用。
 - 产品沿用当前登录用户可查询的公共产品数据。
 
 工具结果统一为：
@@ -68,6 +68,8 @@ FastGPT 4.15.1 的实现会先尝试 Streamable HTTP；仅在特定 4xx 响应�
 
 ## 审计
 
-每个 MCP 协议请求写入现有 `OperationLog`：`action=MCP_CALL`、`entityType=McpRequest`。记录可信 ERP userId、请求 ID、Key 名称、协议方法、工具名、参数字段名、成功状态、HTTP 状态、耗时和固定拒绝原因；不记录参数值、查询原文、断言或明文 API Key。无法从无效断言可信确定用户时，以 `MCP_AUDIT_USER_ID` 归属拒绝日志。已认证调用若审计写入失败，会返回 503 且不交付查询结果。
+每个 MCP 协议请求写入现有 `OperationLog`：`action=MCP_CALL`、`entityType=McpRequest`。只记录可信 ERP userId、requestId、服务 Key 名称、协议方法、工具名、成功状态、HTTP 状态、耗时和固定拒绝原因；不向审计层传递或落库工具参数、查询词、返回正文、断言或明文 API Key。无法从无效断言可信确定用户时，以 `MCP_AUDIT_USER_ID` 归属拒绝日志。已认证调用若审计写入失败，会返回 503 且不交付查询结果。
+
+列表工具默认每页 20、最大 100，搜索词最长 100 字符；日期筛选必须同时提供起止日期且跨度不超过 366 天。库存预警查询最多构造 500 个候选物料条件，超过时安全拒绝并要求增加仓库或搜索条件。`MCP_QUERY_TIMEOUT_MS` 默认 5000，只限制应用等待时间。当前 Prisma/MySQL 接口不能保证取消已经下发的 SQL，超时后底层查询可能继续完成，这是部署前仍需监控连接池和慢查询的剩余风险。
 
 身份架构和威胁模型见 [IDENTITY_POC.md](./IDENTITY_POC.md) 与 [IDENTITY_THREAT_MODEL.md](./IDENTITY_THREAT_MODEL.md)。部署和回滚见 [DEPLOYMENT.md](./DEPLOYMENT.md)，验证证据见 [IDENTITY_POC_TEST_REPORT.md](./IDENTITY_POC_TEST_REPORT.md)。

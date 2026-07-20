@@ -5,6 +5,15 @@
 - 当前开发必须保护已有 CRM 功能、权限和正式数据。
 - 每次重要补丁完成后，需要更新本文件。
 
+## 2026-07-20｜FULL_READ_ONLY 可信身份只读工具适配（已开发、隔离验收通过、未部署）
+
+- 分支 `codex/unified-readonly-mcp` 已在身份桥接 PoC 基础上适配现有 21 个 CRM/ERP 只读业务工具；`FULL_READ_ONLY` 模式目录为 `dachuan_identity_who_am_i` 加 21 个业务工具，共 22 个。
+- 所有 `tools/call` 同时校验服务 Key、调用方 requestId 和用户短期断言；服务 Key 不绑定业务身份。工具参数使用严格 Schema 并拒绝可信身份字段，每次调用按断言 userId 实时读取用户状态、真实角色和数据范围。
+- 角色枚举以现有 Schema 为准：`SUPER_ADMIN`、`SALES`、`FOREIGN_TRADE`、`PURCHASE`、`WAREHOUSE`；采购为 `PURCHASE`，项目不存在 `PROCUREMENT`。
+- CRM 区域/业务线范围与详情 ID 合并下推到 Prisma `where`，详情使用字段白名单 `select`；列表最大 100 条并限制搜索、日期范围和应用等待时间。
+- 21 工具 × 5 角色矩阵、越权、跨范围、停用、实时角色变化、身份参数伪造和双销售并发隔离均通过；FULL_READ_ONLY 隔离验收 `overallStatus=PASS`，OperationLog 抽检和最终敏感扫描 PASS。
+- 本次未修改 Prisma Schema、migration、package.json 或 pnpm-lock.yaml，未连接生产数据库、未部署、未推送。详细结果见 `docs/mcp/FULL_READ_ONLY_TEST_REPORT.md`。
+
 ## 2026-07-17｜统一 Agent 可信身份桥接 PoC（已开发、未部署）
 
 - 基于 `codex/unified-readonly-mcp` 的 `dd0338f`，新增 CRM 登录 Session → Agent Auth Gateway → FastGPT 4.15.1 请求上下文 → MCP `dachuan_identity_who_am_i` → `OperationLog` 的最小闭环。

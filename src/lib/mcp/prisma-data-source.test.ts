@@ -61,7 +61,7 @@ describe("Prisma MCP data source", () => {
       pageSize: 20,
     }, salesUser)).rejects.toEqual(expect.objectContaining({
       code: "FORBIDDEN",
-      message: "当前用户无权访问 ERP",
+      message: "当前角色无权调用此工具",
     }));
     expect(supplierFindMany).not.toHaveBeenCalled();
   });
@@ -141,7 +141,7 @@ describe("Prisma MCP data source", () => {
     expect(operationLogCreate).not.toHaveBeenCalled();
   });
 
-  it("records only argument names and never argument values in the audit record", async () => {
+  it("records only the minimal audit identity and status fields", async () => {
     const create = vi.fn().mockResolvedValue({ id: "log-1" });
     const dataSource = createPrismaMcpDataSource({ operationLog: { create } } as never);
 
@@ -151,20 +151,28 @@ describe("Prisma MCP data source", () => {
       apiKeyName: "fastgpt",
       method: "tools/call",
       toolName: "crm_customers_list",
-      arguments: { search: "a".repeat(300), authorization: "Bearer must-not-be-logged", nested: { password: "secret" } },
       success: true,
       statusCode: 200,
       durationMs: 12,
       createdAt: new Date("2026-07-17T08:00:00.000Z"),
     });
 
-    expect(create).toHaveBeenCalledWith({
-      data: expect.objectContaining({
-        afterData: expect.objectContaining({ argumentKeys: ["authorization", "nested", "search"] }),
-      }),
-    });
-    expect(JSON.stringify(create.mock.calls)).not.toContain("must-not-be-logged");
-    expect(JSON.stringify(create.mock.calls)).not.toContain("a".repeat(300));
+    expect(create).toHaveBeenCalledWith({ data: expect.objectContaining({
+      userId: "audit-user-1",
+      entityId: "request-1",
+      afterData: {
+        requestId: "request-1",
+        apiKeyName: "fastgpt",
+        method: "tools/call",
+        toolName: "crm_customers_list",
+        success: true,
+        statusCode: 200,
+        durationMs: 12,
+        rejectionReason: null,
+        createdAt: "2026-07-17T08:00:00.000Z",
+      },
+    }) });
+    expect(JSON.stringify(create.mock.calls)).not.toMatch(/argument|search|authorization|password/i);
   });
 
   it("keeps the product list aligned with the existing active-product query", async () => {
@@ -197,23 +205,129 @@ describe("Prisma MCP data source", () => {
     expect(shipmentFindMany).toHaveBeenCalledWith(expect.objectContaining({ where: { contract: { deletedAt: null, customer: isolation } } }));
   });
 
-  it("filters inventory alerts using material safety stock before category threshold", async () => {
+  it("pushes customer isolation into the follow-record query itself", async () => {
+    const findMany = vi.fn().mockResolvedValue([]);
+    const count = vi.fn().mockResolvedValue(0);
     const dataSource = createPrismaMcpDataSource({
+      followRecord: { findMany, count },
+    } as never);
+
+    await dataSource.execute("crm_customer_follows_list", { customerId: "customer-1" }, salesUser);
+
+    expect(findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: {
+        customerId: "customer-1",
+        customer: {
+          deletedAt: null,
+          businessLine: "国内销售",
+          OR: [{ province: "山东省", city: { in: ["济南市"] } }],
+        },
+      },
+      skip: 0,
+      take: 20,
+    }));
+  });
+
+  it("pushes inventory alert thresholds and pagination into Prisma", async () => {
+    const materialFindMany = vi.fn().mockResolvedValue([
+      { id: "material-low", safetyStock: 5, category: { warningThreshold: 2 } },
+      { id: "material-category-low", safetyStock: null, category: { warningThreshold: 2 } },
+    ]);
+    const inventoryFindMany = vi.fn().mockResolvedValue([
+      { id: "low", quantity: 4, material: { safetyStock: 5, category: { warningThreshold: 2 } } },
+      { id: "category-low", quantity: 2, material: { safetyStock: null, category: { warningThreshold: 2 } } },
+    ]);
+    const dataSource = createPrismaMcpDataSource({
+      material: {
+        findMany: materialFindMany,
+      },
       inventory: {
-        findMany: vi.fn().mockResolvedValue([
-          { id: "low", quantity: 4, material: { safetyStock: 5, category: { warningThreshold: 2 } } },
-          { id: "safe", quantity: 4, material: { safetyStock: 3, category: { warningThreshold: 10 } } },
-          { id: "category-low", quantity: 2, material: { safetyStock: null, category: { warningThreshold: 2 } } },
-        ]),
+        findMany: inventoryFindMany,
+        count: vi.fn().mockResolvedValue(2),
       },
     } as never);
 
-    const result = await dataSource.execute("erp_inventory_list", { alertOnly: true, page: 1, pageSize: 20 }, { ...salesUser, role: "WAREHOUSE" });
+    const result = await dataSource.execute("erp_inventory_list", {
+      alertOnly: true,
+      warehouseId: "warehouse-1",
+      search: "轴承",
+      dateStart: "2026-07-01",
+      dateEnd: "2026-07-31",
+      page: 1,
+      pageSize: 20,
+    }, { ...salesUser, role: "WAREHOUSE" });
 
     expect(result).toMatchObject({
       items: [{ id: "low" }, { id: "category-low" }],
       pagination: { total: 2 },
     });
+    expect(materialFindMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({
+        OR: [{ name: { contains: "轴承" } }, { code: { contains: "轴承" } }],
+        AND: [
+          {
+            OR: [
+              { safetyStock: { not: null } },
+              { safetyStock: null, category: { warningThreshold: { not: null } } },
+            ],
+          },
+          {
+            inventories: {
+              some: {
+                warehouseId: "warehouse-1",
+                updatedAt: {
+                  gte: new Date("2026-07-01T00:00:00.000Z"),
+                  lt: new Date("2026-08-01T00:00:00.000Z"),
+                },
+              },
+            },
+          },
+        ],
+      }),
+      orderBy: { id: "asc" },
+      take: 501,
+    }));
+    expect(inventoryFindMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({
+        warehouseId: "warehouse-1",
+        updatedAt: {
+          gte: new Date("2026-07-01T00:00:00.000Z"),
+          lt: new Date("2026-08-01T00:00:00.000Z"),
+        },
+        material: {
+          deletedAt: null,
+          isActive: true,
+          OR: [{ name: { contains: "轴承" } }, { code: { contains: "轴承" } }],
+        },
+        OR: [
+          { materialId: "material-low", quantity: { lte: 5 } },
+          { materialId: "material-category-low", quantity: { lte: 2 } },
+        ],
+      }),
+      skip: 0,
+      take: 20,
+    }));
+  });
+
+  it("rejects an unbounded inventory alert candidate set before building a large SQL OR", async () => {
+    const inventoryFindMany = vi.fn();
+    const dataSource = createPrismaMcpDataSource({
+      material: {
+        findMany: vi.fn().mockResolvedValue(Array.from({ length: 501 }, (_, index) => ({
+          id: `material-${index}`,
+          safetyStock: 1,
+          category: { warningThreshold: null },
+        }))),
+      },
+      inventory: {
+        findMany: inventoryFindMany,
+        count: vi.fn(),
+      },
+    } as never);
+
+    await expect(dataSource.execute("erp_inventory_list", { alertOnly: true }, { ...salesUser, role: "WAREHOUSE" }))
+      .rejects.toMatchObject({ code: "QUERY_SCOPE_TOO_LARGE" });
+    expect(inventoryFindMany).not.toHaveBeenCalled();
   });
 
   it("uses fixed filters for stock documents and movement queries", async () => {
@@ -248,10 +362,10 @@ describe("Prisma MCP data source", () => {
   });
 
   it("preserves BOM-detail and supplier-detail role restrictions", async () => {
-    const bomFindUnique = vi.fn();
+    const bomFindFirst = vi.fn();
     const supplierFindFirst = vi.fn();
     const dataSource = createPrismaMcpDataSource({
-      bomHeader: { findUnique: bomFindUnique },
+      bomHeader: { findFirst: bomFindFirst },
       supplier: { findFirst: supplierFindFirst },
     } as never);
 
@@ -259,24 +373,24 @@ describe("Prisma MCP data source", () => {
       .rejects.toMatchObject({ code: "FORBIDDEN" });
     await expect(dataSource.execute("erp_supplier_get", { id: "supplier-1" }, { ...salesUser, role: "WAREHOUSE" }))
       .rejects.toMatchObject({ code: "FORBIDDEN" });
-    expect(bomFindUnique).not.toHaveBeenCalled();
+    expect(bomFindFirst).not.toHaveBeenCalled();
     expect(supplierFindFirst).not.toHaveBeenCalled();
   });
 
   it("returns the restricted production-order view for purchase users", async () => {
+    const findMany = vi.fn().mockResolvedValue([{
+      id: "production-1",
+      orderNo: "PO-001",
+      productModelSnapshot: "DC-100",
+      productNameSnapshot: "测试设备",
+      quantity: 1,
+      plannedDate: new Date("2026-08-01"),
+      status: "ISSUED",
+      kitCheckResults: [],
+    }]);
     const dataSource = createPrismaMcpDataSource({
       productionOrder: {
-        findMany: vi.fn().mockResolvedValue([{
-          id: "production-1",
-          orderNo: "PO-001",
-          contractId: "hidden-contract",
-          productModelSnapshot: "DC-100",
-          productNameSnapshot: "测试设备",
-          quantity: 1,
-          plannedDate: new Date("2026-08-01"),
-          status: "ISSUED",
-          kitCheckResults: [],
-        }]),
+        findMany,
         count: vi.fn().mockResolvedValue(1),
       },
     } as never);
@@ -285,6 +399,97 @@ describe("Prisma MCP data source", () => {
 
     expect(result.items[0]).toMatchObject({ id: "production-1", orderNo: "PO-001", productModelSnapshot: "DC-100", status: "ISSUED" });
     expect(result.items[0]).not.toHaveProperty("contractId");
+    expect(findMany.mock.calls[0][0].select).not.toHaveProperty("contractId");
+    expect(findMany.mock.calls[0][0].select).not.toHaveProperty("bomId");
+    expect(findMany.mock.calls[0][0].select).not.toHaveProperty("warehouseId");
+  });
+
+  it("combines warehouse purchase-order record id and status scope in one Prisma where", async () => {
+    const findFirst = vi.fn().mockResolvedValue(null);
+    const dataSource = createPrismaMcpDataSource({ purchaseOrder: { findFirst } } as never);
+
+    await expect(dataSource.execute("erp_purchase_order_get", { id: "purchase-1" }, { ...salesUser, role: "WAREHOUSE" }))
+      .rejects.toMatchObject({ code: "NOT_FOUND" });
+    expect(findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: {
+      id: "purchase-1",
+      deletedAt: null,
+      status: { in: ["ORDERED", "PARTIAL_RECEIVED", "RECEIVED"] },
+    } }));
+  });
+
+  it("pushes date limits into Prisma where and caps returned list size", async () => {
+    const findMany = vi.fn().mockResolvedValue([]);
+    const count = vi.fn().mockResolvedValue(0);
+    const dataSource = createPrismaMcpDataSource({ customer: { findMany, count } } as never);
+
+    await dataSource.execute("crm_customers_list", {
+      page: 2,
+      pageSize: 100,
+      dateStart: "2026-01-01",
+      dateEnd: "2026-01-31",
+    }, salesUser);
+
+    expect(findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ createdAt: {
+        gte: new Date("2026-01-01T00:00:00.000Z"),
+        lt: new Date("2026-02-01T00:00:00.000Z"),
+      } }),
+      skip: 100,
+      take: 100,
+    }));
+  });
+
+  it("keeps two sales users' business line and territory scopes isolated concurrently", async () => {
+    const captured: unknown[] = [];
+    const findMany = vi.fn(async (input: unknown) => { captured.push(input); return []; });
+    const dataSource = createPrismaMcpDataSource({ customer: { findMany, count: vi.fn().mockResolvedValue(0) } } as never);
+    const foreignTrade: McpUser = {
+      ...salesUser,
+      id: "foreign-1",
+      role: "FOREIGN_TRADE",
+      territories: [{ province: "海外", cities: [] }],
+    };
+
+    await Promise.all([
+      dataSource.execute("crm_customers_list", {}, salesUser),
+      dataSource.execute("crm_customers_list", {}, foreignTrade),
+    ]);
+
+    expect(captured).toEqual(expect.arrayContaining([
+      expect.objectContaining({ where: expect.objectContaining({
+        businessLine: "国内销售",
+        OR: [{ province: "山东省", city: { in: ["济南市"] } }],
+      }) }),
+      expect.objectContaining({ where: expect.objectContaining({
+        businessLine: "外贸",
+        OR: [{ province: "海外" }],
+      }) }),
+    ]));
+  });
+
+  it("reloads only trusted user identity fields and excludes password data", async () => {
+    const findUnique = vi.fn().mockResolvedValue({
+      id: "sales-1",
+      isActive: true,
+      role: "SALES",
+      region: "山东",
+      territories: [],
+      viewScope: "TERRITORY",
+    });
+    const dataSource = createPrismaMcpDataSource({ user: { findUnique } } as never);
+
+    await dataSource.findUser!("sales-1");
+
+    const select = findUnique.mock.calls[0][0].select;
+    expect(select).toEqual({
+      id: true,
+      isActive: true,
+      role: true,
+      region: true,
+      territories: true,
+      viewScope: true,
+    });
+    expect(select).not.toHaveProperty("password");
   });
 
   it("dispatches every published tool to a fixed implementation", async () => {

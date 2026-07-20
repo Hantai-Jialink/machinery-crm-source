@@ -15,10 +15,11 @@ const settings = Object.fromEntries(
 );
 const databaseUrl = new URL(settings.DATABASE_URL || "");
 const expectedDatabase = "dachuan_identity_acceptance";
+const allowedToolModes = new Set(["IDENTITY_POC", "FULL_READ_ONLY"]);
 if (
   settings.IDENTITY_ACCEPTANCE_ENV !== "isolated"
   || settings.COMPOSE_PROJECT_NAME !== "dachuan-identity-acceptance"
-  || settings.MCP_TOOL_MODE !== "IDENTITY_POC"
+  || !allowedToolModes.has(settings.MCP_TOOL_MODE)
   || databaseUrl.hostname !== "mysql"
   || databaseUrl.port !== "3306"
   || databaseUrl.pathname !== `/${expectedDatabase}`
@@ -33,6 +34,6 @@ if (
     "FASTGPT_AIPROXY_API_TOKEN",
   ].some((name) => !settings[name] || /^(GENERATE_|REPLACE_)/.test(settings[name]))
 ) {
-  throw new Error("Environment does not target the fixed IDENTITY_POC isolation project");
+  throw new Error("Environment does not target the fixed identity-acceptance isolation project");
 }
 console.log("IDENTITY_ACCEPTANCE_ENVIRONMENT=VERIFIED");

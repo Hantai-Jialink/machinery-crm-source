@@ -1,4 +1,4 @@
-import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
+import { createHash, timingSafeEqual } from "node:crypto";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { createMcpToolErrorResult, McpToolError, registerMcpTools } from "@/lib/mcp/tools";
@@ -30,6 +30,7 @@ export type McpApplicationConfig = {
   allowedOrigins: string[];
   legacyUserBindingEnabled?: boolean;
   toolMode?: "identity-poc" | "full-read-only";
+  queryTimeoutMs?: number;
 };
 
 export type McpAuditInput = {
@@ -38,7 +39,6 @@ export type McpAuditInput = {
   apiKeyName: string;
   method: string;
   toolName?: string;
-  arguments?: unknown;
   success: boolean;
   statusCode: number;
   durationMs: number;
@@ -62,7 +62,6 @@ export type McpApplicationDependencies = {
   dataSource: McpDataSource;
   identityVerifier?: McpIdentityVerifier;
   now?: () => Date;
-  createRequestId?: () => string;
 };
 
 function validRequestId(value: string | null) {
@@ -153,6 +152,16 @@ function responseSucceeded(status: number, payload: unknown) {
   return !response.error && response.result?.isError !== true;
 }
 
+function responseRejectionReason(payload: unknown) {
+  if (!payload || typeof payload !== "object") return "MCP_RESPONSE_ERROR";
+  const response = payload as {
+    error?: { code?: string | number };
+    result?: { structuredContent?: { error?: { code?: string } } };
+  };
+  return response.result?.structuredContent?.error?.code
+    || (response.error?.code !== undefined ? String(response.error.code) : "MCP_RESPONSE_ERROR");
+}
+
 const SERVICE_IDENTITY_METHODS = new Set([
   "initialize",
   "ping",
@@ -183,14 +192,12 @@ function normalizeToolProtocolError(
 
 export function createMcpRequestHandler(dependencies: McpApplicationDependencies) {
   const now = dependencies.now ?? (() => new Date());
-  const createRequestId = dependencies.createRequestId ?? randomUUID;
 
   return async function handleMcpRequest(request: Request): Promise<Response> {
     const startedAt = now();
-    let requestId = createRequestId();
     const rpcRequest = await readJsonRpcRequest(request);
     const presentedRequestId = validRequestId(request.headers.get("x-dachuan-request-id"));
-    if (presentedRequestId) requestId = presentedRequestId;
+    const requestId = presentedRequestId ?? "request-id-missing";
 
     const rejectWithAudit = async (
       status: number,
@@ -208,7 +215,6 @@ export function createMcpRequestHandler(dependencies: McpApplicationDependencies
           apiKeyName,
           method: rpcRequest.method || "unknown",
           toolName: rpcRequest.method === "tools/call" ? rpcRequest.params?.name : undefined,
-          arguments: undefined,
           success: false,
           statusCode: status,
           durationMs: Math.max(0, completedAt.getTime() - startedAt.getTime()),
@@ -237,15 +243,16 @@ export function createMcpRequestHandler(dependencies: McpApplicationDependencies
     const useLegacyIdentity = dependencies.config.legacyUserBindingEnabled === true && !assertion;
     const requiresUserIdentity = !SERVICE_IDENTITY_METHODS.has(rpcRequest.method || "");
 
+    if (!presentedRequestId) {
+      return rejectWithAudit(400, -32600, "Missing or invalid X-Dachuan-Request-Id", apiKey.name, "REQUEST_ID_INVALID");
+    }
+
     if (useLegacyIdentity) {
       userId = apiKey.userId;
       if (!userId) {
         return rejectWithAudit(403, -32003, "Legacy MCP identity is not configured", apiKey.name, "LEGACY_IDENTITY_MISSING");
       }
     } else {
-      if (!presentedRequestId) {
-        return rejectWithAudit(400, -32600, "Missing or invalid X-Dachuan-Request-Id", apiKey.name, "REQUEST_ID_INVALID");
-      }
       if (requiresUserIdentity) {
         if (!assertion) {
           return rejectWithAudit(400, -32600, "Missing X-Dachuan-User-Assertion", apiKey.name, "ASSERTION_MISSING");
@@ -289,6 +296,7 @@ export function createMcpRequestHandler(dependencies: McpApplicationDependencies
       dataSource: dependencies.dataSource,
       now,
       includeBusinessTools: dependencies.config.toolMode !== "identity-poc",
+      queryTimeoutMs: dependencies.config.queryTimeoutMs ?? 5_000,
     });
 
     let response: Response;
@@ -316,17 +324,18 @@ export function createMcpRequestHandler(dependencies: McpApplicationDependencies
 
     const completedAt = now();
     try {
+      const success = responseSucceeded(response.status, responsePayload);
       await dependencies.dataSource.writeAudit({
         requestId,
         userId: user?.id ?? dependencies.config.rejectedAuditUserId,
         apiKeyName: apiKey.name,
         method: rpcRequest.method || "unknown",
         toolName: rpcRequest.method === "tools/call" ? rpcRequest.params?.name : undefined,
-        arguments: rpcRequest.method === "tools/call" ? rpcRequest.params?.arguments : undefined,
-        success: responseSucceeded(response.status, responsePayload),
+        success,
         statusCode: response.status,
         durationMs: Math.max(0, completedAt.getTime() - startedAt.getTime()),
         createdAt: completedAt,
+        rejectionReason: success ? undefined : responseRejectionReason(responsePayload),
       });
     } catch {
       await server.close().catch(() => undefined);

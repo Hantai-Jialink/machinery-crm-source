@@ -3,7 +3,11 @@ import { defineConfig } from "vitest/config";
 
 export default defineConfig({
   test: {
-    exclude: ["**/node_modules/**", "**/.next/**"],
+    exclude: [
+      "**/node_modules/**",
+      "**/.next/**",
+      "deploy/identity-acceptance/.build/**",
+    ],
   },
   resolve: {
     alias: {

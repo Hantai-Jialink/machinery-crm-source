@@ -21,20 +21,21 @@ function sha256(value: string) {
 function createDependencies(): McpApplicationDependencies {
   return {
     config: {
-      apiKeys: [{ name: "fastgpt-test", userId: user.id, keyHash: sha256("test-secret") }],
+      apiKeys: [{ name: "fastgpt-test", keyHash: sha256("test-secret") }],
       rejectedAuditUserId: "audit-user-1",
       allowedHosts: ["mcp.example.com"],
       allowedOrigins: [],
-      legacyUserBindingEnabled: true,
+      legacyUserBindingEnabled: false,
       toolMode: "full-read-only",
+      queryTimeoutMs: 100,
     },
+    identityVerifier: { verify: vi.fn().mockResolvedValue({ userId: user.id, jti: "jti-1" }) },
     dataSource: {
-      findActiveUser: vi.fn().mockResolvedValue(user),
+      findUser: vi.fn().mockResolvedValue(user),
       execute: vi.fn(),
       writeAudit: vi.fn().mockResolvedValue(undefined),
     },
     now: () => new Date("2026-07-17T08:00:00.000Z"),
-    createRequestId: () => "request-1",
   };
 }
 
@@ -46,6 +47,8 @@ function mcpRequest(body: unknown, token = "test-secret") {
       authorization: `Bearer ${token}`,
       "content-type": "application/json",
       host: "mcp.example.com",
+      "x-dachuan-request-id": "request-1",
+      "x-dachuan-user-assertion": "assertion-1",
     },
     body: JSON.stringify(body),
   });
@@ -73,10 +76,10 @@ describe("DachuanPro MCP request handler", () => {
       name: "dachuanpro-crm-erp",
       version: "1.0.0",
     });
-    expect(dependencies.dataSource.findActiveUser).toHaveBeenCalledWith("user-1");
+    expect(dependencies.dataSource.findUser).not.toHaveBeenCalled();
     expect(dependencies.dataSource.writeAudit).toHaveBeenCalledWith(expect.objectContaining({
       requestId: "request-1",
-      userId: "user-1",
+      userId: "audit-user-1",
       apiKeyName: "fastgpt-test",
       method: "initialize",
       success: true,
@@ -190,7 +193,7 @@ describe("DachuanPro MCP request handler", () => {
     expect(await response.json()).toMatchObject({
       error: { code: -32001, message: "Invalid MCP API key" },
     });
-    expect(dependencies.dataSource.findActiveUser).not.toHaveBeenCalled();
+    expect(dependencies.dataSource.findUser).not.toHaveBeenCalled();
     expect(dependencies.dataSource.execute).not.toHaveBeenCalled();
     expect(dependencies.dataSource.writeAudit).toHaveBeenCalledWith(expect.objectContaining({
       userId: "audit-user-1",
@@ -221,6 +224,8 @@ describe("DachuanPro MCP request handler", () => {
         const original = new Request(input, init);
         const headers = new Headers(original.headers);
         headers.set("host", "mcp.example.com");
+        headers.set("x-dachuan-request-id", `sdk-request-${original.method}-${Date.now()}`);
+        headers.set("x-dachuan-user-assertion", "assertion-1");
         return handle(new Request(original, { headers }));
       },
     });
@@ -259,6 +264,25 @@ describe("DachuanPro MCP request handler", () => {
       },
     });
     expect(dependencies.dataSource.execute).not.toHaveBeenCalled();
+    expect(dependencies.dataSource.writeAudit).toHaveBeenCalledWith(expect.objectContaining({ success: false }));
+  });
+
+  it("limits application wait time and reports a query timeout without claiming SQL cancellation", async () => {
+    const dependencies = createDependencies();
+    dependencies.config.queryTimeoutMs = 10;
+    vi.mocked(dependencies.dataSource.execute).mockImplementation(() => new Promise(() => undefined));
+    const response = await createMcpRequestHandler(dependencies)(mcpRequest({
+      jsonrpc: "2.0",
+      id: 7,
+      method: "tools/call",
+      params: { name: "crm_customers_list", arguments: {} },
+    }));
+    const payload = await response.json();
+
+    expect(payload.result).toMatchObject({
+      isError: true,
+      structuredContent: { error: { code: "QUERY_TIMEOUT" } },
+    });
     expect(dependencies.dataSource.writeAudit).toHaveBeenCalledWith(expect.objectContaining({ success: false }));
   });
 });
