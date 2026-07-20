@@ -2,6 +2,10 @@ import { createHash, randomUUID } from "node:crypto";
 import { PrismaClient } from "@prisma/client";
 import { importJWK, SignJWT, type JWK } from "jose";
 import { createAgentAuthRuntime, loadAgentAuthConfig } from "@/lib/agent-auth/config";
+import {
+  acceptanceLoginUsers,
+  runAcceptanceLoginPreflight,
+} from "./identity-acceptance-crm-login";
 
 type RpcBody = {
   result?: {
@@ -118,34 +122,6 @@ async function customToken(options: {
   return { token, jti };
 }
 
-function cookieHeader(response: Response) {
-  const values = (response.headers as Headers & { getSetCookie?: () => string[] }).getSetCookie?.()
-    ?? [response.headers.get("set-cookie") || ""];
-  return values.filter(Boolean).map((value) => value.split(";", 1)[0]).join("; ");
-}
-
-async function crmSession(email: string) {
-  const csrfResponse = await fetch(`${crmUrl}/api/auth/csrf`);
-  const csrfBody = unwrap<{ csrfToken: string }>(await csrfResponse.json());
-  const initialCookie = cookieHeader(csrfResponse);
-  check(csrfResponse.ok && csrfBody.csrfToken, `Unable to obtain CRM CSRF token for ${email}`);
-  const form = new URLSearchParams({
-    csrfToken: csrfBody.csrfToken,
-    email,
-    password: userPassword,
-    callbackUrl: `${crmUrl}/`,
-  });
-  const login = await fetch(`${crmUrl}/api/auth/callback/credentials?redirect=false`, {
-    method: "POST",
-    headers: { "content-type": "application/x-www-form-urlencoded", cookie: initialCookie },
-    body: form,
-    redirect: "manual",
-  });
-  const sessionCookie = [initialCookie, cookieHeader(login)].filter(Boolean).join("; ");
-  check(login.status >= 200 && login.status < 400 && sessionCookie.includes("authjs.session-token"), `CRM login failed for ${email}`);
-  return sessionCookie;
-}
-
 async function fastGptAdminToken() {
   const preLogin = await fetch(`${fastGptUrl}/api/support/user/account/preLogin?username=root`);
   const preLoginBody = unwrap<{ code: string }>(await preLogin.json());
@@ -166,6 +142,17 @@ async function fastGptAdminToken() {
 }
 
 try {
+  const loginPreflight = await runAcceptanceLoginPreflight({
+    crmUrl,
+    password: userPassword,
+    users: acceptanceLoginUsers(process.env),
+  });
+  check(loginPreflight.diagnostics.length === 6, "CRM login preflight did not verify six users");
+  const sessionA = loginPreflight.sessionsByUserId.get("identity-acceptance-sales-a");
+  const sessionB = loginPreflight.sessionsByUserId.get("identity-acceptance-sales-b");
+  check(sessionA && sessionB, "CRM login preflight did not return both sales sessions");
+  record("six isolated CRM users complete real login and session preflight");
+
   const initialize = await rpc("initialize", {
     protocolVersion: "2025-03-26",
     capabilities: {},
@@ -285,8 +272,6 @@ try {
   check(discovered.some((tool) => tool.name === "dachuan_identity_who_am_i"), "FastGPT did not discover who_am_i");
   record("FastGPT 4.15.1 admin endpoint completes initialize and tools/list without a user assertion");
 
-  const sessionA = await crmSession(required("ACCEPTANCE_SALES_A_EMAIL"));
-  const sessionB = await crmSession(required("ACCEPTANCE_SALES_B_EMAIL"));
   const gatewayCases = Array.from({ length: 24 }, (_, index) => ({
     cookie: index % 2 === 0 ? sessionA : sessionB,
     userId: index % 2 === 0 ? "identity-acceptance-sales-a" : "identity-acceptance-sales-b",
