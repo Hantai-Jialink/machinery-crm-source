@@ -76,7 +76,11 @@ fi
   for spec in "fastgpt|$fastgpt_image" "crm-mcp|$crm_image" "acceptance-runner|$runner_image"; do
     name="${spec%%|*}"
     image="${spec#*|}"
-    docker image inspect "$image" --format "$name\t{{index .RepoTags 0}}\t{{.Id}}\t{{.Size}}\t{{if .RepoDigests}}{{join .RepoDigests \",\"}}{{end}}"
+    tag="$(docker image inspect "$image" --format '{{index .RepoTags 0}}')"
+    image_id="$(docker image inspect "$image" --format '{{.Id}}')"
+    image_size="$(docker image inspect "$image" --format '{{.Size}}')"
+    repo_digests="$(docker image inspect "$image" --format '{{if .RepoDigests}}{{join .RepoDigests ","}}{{end}}')"
+    printf '%s\t%s\t%s\t%s\t%s\n' "$name" "$tag" "$image_id" "$image_size" "$repo_digests"
   done
 } > "$artifact_dir/IMAGE_IDS.tsv"
 
