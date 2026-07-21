@@ -28,7 +28,7 @@ const lines = [
   '## 项目镜像', '', '| 名称 | 固定标签 | Image ID | 大小（字节） | RepoDigest |', '| --- | --- | --- | ---: | --- |', ...customImages, '',
   '## 内置外部运行时镜像（linux/amd64）', '', '| 镜像 | 平台 manifest digest | OCI index digest | Image ID | Artifact 文件 |', '| --- | --- | --- | --- | --- |', ...externalImages, '',
   '## 离线冷启动', '',
-  '十二张运行时镜像均内置。经 `SHA256SUMS` 校验后，预构建模式只执行本地 `docker load` 和 `docker compose up --pull never`。',
+  '十二张运行时镜像均内置。经 `SHA256SUMS` 校验后，预构建模式只执行本地 `docker load` 和 `docker compose up`，并使用 `--pull never`。',
 ];
 const report = `${lines.join('\n')}\n`;
 for (const marker of ['`SHA256SUMS`', '`docker load`', '`--pull never`', 'sha256:', 'FULL_READ_ONLY']) {
