@@ -68,6 +68,14 @@ const login = await request("/api/support/user/account/loginByPassword", {
 });
 if (!login?.token) throw new Error("FastGPT root login token is missing");
 
+// A brand-new FastGPT team has no subscription row until the official plan
+// status endpoint is visited. Agent creation reads that row for its app quota,
+// while MCP tool-set creation does not. Initialize it through FastGPT's public
+// API instead of writing MongoDB directly.
+await request("/api/support/user/team/plan/getTeamPlanStatus", {
+  headers: { token: login.token },
+});
+
 const mcpUrl = "http://nginx:8080/api/mcp";
 const headerSecret = { Authorization: { value: `Bearer ${settings.MCP_SERVICE_KEY}` } };
 const tools = await request("/api/core/app/mcpTools/getTools", {
