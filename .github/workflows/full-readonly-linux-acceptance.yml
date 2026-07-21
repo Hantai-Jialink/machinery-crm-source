@@ -1,0 +1,120 @@
+name: FULL_READ_ONLY Linux 构建与隔离验收
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - codex/unified-readonly-mcp
+    paths:
+      - .github/workflows/full-readonly-linux-acceptance.yml
+      - deploy/identity-acceptance/**
+      - deploy/fastgpt/**
+      - scripts/**
+      - src/lib/agent-auth/**
+      - src/lib/mcp/**
+
+permissions:
+  contents: read
+
+concurrency:
+  group: full-readonly-linux-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build-accept-package:
+    name: 构建、验收并打包
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    env:
+      EXPECTED_MCP_TOOL_MODE: FULL_READ_ONLY
+      IDENTITY_ACCEPTANCE_TOOL_MODE: FULL_READ_ONLY
+      IDENTITY_ACCEPTANCE_AUTO_PROVISION_FASTGPT_KEY: "1"
+      ACCEPTANCE_ARTIFACT_NAME: dachuan-full-readonly-linux-${{ github.run_id }}
+
+    steps:
+      - name: 拉取精确提交
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 安装固定 Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20.20.2
+
+      - name: 清理可信临时 Runner 的无关工具缓存
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc
+          df -h
+          docker version
+          docker compose version
+
+      - name: 验证基线和禁改文件
+        run: |
+          test -z "$(git status --short)"
+          git merge-base --is-ancestor eb1c0fdd39001008006f8eb0dfdbe008b5d3a940 HEAD
+          test -z "$(git diff eb1c0fdd39001008006f8eb0dfdbe008b5d3a940..HEAD --name-only -- package.json pnpm-lock.yaml prisma/schema.prisma prisma/migrations)"
+          test -z "$(git diff eb1c0fdd39001008006f8eb0dfdbe008b5d3a940..HEAD --name-only -- src/lib/mcp/tools.ts src/lib/erp-roles.ts)"
+          test "$GITHUB_REF_NAME" = "codex/unified-readonly-mcp"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          echo "GIT_SHA=$GITHUB_SHA"
+
+      - name: Linux 脚本语法检查
+        run: |
+          bash -n deploy/identity-acceptance/start.sh
+          bash -n deploy/identity-acceptance/accept.sh
+          bash -n deploy/identity-acceptance/rollback.sh
+          bash -n deploy/identity-acceptance/build-fastgpt.sh
+          bash -n deploy/identity-acceptance/package-linux-artifact.sh
+
+      - name: 生成仅限本次 Runner 的隔离环境
+        run: |
+          node deploy/identity-acceptance/prepare-env.mjs \
+            deploy/identity-acceptance/.env.identity-acceptance.example \
+            deploy/identity-acceptance/.env.identity-acceptance
+          chmod 600 deploy/identity-acceptance/.env.identity-acceptance
+          node deploy/identity-acceptance/validate-env.mjs deploy/identity-acceptance/.env.identity-acceptance
+
+      - name: 完整执行 start.sh
+        run: |
+          mkdir -p deploy/identity-acceptance/acceptance-output
+          ./deploy/identity-acceptance/start.sh 2>&1 | tee deploy/identity-acceptance/acceptance-output/linux-start.log
+
+      - name: 完整执行 accept.sh
+        run: |
+          EXPECTED_MCP_TOOL_MODE=FULL_READ_ONLY ./deploy/identity-acceptance/accept.sh 2>&1 | tee deploy/identity-acceptance/acceptance-output/linux-accept.log
+
+      - name: 完整执行 rollback.sh
+        run: |
+          printf '%s\n' PURGE-IDENTITY-ACCEPTANCE | ./deploy/identity-acceptance/rollback.sh --purge-isolated-data 2>&1 | tee deploy/identity-acceptance/acceptance-output/linux-rollback.log
+          test -z "$(docker compose -p dachuan-identity-acceptance --env-file deploy/identity-acceptance/.env.identity-acceptance -f deploy/identity-acceptance/docker-compose.yml ps -q)"
+          test -z "$(docker volume ls -q --filter label=com.docker.compose.project=dachuan-identity-acceptance)"
+          echo "IDENTITY_ACCEPTANCE_ROLLBACK=PASS"
+
+      - name: 组装三镜像 Linux 验收成品
+        env:
+          IDENTITY_ACCEPTANCE_VERIFY_PREBUILT: "1"
+        run: |
+          ./deploy/identity-acceptance/package-linux-artifact.sh "$RUNNER_TEMP/$ACCEPTANCE_ARTIFACT_NAME"
+          du -sh "$RUNNER_TEMP/$ACCEPTANCE_ARTIFACT_NAME"
+          df -h
+
+      - name: 上传可下载 Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ACCEPTANCE_ARTIFACT_NAME }}
+          path: ${{ runner.temp }}/${{ env.ACCEPTANCE_ARTIFACT_NAME }}
+          if-no-files-found: error
+          include-hidden-files: true
+          compression-level: 0
+          retention-days: 14
+
+      - name: 失败时安全停止隔离栈
+        if: failure()
+        run: |
+          if [[ -f deploy/identity-acceptance/.env.identity-acceptance ]]; then
+            ./deploy/identity-acceptance/rollback.sh || \
+              docker compose -p dachuan-identity-acceptance \
+                --env-file deploy/identity-acceptance/.env.identity-acceptance \
+                -f deploy/identity-acceptance/docker-compose.yml down --remove-orphans
+          fi

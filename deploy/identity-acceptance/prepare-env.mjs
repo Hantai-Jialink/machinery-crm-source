@@ -42,5 +42,12 @@ const replacements = {
 };
 let content = readFileSync(template, "utf8");
 for (const [placeholder, value] of Object.entries(replacements)) content = content.replaceAll(placeholder, value);
+const requestedToolMode = String(process.env.IDENTITY_ACCEPTANCE_TOOL_MODE || "").trim();
+if (requestedToolMode) {
+  if (!new Set(["IDENTITY_POC", "FULL_READ_ONLY"]).has(requestedToolMode)) {
+    throw new Error("IDENTITY_ACCEPTANCE_TOOL_MODE must be IDENTITY_POC or FULL_READ_ONLY");
+  }
+  content = content.replace(/^MCP_TOOL_MODE=IDENTITY_POC$/m, `MCP_TOOL_MODE=${requestedToolMode}`);
+}
 writeFileSync(output, content, { encoding: "utf8", flag: "wx", mode: 0o600 });
 console.log(`Created isolated environment file: ${output}`);
