@@ -16,6 +16,10 @@ on:
 permissions:
   contents: read
 
+defaults:
+  run:
+    shell: bash --noprofile --norc -e -o pipefail {0}
+
 concurrency:
   group: full-readonly-linux-${{ github.ref }}
   cancel-in-progress: false
@@ -77,15 +81,18 @@ jobs:
 
       - name: 完整执行 start.sh
         run: |
+          set -o pipefail
           mkdir -p deploy/identity-acceptance/acceptance-output
           ./deploy/identity-acceptance/start.sh 2>&1 | tee deploy/identity-acceptance/acceptance-output/linux-start.log
 
       - name: 完整执行 accept.sh
         run: |
+          set -o pipefail
           EXPECTED_MCP_TOOL_MODE=FULL_READ_ONLY ./deploy/identity-acceptance/accept.sh 2>&1 | tee deploy/identity-acceptance/acceptance-output/linux-accept.log
 
       - name: 完整执行 rollback.sh
         run: |
+          set -o pipefail
           printf '%s\n' PURGE-IDENTITY-ACCEPTANCE | ./deploy/identity-acceptance/rollback.sh --purge-isolated-data 2>&1 | tee deploy/identity-acceptance/acceptance-output/linux-rollback.log
           test -z "$(docker compose -p dachuan-identity-acceptance --env-file deploy/identity-acceptance/.env.identity-acceptance -f deploy/identity-acceptance/docker-compose.yml ps -q)"
           test -z "$(docker volume ls -q --filter label=com.docker.compose.project=dachuan-identity-acceptance)"

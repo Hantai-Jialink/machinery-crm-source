@@ -11,7 +11,8 @@ grep -qx 'IDENTITY_ACCEPTANCE_ENV=isolated' "$env_file"
 grep -qx 'MCP_TOOL_MODE=FULL_READ_ONLY' "$env_file"
 
 evidence_file="$(find "$acceptance_dir/acceptance-output" -maxdepth 1 -type f -name '*-result.json' -printf '%T@ %p\n' | sort -nr | awk 'NR==1 {$1=""; sub(/^ /, ""); print; exit}')"
-test -n "$evidence_file" && test -s "$evidence_file"
+[[ -n "$evidence_file" ]] || { echo "Acceptance result JSON was not found." >&2; exit 1; }
+[[ -s "$evidence_file" ]] || { echo "Acceptance result JSON is empty." >&2; exit 1; }
 
 node - "$evidence_file" <<'NODE'
 const fs = require('node:fs');
@@ -58,7 +59,8 @@ if [[ "${IDENTITY_ACCEPTANCE_VERIFY_PREBUILT:-0}" == "1" ]]; then
   volume_output="$(docker volume ls -q --filter label=com.docker.compose.project=dachuan-identity-acceptance)"
   [[ -z "$volume_output" ]] || { echo "Prebuilt artifact rollback left isolated volumes behind." >&2; exit 1; }
   prebuilt_evidence="$(find "$artifact_acceptance_dir/acceptance-output" -maxdepth 1 -type f -name '*-result.json' -printf '%T@ %p\n' | sort -nr | awk 'NR==1 {$1=""; sub(/^ /, ""); print; exit}')"
-  test -n "$prebuilt_evidence" && test -s "$prebuilt_evidence"
+  [[ -n "$prebuilt_evidence" ]] || { echo "Prebuilt acceptance result JSON was not found." >&2; exit 1; }
+  [[ -s "$prebuilt_evidence" ]] || { echo "Prebuilt acceptance result JSON is empty." >&2; exit 1; }
   cp -a "$prebuilt_evidence" "$artifact_dir/acceptance-result.json"
   rm -f "$artifact_acceptance_dir/.env.identity-acceptance"
   rm -rf "$artifact_acceptance_dir/acceptance-output"
