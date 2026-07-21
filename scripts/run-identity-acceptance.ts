@@ -271,24 +271,36 @@ try {
       territories: [{ province: "任意", cities: [] }],
       viewScope: "ALL",
     };
+    const foreignTradeArguments: Partial<Record<string, Record<string, unknown>>> = {
+      crm_customer_get: { id: "identity-acceptance-customer-sales-b" },
+      crm_customer_follows_list: { customerId: "identity-acceptance-customer-sales-b" },
+      crm_contract_get: { id: "identity-acceptance-contract-sales-b" },
+      crm_shipment_get: { id: "identity-acceptance-shipment-sales-b" },
+    };
+    let matrixCellCount = 0;
 
     for (const [index, toolName] of MCP_TOOL_NAMES.entries()) {
       const allowedRole = MCP_TOOL_ROLE_MATRIX[toolName][0];
-      const forbiddenRole = roles.find((role) => !MCP_TOOL_ROLE_MATRIX[toolName].includes(role));
-      check(forbiddenRole, `${toolName} has no forbidden role fixture`);
-      const allowed = await rpc("tools/call", { name: toolName, arguments: validArguments[toolName] }, {
-        assertion: issuedByRole[allowedRole].token,
-        requestId: `full-allow-${index}`,
-      });
-      expectedAuditUserIds.set(`full-allow-${index}`, userIdsByRole[allowedRole]);
-      check(allowed.status === 200 && toolErrorCode(allowed) === undefined && toolData(allowed) !== undefined, `${toolName} allowed role did not complete a successful read`);
-
-      const denied = await rpc("tools/call", { name: toolName, arguments: validArguments[toolName] }, {
-        assertion: issuedByRole[forbiddenRole].token,
-        requestId: `full-deny-${index}`,
-      });
-      expectedAuditUserIds.set(`full-deny-${index}`, userIdsByRole[forbiddenRole]);
-      check(toolErrorCode(denied) === "FORBIDDEN", `${toolName} forbidden role was not denied`);
+      for (const role of roles) {
+        const requestId = `full-matrix-${index}-${role.toLowerCase()}`;
+        const argumentsForRole = role === "FOREIGN_TRADE"
+          ? (foreignTradeArguments[toolName] || validArguments[toolName])
+          : validArguments[toolName];
+        const matrixResult = await rpc("tools/call", { name: toolName, arguments: argumentsForRole }, {
+          assertion: issuedByRole[role].token,
+          requestId,
+        });
+        matrixCellCount += 1;
+        expectedAuditUserIds.set(requestId, userIdsByRole[role]);
+        if (MCP_TOOL_ROLE_MATRIX[toolName].includes(role)) {
+          check(
+            matrixResult.status === 200 && toolErrorCode(matrixResult) === undefined && toolData(matrixResult) !== undefined,
+            `${toolName}/${role} allowed matrix cell did not complete a successful read`,
+          );
+        } else {
+          check(toolErrorCode(matrixResult) === "FORBIDDEN", `${toolName}/${role} forbidden matrix cell was not denied`);
+        }
+      }
 
       const forged = await rpc("tools/call", { name: toolName, arguments: { ...validArguments[toolName], ...forgedIdentity } }, {
         assertion: issuedByRole[allowedRole].token,
@@ -297,7 +309,8 @@ try {
       expectedAuditUserIds.set(`full-forged-${index}`, userIdsByRole[allowedRole]);
       check(toolErrorCode(forged) === "INVALID_ARGUMENT", `${toolName} accepted forged identity arguments`);
     }
-    record("all 21 business tools enforce allowed role, forbidden role and strict identity-free arguments");
+    check(matrixCellCount === 105, `Expected 105 role/tool matrix cells, received ${matrixCellCount}`);
+    record("all 21 business tools execute the complete five-role permission matrix (105 cells) and reject forged identity arguments");
 
     const [salesAList, salesBList] = await Promise.all([
       rpc("tools/call", { name: "crm_customers_list", arguments: { search: "身份验收" } }, {
