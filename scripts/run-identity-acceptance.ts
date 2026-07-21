@@ -568,10 +568,17 @@ try {
   check(audits.some((item) => item.entityId === "accept-invalid-audience"), "Rejected request missing from OperationLog");
   if (fullReadOnly) {
     const allowedAuditKeys = ["apiKeyName", "createdAt", "durationMs", "method", "rejectionReason", "requestId", "statusCode", "success", "toolName"];
+    const matrixRoles: McpRole[] = ["SUPER_ADMIN", "SALES", "FOREIGN_TRADE", "PURCHASE", "WAREHOUSE"];
     for (const [index, toolName] of MCP_TOOL_NAMES.entries()) {
       const expected = [
-        { requestId: `full-allow-${index}`, success: true, rejectionReason: null },
-        { requestId: `full-deny-${index}`, success: false, rejectionReason: "FORBIDDEN" },
+        ...matrixRoles.map((role) => {
+          const success = MCP_TOOL_ROLE_MATRIX[toolName].includes(role);
+          return {
+            requestId: `full-matrix-${index}-${role.toLowerCase()}`,
+            success,
+            rejectionReason: success ? null : "FORBIDDEN",
+          };
+        }),
         { requestId: `full-forged-${index}`, success: false, rejectionReason: "INVALID_ARGUMENT" },
       ];
       for (const item of expected) {
