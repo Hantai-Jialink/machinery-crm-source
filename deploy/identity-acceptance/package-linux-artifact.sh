@@ -35,11 +35,23 @@ done
 [[ "$artifact_dir" != "/" && ! -e "$artifact_dir" ]] || { echo "Artifact target must be a new non-root path: $artifact_dir" >&2; exit 1; }
 mkdir -p "$artifact_dir/images" "$artifact_dir/deploy/identity-acceptance"
 
+bash "$acceptance_dir/pull-external-images.sh"
+
 docker save "$fastgpt_image" | gzip -9 > "$artifact_dir/images/dachuan-fastgpt-v4.15.1-identity-acceptance.1.tar.gz"
 docker save "$crm_image" | gzip -9 > "$artifact_dir/images/dachuanpro-crm-erp-mcp-1.2.0-identity-acceptance.1.tar.gz"
 docker save "$runner_image" | gzip -9 > "$artifact_dir/images/dachuanpro-identity-acceptance-runner-1.0.0.tar.gz"
 
-for file in docker-compose.yml start.sh accept.sh rollback.sh build-fastgpt.sh provision-fastgpt-key.mjs prepare-env.mjs validate-env.mjs .env.identity-acceptance.example Dockerfile.fastgpt Dockerfile.mcp Dockerfile.acceptance nginx.conf; do
+{
+  printf 'image\tlinuxAmd64ManifestDigest\tociIndexDigest\timageId\tarchive\n'
+  while IFS=$'\t' read -r image platform_digest index_digest archive; do
+    [[ -z "$image" || "$image" == \#* ]] && continue
+    image_id="$(docker image inspect "$image" --format '{{.Id}}')"
+    docker save "$image" | gzip -9 > "$artifact_dir/images/$archive"
+    printf '%s\t%s\t%s\t%s\t%s\n' "$image" "$platform_digest" "$index_digest" "$image_id" "$archive"
+  done < "$acceptance_dir/external-images.lock.tsv"
+} > "$artifact_dir/EXTERNAL_IMAGE_IDS.tsv"
+
+for file in docker-compose.yml start.sh accept.sh rollback.sh build-fastgpt.sh pull-external-images.sh external-images.lock.tsv provision-fastgpt-key.mjs prepare-env.mjs validate-env.mjs .env.identity-acceptance.example Dockerfile.fastgpt Dockerfile.mcp Dockerfile.acceptance nginx.conf; do
   cp -a "$acceptance_dir/$file" "$artifact_dir/deploy/identity-acceptance/$file"
 done
 chmod +x "$artifact_dir/deploy/identity-acceptance/"*.sh
@@ -94,6 +106,11 @@ const imageTable = imageRows.map((row) => {
   const [name, tag, id, size, digests] = row.split('\t');
   return `| ${name} | \`${tag}\` | \`${id}\` | ${size} | ${digests ? `\`${digests}\`` : '本地构建镜像，无 RepoDigest'} |`;
 }).join('\n');
+const externalRows = fs.readFileSync(path.join(artifactDir, 'EXTERNAL_IMAGE_IDS.tsv'), 'utf8').trim().split('\n').slice(1);
+const externalImageTable = externalRows.map((row) => {
+  const [image, platformDigest, indexDigest, imageId, archive] = row.split('\t');
+  return `| \`${image}\` | \`${platformDigest}\` | \`${indexDigest}\` | \`${imageId}\` | \`${archive}\` |`;
+}).join('\n');
 const checks = evidence.checks.map((check) => `- PASS：${check}`).join('\n');
 const report = `# FULL_READ_ONLY Linux 隔离验收报告
 
@@ -113,7 +130,7 @@ const report = `# FULL_READ_ONLY Linux 隔离验收报告
 - requestId：\`${evidence.requestIdSummary.count}\`，唯一值 \`${evidence.requestIdSummary.uniqueCount}\`
 - Runner 敏感扫描：\`${evidence.sensitiveScanStatus}\`
 - 最终日志敏感扫描：\`${evidence.finalSensitiveLogScanStatus}\`
-- 空卷、无运行时 env 的三镜像预构建成品冷启动复验：\`${process.env.PREBUILT_REVALIDATED}\`
+- 空卷、无运行时 env 的十二镜像预构建成品冷启动复验：\`${process.env.PREBUILT_REVALIDATED}\`
 
 ${checks}
 
@@ -123,9 +140,15 @@ ${checks}
 | --- | --- | --- | ---: | --- |
 ${imageTable}
 
+## 内置外部运行时镜像（linux/amd64）
+
+| 镜像 | 平台 manifest digest | OCI index digest | Image ID | Artifact 文件 |
+| --- | --- | --- | --- | --- |
+${externalImageTable}
+
 ## 准入结论
 
-满足“可访问固定依赖镜像仓库”的服务器隔离测试准入；不属于离线成品，也不代表生产部署准入。生产部署不在本次工作流范围内。
+十二张运行时镜像均内置于成品。经 `SHA256SUMS` 校验后，预构建模式只执行本地 `docker load` 和 `docker compose up --pull never`，因此隔离验收启动不依赖外部镜像仓库。生产部署不在本次工作流范围内。
 `;
 fs.writeFileSync(path.join(artifactDir, 'LINUX_ACCEPTANCE_REPORT.md'), report);
 NODE
@@ -135,7 +158,7 @@ cat > "$artifact_dir/SERVER_ISOLATED_TEST.md" <<'EOF'
 
 本成品只用于隔离测试，不得连接生产数据库、生产 Redis、正式 FastGPT 或正式域名。
 
-前置条件：Linux x86_64、Docker Engine、Docker Compose v2、Node.js 20 或更新版本、gzip，以及访问固定版本依赖镜像仓库的网络。Artifact 内只内置三项项目自建镜像；MySQL、Redis、MongoDB、pgvector、MinIO、Nginx 和 FastGPT 官方依赖仍由 Compose 按固定非 `latest` 标签拉取，因此本成品不是离线包。
+前置条件：Linux x86_64、Docker Engine、Docker Compose v2、Node.js 20 或更新版本及 gzip。Artifact 内置三项项目自建镜像和九项外部运行时镜像；先校验 `SHA256SUMS`，预构建模式会加载全部十二张镜像，并以 `docker compose up --pull never` 启动。因此服务器隔离验收不需要访问 Docker Hub、GHCR 或其他镜像仓库。
 
 ```bash
 export IDENTITY_ACCEPTANCE_TOOL_MODE=FULL_READ_ONLY
@@ -146,7 +169,7 @@ EXPECTED_MCP_TOOL_MODE=FULL_READ_ONLY ./deploy/identity-acceptance/accept.sh
 ./deploy/identity-acceptance/rollback.sh
 ```
 
-`start.sh` 会从本成品的 `images/` 加载三个固定版本镜像，动态生成仅用于隔离环境的凭据，并拒绝使用非隔离目标。`rollback.sh` 默认停止固定 Compose 项目并保留隔离卷；生产部署不在本成品范围内。
+`start.sh` 会从本成品的 `images/` 加载十二张固定版本镜像，并核验外部镜像的 Image ID、linux/amd64 manifest digest 与 OCI index digest 清单；它动态生成仅用于隔离环境的凭据，并拒绝使用非隔离目标。`rollback.sh` 默认停止固定 Compose 项目并保留隔离卷；生产部署不在本成品范围内。
 EOF
 
 if grep -RInE '(^|[[:space:]])[^#[:space:]]+:latest([[:space:]]|$)' "$artifact_dir/deploy/identity-acceptance"; then

@@ -17,6 +17,7 @@ fi
 node "$acceptance_dir/validate-env.mjs" "$env_file"
 if [[ "${IDENTITY_ACCEPTANCE_USE_PREBUILT_IMAGES:-0}" == "1" ]]; then
   image_dir="$repo_root/images"
+  external_image_ids="$repo_root/EXTERNAL_IMAGE_IDS.tsv"
   for archive in \
     "$image_dir/dachuan-fastgpt-v4.15.1-identity-acceptance.1.tar.gz" \
     "$image_dir/dachuanpro-crm-erp-mcp-1.2.0-identity-acceptance.1.tar.gz" \
@@ -27,6 +28,21 @@ if [[ "${IDENTITY_ACCEPTANCE_USE_PREBUILT_IMAGES:-0}" == "1" ]]; then
   fastgpt_image="$(sed -n 's/^FASTGPT_IMAGE=//p' "$env_file")"
   crm_image="$(sed -n 's/^CRM_IMAGE=//p' "$env_file")"
   docker image inspect "$fastgpt_image" "$crm_image" dachuanpro-identity-acceptance-runner:1.0.0 >/dev/null
+  test -s "$external_image_ids" || { echo "Missing external image identity manifest." >&2; exit 1; }
+  while IFS=$'\t' read -r image platform_digest index_digest image_id archive; do
+    [[ "$image" == "image" ]] && continue
+    test -s "$image_dir/$archive" || { echo "Missing prebuilt external image archive: $archive" >&2; exit 1; }
+    gzip -dc "$image_dir/$archive" | docker load
+    actual_image_id="$(docker image inspect "$image" --format '{{.Id}}')"
+    [[ "$actual_image_id" == "$image_id" ]] || {
+      echo "External image ID does not match immutable artifact manifest: $image" >&2
+      exit 1
+    }
+    [[ "$platform_digest" == sha256:* && "$index_digest" == sha256:* ]] || {
+      echo "External image digest lock is malformed: $image" >&2
+      exit 1
+    }
+  done < "$external_image_ids"
   echo "IDENTITY_ACCEPTANCE_PREBUILT_IMAGES=LOADED"
 else
   "$acceptance_dir/build-fastgpt.sh" "${1:-}"
@@ -36,7 +52,7 @@ fi
 pushd "$acceptance_dir" >/dev/null
 compose=(docker compose -p dachuan-identity-acceptance --env-file "$env_file")
 "${compose[@]}" config --quiet
-"${compose[@]}" up -d --no-build --wait --wait-timeout 300 mysql identity-redis
+"${compose[@]}" up -d --no-build --pull never --wait --wait-timeout 300 mysql identity-redis
 "${compose[@]}" create --force-recreate db-init
 
 expected_data_network="dachuan-identity-acceptance_identity-data"
@@ -59,13 +75,13 @@ db_init_exit_code="$(docker wait "$db_init_container")"
 [[ "$db_init_exit_code" == "0" ]] || { echo "Isolated migration/seed failed with exit code $db_init_exit_code." >&2; exit 1; }
 echo "IDENTITY_ACCEPTANCE_DB_INIT_EXIT_CODE=0"
 
-"${compose[@]}" up -d --no-build --wait --wait-timeout 900
+"${compose[@]}" up -d --no-build --pull never --wait --wait-timeout 900
 "${compose[@]}" ps
 
 if [[ "${IDENTITY_ACCEPTANCE_AUTO_PROVISION_FASTGPT_KEY:-0}" == "1" ]]; then
   node "$acceptance_dir/provision-fastgpt-key.mjs" "$env_file" "http://127.0.0.1:18081"
-  "${compose[@]}" up -d --no-build --no-deps --force-recreate crm
-  "${compose[@]}" up -d --no-build --wait --wait-timeout 300
+  "${compose[@]}" up -d --no-build --pull never --no-deps --force-recreate crm
+  "${compose[@]}" up -d --no-build --pull never --wait --wait-timeout 300
   "${compose[@]}" ps
   echo "IDENTITY_ACCEPTANCE_FASTGPT_KEY=AUTO_PROVISIONED"
 fi

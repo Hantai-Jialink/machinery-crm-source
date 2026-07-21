@@ -69,7 +69,15 @@ jobs:
           bash -n deploy/identity-acceptance/accept.sh
           bash -n deploy/identity-acceptance/rollback.sh
           bash -n deploy/identity-acceptance/build-fastgpt.sh
+          bash -n deploy/identity-acceptance/pull-external-images.sh
           bash -n deploy/identity-acceptance/package-linux-artifact.sh
+
+      - name: 空缓存拉取并校验固定外部镜像
+        run: |
+          docker system prune --all --force --volumes
+          test -z "$(docker image ls -q)"
+          bash deploy/identity-acceptance/pull-external-images.sh
+          docker image ls --digests
 
       - name: 生成仅限本次 Runner 的隔离环境
         run: |
