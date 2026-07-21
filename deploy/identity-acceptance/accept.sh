@@ -35,6 +35,11 @@ evidence_file="$output_dir/$evidence_name"
   -e "ACCEPTANCE_CRM_IMAGE_ID=$crm_image_id" \
   -e "ACCEPTANCE_RUNNER_IMAGE_ID=$runner_image_id" \
   acceptance-runner) 2>&1 | tee "$runner_output"
+host_uid="$(id -u)"
+host_gid="$(id -g)"
+(cd "$acceptance_dir" && docker compose -p dachuan-identity-acceptance --env-file "$env_file" --profile acceptance run --rm --no-deps \
+  --entrypoint sh acceptance-runner -c \
+  "chown $host_uid:$host_gid /evidence/$evidence_name && chmod 0600 /evidence/$evidence_name")
 node - "$evidence_file" <<'NODE'
 const fs = require('fs');
 const path = process.argv[2];
