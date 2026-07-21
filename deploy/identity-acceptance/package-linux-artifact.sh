@@ -51,7 +51,7 @@ docker save "$runner_image" | gzip -9 > "$artifact_dir/images/dachuanpro-identit
   done < "$acceptance_dir/external-images.lock.tsv"
 } > "$artifact_dir/EXTERNAL_IMAGE_IDS.tsv"
 
-for file in docker-compose.yml start.sh accept.sh rollback.sh build-fastgpt.sh pull-external-images.sh external-images.lock.tsv provision-fastgpt-key.mjs prepare-env.mjs validate-env.mjs .env.identity-acceptance.example Dockerfile.fastgpt Dockerfile.mcp Dockerfile.acceptance nginx.conf; do
+for file in docker-compose.yml start.sh accept.sh rollback.sh build-fastgpt.sh pull-external-images.sh external-images.lock.tsv generate-linux-report.mjs provision-fastgpt-key.mjs prepare-env.mjs validate-env.mjs .env.identity-acceptance.example Dockerfile.fastgpt Dockerfile.mcp Dockerfile.acceptance nginx.conf; do
   cp -a "$acceptance_dir/$file" "$artifact_dir/deploy/identity-acceptance/$file"
 done
 chmod +x "$artifact_dir/deploy/identity-acceptance/"*.sh
@@ -96,7 +96,8 @@ fi
   done
 } > "$artifact_dir/IMAGE_IDS.tsv"
 
-ARTIFACT_DIR="$artifact_dir" EVIDENCE_FILE="$evidence_file" PREBUILT_REVALIDATED="$prebuilt_revalidated" GIT_SHA="$(git -C "$repo_root" rev-parse HEAD)" GIT_BRANCH="${GITHUB_REF_NAME:-$(git -C "$repo_root" branch --show-current)}" node <<'NODE'
+ARTIFACT_DIR="$artifact_dir" EVIDENCE_FILE="$evidence_file" PREBUILT_REVALIDATED="$prebuilt_revalidated" GIT_SHA="$(git -C "$repo_root" rev-parse HEAD)" GIT_BRANCH="${GITHUB_REF_NAME:-$(git -C "$repo_root" branch --show-current)}" node "$acceptance_dir/generate-linux-report.mjs" "$artifact_dir" "$evidence_file"
+: <<'NODE'
 const fs = require('node:fs');
 const path = require('node:path');
 const artifactDir = process.env.ARTIFACT_DIR;

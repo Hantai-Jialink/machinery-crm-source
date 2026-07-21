@@ -72,6 +72,20 @@ jobs:
           bash -n deploy/identity-acceptance/pull-external-images.sh
           bash -n deploy/identity-acceptance/package-linux-artifact.sh
 
+      - name: 报告生成 dry-run 预检
+        run: |
+          node --check deploy/identity-acceptance/generate-linux-report.mjs
+          report_dir="$RUNNER_TEMP/report-dry-run"
+          mkdir -p "$report_dir"
+          printf 'name\ttag\timageId\tsizeBytes\trepoDigests\nfastgpt\tdachuan-fastgpt:v4\tsha256:one\t1\t\n' > "$report_dir/IMAGE_IDS.tsv"
+          printf 'image\tlinuxAmd64ManifestDigest\tociIndexDigest\timageId\tarchive\nmysql:8.0.44\tsha256:platform\tsha256:index\tsha256:image\tmysql.tar.gz\n' > "$report_dir/EXTERNAL_IMAGE_IDS.tsv"
+          printf '{"overallStatus":"PASS","checks":["dry run"],"requestIdSummary":{"count":1,"uniqueCount":1}}' > "$report_dir/evidence.json"
+          ARTIFACT_DIR="$report_dir" EVIDENCE_FILE="$report_dir/evidence.json" PREBUILT_REVALIDATED=PASS node deploy/identity-acceptance/generate-linux-report.mjs "$report_dir" "$report_dir/evidence.json"
+          test -s "$report_dir/LINUX_ACCEPTANCE_REPORT.md"
+          grep -F '`SHA256SUMS`' "$report_dir/LINUX_ACCEPTANCE_REPORT.md"
+          grep -F '`docker load`' "$report_dir/LINUX_ACCEPTANCE_REPORT.md"
+          grep -F '`--pull never`' "$report_dir/LINUX_ACCEPTANCE_REPORT.md"
+
       - name: 空缓存拉取并校验固定外部镜像
         run: |
           docker system prune --all --force --volumes
