@@ -98,6 +98,7 @@ ARG proxy
 RUN [ -z "$proxy" ] || sed -i 's/dl-cdn.alpinelinux.org/mirrors.ustc.edu.cn/g' /etc/apk/repositories
 ENV PYTHON=/usr/bin/python3
 ENV npm_config_python=/usr/bin/python3
+ENV npm_config_nodedir=/usr/local
 
 # canvas has no prebuilt binary for this Alpine/musl target. Keep its native
 # compilation toolchain confined to this build-only dependency stage.
@@ -123,6 +124,7 @@ RUN set -eux; \
     pkg-config --modversion pango; \
     test "$PYTHON" = "/usr/bin/python3"; \
     test "$npm_config_python" = "/usr/bin/python3"
+RUN test -f "$npm_config_nodedir/include/node/node.h"
 
 COPY pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
 COPY ./packages ./packages
