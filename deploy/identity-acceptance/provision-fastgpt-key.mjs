@@ -48,7 +48,13 @@ async function request(path, init = {}) {
     throw new Error(`${path} returned non-JSON status ${response.status}`);
   }
   if (!response.ok || (typeof payload?.code === "number" && payload.code >= 400)) {
-    throw new Error(`${path} failed with status ${response.status} code ${payload?.code ?? "unknown"}`);
+    const remoteDetail = String(payload?.error || payload?.message || payload?.statusText || "")
+      .replace(/fastgpt-[A-Za-z0-9_-]{16,}/g, "[REDACTED_FASTGPT_KEY]")
+      .replace(/eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}/g, "[REDACTED_JWT]")
+      .replace(/[A-Za-z0-9_+/=-]{48,}/g, "[REDACTED_TOKEN]")
+      .replace(/\s+/g, " ")
+      .slice(0, 300);
+    throw new Error(`${path} failed with status ${response.status} code ${payload?.code ?? "unknown"}${remoteDetail ? ` detail ${remoteDetail}` : ""}`);
   }
   return payload?.data ?? payload;
 }
