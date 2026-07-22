@@ -3,9 +3,10 @@ set -euo pipefail
 
 deploy_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 env_file="${1:?usage: preflight.sh /secure/path/.env.production}"
-test -f "$env_file" || { echo "Missing production environment file." >&2; exit 1; }
+fail() { echo "PRODUCTION_PREFLIGHT=FAIL: $*" >&2; exit 1; }
+test -f "$env_file" || fail "Missing production environment file."
 env_mode="$(stat -c '%a' "$env_file")"
-(( (8#$env_mode & 8#077) == 0 )) || { echo "Production environment file permissions must deny group and other access." >&2; exit 1; }
+(( (8#$env_mode & 8#077) == 0 )) || fail "Production environment file permissions must deny group and other access."
 node "$deploy_dir/validate-production-env.mjs" "$env_file"
 set -a
 # The caller creates and owns this 0600 file; it must not be supplied by an untrusted party.
@@ -13,20 +14,50 @@ set -a
 source "$env_file"
 set +a
 export PRODUCTION_ENV_FILE="$env_file"
-command -v docker >/dev/null
-command -v curl >/dev/null
-command -v nginx >/dev/null
-command -v mysqldump >/dev/null
-test -d "$FASTGPT_DIR" || { echo "Formal FastGPT directory is missing." >&2; exit 1; }
-test -d "$CRM_DIR" || { echo "Formal CRM directory is missing." >&2; exit 1; }
-test -f "$MYSQL_CLIENT_DEFAULTS_FILE" || { echo "Restricted MySQL client configuration is missing." >&2; exit 1; }
-docker image inspect "$MCP_IMAGE" >/dev/null
-curl --fail --silent --show-error "$FORMAL_FASTGPT_HEALTH_URL" >/dev/null
+
+for command in docker curl nginx mysqldump mysql ss; do command -v "$command" >/dev/null || fail "Required command is missing: $command"; done
+test -d "$FASTGPT_DIR" || fail "Formal FastGPT directory is missing."
+test -d "$CRM_DIR" || fail "Formal CRM directory is missing."
+test -f "$MYSQL_CLIENT_DEFAULTS_FILE" || fail "Restricted read-only MySQL client configuration is missing."
+test -f "$MCP_AUDIT_MYSQL_CLIENT_DEFAULTS_FILE" || fail "Restricted audit MySQL client configuration is missing."
+
+docker image inspect "$MCP_IMAGE" >/dev/null || fail "MCP_IMAGE is not present locally."
+docker image inspect "$FASTGPT_CANARY_IMAGE" >/dev/null || fail "FASTGPT_CANARY_IMAGE is not present locally."
+docker image inspect "$CANARY_AIPROXY_IMAGE" >/dev/null || fail "CANARY_AIPROXY_IMAGE is not present locally."
 docker compose -p dachuan-mcp-prod --env-file "$env_file" -f "$deploy_dir/docker-compose.yml" config --quiet
 docker compose -p dachuan-fastgpt-canary --env-file "$env_file" -f "$deploy_dir/fastgpt-canary-compose.yml" config --quiet
+
+if ss -ltnH '( sport = :3010 )' | grep -q .; then fail "Port 3010 is already in use; refusing overlap."; fi
+canary_id="$(docker compose -p dachuan-fastgpt-canary --env-file "$env_file" -f "$deploy_dir/fastgpt-canary-compose.yml" ps -q fastgpt-canary)"
+test -n "$canary_id" || fail "FastGPT Canary does not exist. Start the Canary before running preflight."
+test "$(docker inspect -f '{{.State.Status}}' "$canary_id")" = running || fail "FastGPT Canary is not running."
+test "$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{end}}' "$canary_id")" = healthy || fail "FastGPT Canary is not healthy."
+
+for service in fastgpt-canary-mongo fastgpt-canary-redis fastgpt-canary-minio fastgpt-canary-aiproxy; do
+  id="$(docker compose -p dachuan-fastgpt-canary --env-file "$env_file" -f "$deploy_dir/fastgpt-canary-compose.yml" ps -q "$service")"
+  test -n "$id" || fail "Canary service is absent: $service"
+  test "$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{end}}' "$id")" = healthy || fail "Canary service is not healthy: $service"
+done
+for service in fastgpt-canary-mongo-init fastgpt-canary-minio-init; do
+  id="$(docker compose -p dachuan-fastgpt-canary --env-file "$env_file" -f "$deploy_dir/fastgpt-canary-compose.yml" ps -q "$service")"
+  test -n "$id" || fail "Canary initializer is absent: $service"
+  test "$(docker inspect -f '{{.State.ExitCode}}' "$id")" = 0 || fail "Canary initializer failed: $service"
+done
+ss -ltnH '( sport = :3110 )' | grep -q . || fail "Canary port 3110 is not listening."
+docker port "$canary_id" 3000 | grep -Fx '127.0.0.1:3110' >/dev/null || fail "Port 3110 is not owned by the Canary container."
+
+curl --fail --silent --show-error "$FORMAL_FASTGPT_HEALTH_URL" >/dev/null || fail "Formal FastGPT health check failed."
+curl --fail --silent --show-error "$FASTGPT_CANARY_HEALTH_URL" >/dev/null || fail "FastGPT Canary health check failed."
+
+read_identity="$(mysql --defaults-extra-file="$MYSQL_CLIENT_DEFAULTS_FILE" --batch --skip-column-names "$CRM_DATABASE" -e 'SELECT CURRENT_USER()')"
+audit_identity="$(mysql --defaults-extra-file="$MCP_AUDIT_MYSQL_CLIENT_DEFAULTS_FILE" --batch --skip-column-names "$CRM_DATABASE" -e 'SELECT CURRENT_USER()')"
+test "$read_identity" = "${MCP_DATABASE_READ_USER}@${MCP_DATABASE_GRANT_HOST}" || fail "Read account Host does not match the actual Docker source."
+test "$audit_identity" = "${MCP_DATABASE_AUDIT_USER}@${MCP_DATABASE_GRANT_HOST}" || fail "Audit account Host does not match the actual Docker source."
+read_grants="$(mysql --defaults-extra-file="$MYSQL_CLIENT_DEFAULTS_FILE" "$CRM_DATABASE" -e 'SHOW GRANTS')"
+audit_grants="$(mysql --defaults-extra-file="$MCP_AUDIT_MYSQL_CLIENT_DEFAULTS_FILE" "$CRM_DATABASE" -e 'SHOW GRANTS')"
+printf '%s\n' "$read_grants" | grep -Eqi 'GRANT SELECT ON .*customers' || fail "Read account lacks required customers SELECT."
+printf '%s\n' "$read_grants" | grep -Eqi 'UPDATE|DELETE|CREATE|ALTER|DROP|FILE|PROCESS|GRANT OPTION' && fail "Read account has forbidden privileges."
+printf '%s\n' "$audit_grants" | grep -Eqi 'GRANT INSERT ON .*operation_logs' || fail "Audit account lacks operation_logs INSERT."
+printf '%s\n' "$audit_grants" | grep -Eqi 'SELECT ON .*machinery_crm|UPDATE|DELETE|CREATE|ALTER|DROP|FILE|PROCESS|GRANT OPTION' && fail "Audit account has forbidden privileges."
 nginx -t
-if ss -ltn '( sport = :3010 )' | grep -q ':3010'; then
-  echo "Port 3010 is already in use; refusing to overlap an existing service." >&2
-  exit 1
-fi
 echo "PRODUCTION_PREFLIGHT=PASS"

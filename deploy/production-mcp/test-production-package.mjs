@@ -11,17 +11,31 @@ assert.match(validator, /b9b6e2305e70823c9706291de4b19c4dc3ae05f6/);
 assert.match(validator, /8f09f9dd41c17aecec6bbe69a332432fdf4e686546f050d65e670bda60aa2033/);
 assert.match(validator, /fastAgent/);
 assert.doesNotMatch(validator, /\['default', 'pi'\]/);
-for (const resource of ['MONGO', 'REDIS', 'OBJECT_STORAGE', 'APP', 'USER', 'SESSION', 'API_KEY']) {
+for (const resource of ['MONGO', 'REDIS', 'OBJECT_STORAGE', 'APP', 'USER', 'SESSION', 'API_KEY', 'AI_PROXY', 'MODEL_SERVICE']) {
   assert.match(validator, new RegExp(`FORMAL_FASTGPT_${resource}_FINGERPRINT`));
   assert.match(validator, new RegExp(`CANARY_FASTGPT_${resource}_FINGERPRINT`));
 }
 
 const compose = read('fastgpt-canary-compose.yml');
-for (const required of ['dachuan-fastgpt-canary-data', 'dachuan-fastgpt-canary-mongo', 'dachuan-fastgpt-canary-redis', 'dachuan-fastgpt-canary-minio']) {
+for (const required of ['dachuan-fastgpt-canary-data', 'dachuan-fastgpt-canary-ai-egress', 'dachuan-fastgpt-canary-mongo', 'dachuan-fastgpt-canary-redis', 'dachuan-fastgpt-canary-minio', 'fastgpt-canary-mongo-init', 'fastgpt-canary-minio-init', 'fastgpt-canary-aiproxy']) {
   assert.match(compose, new RegExp(required));
 }
 assert.match(compose, /AGENT_ENGINE: \$\{FASTGPT_CANARY_AGENT_ENGINE:-fastAgent\}/);
+assert.match(compose, /CANARY_REDIS_PASSWORD: \$\{CANARY_REDIS_PASSWORD\}/);
+assert.match(compose, /redis-cli -a \\\"\$\$CANARY_REDIS_PASSWORD\\\" ping/);
+assert.match(compose, /replicaSet=rs0/);
+assert.match(compose, /rs\.status\(\)\.ok/);
+assert.match(compose, /mc mb --ignore-existing/);
+assert.match(compose, /minio\/health\/live/);
+assert.match(compose, /AIPROXY_API_ENDPOINT: http:\/\/fastgpt-canary-aiproxy:3000/);
 assert.doesNotMatch(compose, /fastgpt:3100|\/opt\/fastgpt|FORMAL_FASTGPT_/);
+assert.match(read('runtime-canary-accept.sh'), /CANARY_RUNTIME_REDIS_MONGO_MINIO_FASTGPT_MODEL=PASS/);
+assert.match(read('runtime-canary-accept.sh'), /updateWithJson/);
+assert.match(read('fastgpt-canary-compose.ci.yml'), /model-mock/);
+
+const mcpCompose = read('docker-compose.yml');
+assert.match(mcpCompose, /subnet: 172\.30\.31\.0\/28/);
+assert.match(mcpCompose, /ipv4_address: 172\.30\.31\.10/);
 
 const deploy = read('deploy.sh');
 const rollback = read('rollback.sh');
@@ -30,9 +44,16 @@ assert.doesNotMatch(deploy, /systemctl|pm2|docker compose[^\n]*down/);
 assert.match(rollback, /docker compose -p dachuan-mcp-prod/);
 assert.doesNotMatch(rollback, /fastgpt-canary|fastgpt.*down|systemctl stop/);
 assert.match(health, /FORMAL_FASTGPT_HEALTH_URL/);
+for (const required of ['FASTGPT_CANARY_IMAGE', 'FASTGPT_CANARY_HEALTH_URL', 'Port 3010', 'Canary port 3110', 'MCP_DATABASE_GRANT_HOST']) {
+  assert.match(deploy + health + read('preflight.sh'), new RegExp(required));
+}
 
 const grants = read('mysql-grants.expected.sql');
 assert.match(grants, /INSERT ON machinery_crm.`operation_logs`/);
+assert.match(grants, /'dachuan_mcp_read'@'172\.30\.31\.10'/);
+for (const table of ['users', 'customers', 'customer_quotes', 'follow_records', 'contracts', 'contract_items', 'contract_payments', 'shipments']) {
+  assert.match(grants, new RegExp(`SELECT ON machinery_crm.\\\`${table}\\\``));
+}
 assert.match(grants, /UPDATE、DELETE、CREATE、ALTER、DROP、FILE、PROCESS/);
 assert.match(grants, /GRANT OPTION/);
 console.log('PRODUCTION_PACKAGE_GUARDS=PASS');

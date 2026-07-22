@@ -1,0 +1,14 @@
+services:
+  # CI 使用隔离 OpenAI 兼容 mock 替代外部 Canary AIProxy；正式 compose 不含此覆盖文件。
+  fastgpt-canary-aiproxy:
+    image: node:24.16.0-alpine
+    environment:
+      PORT: "3000"
+    volumes:
+      - ./ci/model-mock.mjs:/app/model-mock.mjs:ro
+    command: ["node", "/app/model-mock.mjs"]
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
