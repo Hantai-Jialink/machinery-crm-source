@@ -84,9 +84,9 @@ Linux 使用 `EXPECTED_MCP_TOOL_MODE=FULL_READ_ONLY ./deploy/identity-acceptance
 
 `.github/workflows/full-readonly-linux-acceptance.yml` 只在当前可信身份分支相关文件变更或手动触发时运行。它在 GitHub 托管的 `ubuntu-24.04` 临时 Runner 中动态生成隔离凭据，使用 `IDENTITY_ACCEPTANCE_AUTO_PROVISION_FASTGPT_KEY=1` 自动创建 MCP 工具集、挂载 `dachuan_identity_who_am_i` 的无模型工作流 Agent，以及带 Agent ID 传输后缀的一次性团队 API Key，随后完整执行 `start.sh`、`accept.sh` 和 `rollback.sh`。该开关不改变本地默认的手工 Key 流程。
 
-成功后上传 `dachuan-full-readonly-linux-<run-id>` Artifact，内含三项项目镜像和九项按 linux/amd64 manifest digest 锁定的外部运行时镜像的 `tar.gz`、Compose、Linux 脚本、环境模板、Linux 验收报告、Image ID 和 SHA256 清单。Artifact 不包含运行时 `.env`、测试凭据、Runner 日志正文或生产配置。
+成功后上传 `dachuan-full-readonly-linux-<run-id>` Artifact，内含三项项目镜像和九项按 linux/amd64 manifest digest 锁定的外部运行时镜像的 `tar.gz`、Compose、Linux 脚本、环境模板、Linux 验收报告、外部镜像 Config Digest 和 SHA256 清单。Artifact 不包含运行时 `.env`、测试凭据、Runner 日志正文或生产配置。
 
-下载成品用于另一台隔离 Linux 测试机时，需具备 Docker Engine、Docker Compose v2、Node.js 20+、gzip；不需要访问 Docker Hub、GHCR 或其他镜像仓库。先校验 Artifact 的 `SHA256SUMS`，设置 `IDENTITY_ACCEPTANCE_TOOL_MODE=FULL_READ_ONLY`、`IDENTITY_ACCEPTANCE_USE_PREBUILT_IMAGES=1` 和 `IDENTITY_ACCEPTANCE_AUTO_PROVISION_FASTGPT_KEY=1` 后运行成品内的 `start.sh`。预构建模式加载成品中的十二张镜像、核验外部镜像 Image ID，并以 `--pull never` 启动；GitHub Actions构建阶段本身不设置该开关，仍会从精确FastGPT提交和当前CRM/MCP提交真实构建，并在清理固定隔离项目卷后，从成品目录以空卷、无运行时 `.env` 的条件再完整复跑一次 `start.sh`、`accept.sh`、`rollback.sh --purge-isolated-data`。
+下载成品用于另一台隔离 Linux 测试机时，需具备 Docker Engine、Docker Compose v2、Node.js 20+、gzip 和 `sha256sum`；不需要访问 Docker Hub、GHCR 或其他镜像仓库。先校验 Artifact 的 `SHA256SUMS`，设置 `IDENTITY_ACCEPTANCE_TOOL_MODE=FULL_READ_ONLY`、`IDENTITY_ACCEPTANCE_USE_PREBUILT_IMAGES=1` 和 `IDENTITY_ACCEPTANCE_AUTO_PROVISION_FASTGPT_KEY=1` 后运行成品内的 `start.sh`。预构建模式会在加载前核验 SHA256SUMS、RepoTags、tar 内 Config Digest 与 linux/amd64，加载后复验镜像标签和 linux/amd64，并以 `--pull never` 启动；GitHub Actions构建阶段本身不设置该开关，仍会从精确FastGPT提交和当前CRM/MCP提交真实构建，并在清理固定隔离项目卷后，从成品目录以空卷、无运行时 `.env` 的条件再完整复跑一次 `start.sh`、`accept.sh`、`rollback.sh --purge-isolated-data`。
 
 验收 runner 逐项检查：
 

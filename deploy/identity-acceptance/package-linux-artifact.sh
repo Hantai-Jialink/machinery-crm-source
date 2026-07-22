@@ -42,19 +42,30 @@ docker save "$crm_image" | gzip -9 > "$artifact_dir/images/dachuanpro-crm-erp-mc
 docker save "$runner_image" | gzip -9 > "$artifact_dir/images/dachuanpro-identity-acceptance-runner-1.0.0.tar.gz"
 
 {
-  printf 'image\tlinuxAmd64ManifestDigest\tociIndexDigest\timageId\tarchive\n'
+  printf 'image\tlinuxAmd64ManifestDigest\tociIndexDigest\tconfigDigest\tarchive\n'
   while IFS=$'\t' read -r image platform_digest index_digest archive; do
     [[ -z "$image" || "$image" == \#* ]] && continue
-    image_id="$(docker image inspect "$image" --format '{{.Id}}')"
     docker save "$image" | gzip -9 > "$artifact_dir/images/$archive"
-    printf '%s\t%s\t%s\t%s\t%s\n' "$image" "$platform_digest" "$index_digest" "$image_id" "$archive"
+    config_digest="$(node "$acceptance_dir/validate-prebuilt-image-archive.mjs" --config-digest "$artifact_dir/images/$archive" "$image")"
+    printf '%s\t%s\t%s\t%s\t%s\n' "$image" "$platform_digest" "$index_digest" "$config_digest" "$archive"
   done < "$acceptance_dir/external-images.lock.tsv"
 } > "$artifact_dir/EXTERNAL_IMAGE_IDS.tsv"
 
-for file in docker-compose.yml start.sh accept.sh rollback.sh build-fastgpt.sh pull-external-images.sh external-images.lock.tsv generate-linux-report.mjs provision-fastgpt-key.mjs prepare-env.mjs validate-env.mjs .env.identity-acceptance.example Dockerfile.fastgpt Dockerfile.mcp Dockerfile.acceptance nginx.conf; do
+for file in docker-compose.yml start.sh accept.sh rollback.sh build-fastgpt.sh pull-external-images.sh validate-prebuilt-image-archive.mjs external-images.lock.tsv generate-linux-report.mjs provision-fastgpt-key.mjs prepare-env.mjs validate-env.mjs .env.identity-acceptance.example Dockerfile.fastgpt Dockerfile.mcp Dockerfile.acceptance nginx.conf; do
   cp -a "$acceptance_dir/$file" "$artifact_dir/deploy/identity-acceptance/$file"
 done
 chmod +x "$artifact_dir/deploy/identity-acceptance/"*.sh
+
+write_sha256sums() {
+  (
+    cd "$artifact_dir"
+    find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS
+  )
+}
+
+# The prebuilt cold-start check validates the same artifact files that will be published.
+# Regenerate after its evidence is added so the final manifest covers every deliverable file.
+write_sha256sums
 
 prebuilt_revalidated="NO"
 if [[ "${IDENTITY_ACCEPTANCE_VERIFY_PREBUILT:-0}" == "1" ]]; then
@@ -109,8 +120,8 @@ const imageTable = imageRows.map((row) => {
 }).join('\n');
 const externalRows = fs.readFileSync(path.join(artifactDir, 'EXTERNAL_IMAGE_IDS.tsv'), 'utf8').trim().split('\n').slice(1);
 const externalImageTable = externalRows.map((row) => {
-  const [image, platformDigest, indexDigest, imageId, archive] = row.split('\t');
-  return `| \`${image}\` | \`${platformDigest}\` | \`${indexDigest}\` | \`${imageId}\` | \`${archive}\` |`;
+  const [image, platformDigest, indexDigest, configDigest, archive] = row.split('\t');
+  return `| \`${image}\` | \`${platformDigest}\` | \`${indexDigest}\` | \`${configDigest}\` | \`${archive}\` |`;
 }).join('\n');
 const checks = evidence.checks.map((check) => `- PASS：${check}`).join('\n');
 const report = `# FULL_READ_ONLY Linux 隔离验收报告
@@ -143,7 +154,7 @@ ${imageTable}
 
 ## 内置外部运行时镜像（linux/amd64）
 
-| 镜像 | 平台 manifest digest | OCI index digest | Image ID | Artifact 文件 |
+| 镜像 | 平台 manifest digest | OCI index digest | Config Digest | Artifact 文件 |
 | --- | --- | --- | --- | --- |
 ${externalImageTable}
 
@@ -170,7 +181,7 @@ EXPECTED_MCP_TOOL_MODE=FULL_READ_ONLY ./deploy/identity-acceptance/accept.sh
 ./deploy/identity-acceptance/rollback.sh
 ```
 
-`start.sh` 会从本成品的 `images/` 加载十二张固定版本镜像，并核验外部镜像的 Image ID、linux/amd64 manifest digest 与 OCI index digest 清单；它动态生成仅用于隔离环境的凭据，并拒绝使用非隔离目标。`rollback.sh` 默认停止固定 Compose 项目并保留隔离卷；生产部署不在本成品范围内。
+`start.sh` 会在加载前校验 `SHA256SUMS`、外部镜像 tar 内 `manifest.json` 的 RepoTags、Config Digest 与 linux/amd64 平台；加载后复验标签和 linux/amd64。它动态生成仅用于隔离环境的凭据，并拒绝使用非隔离目标。`rollback.sh` 默认停止固定 Compose 项目并保留隔离卷；生产部署不在本成品范围内。
 EOF
 
 if grep -RInE '(^|[[:space:]])[^#[:space:]]+:latest([[:space:]]|$)' "$artifact_dir/deploy/identity-acceptance"; then
@@ -178,9 +189,9 @@ if grep -RInE '(^|[[:space:]])[^#[:space:]]+:latest([[:space:]]|$)' "$artifact_d
   exit 1
 fi
 
+write_sha256sums
 (
   cd "$artifact_dir"
-  find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS
   sha256sum -c SHA256SUMS
 )
 
