@@ -24,6 +24,7 @@ describe("MCP environment configuration", () => {
       legacyUserBindingEnabled: false,
       toolMode: "identity-poc",
       queryTimeoutMs: 5000,
+      enabledTools: [],
     });
   });
 
@@ -90,5 +91,32 @@ describe("MCP environment configuration", () => {
       MCP_ALLOWED_HOSTS: "mcp.dachuan.pro",
       MCP_LEGACY_USER_BOUND_AUTH: "true",
     })).toThrow(/forbidden in production/);
+  });
+
+  it("requires a non-empty MCP tool allowlist for production FULL_READ_ONLY", () => {
+    expect(() => loadMcpConfig({
+      NODE_ENV: "production",
+      MCP_API_KEYS_JSON: JSON.stringify([{ name: "fastgpt", keyHash: "e".repeat(64) }]),
+      MCP_AUDIT_USER_ID: "audit-user-1",
+      MCP_ALLOWED_HOSTS: "mcp.dachuan.pro",
+      MCP_TOOL_MODE: "FULL_READ_ONLY",
+    })).toThrow(/MCP_TOOL_ALLOWLIST/);
+  });
+
+  it("permits only identity plus exact-ID tools in the production phase-one allowlist", () => {
+    const base = {
+      NODE_ENV: "production",
+      MCP_API_KEYS_JSON: JSON.stringify([{ name: "fastgpt", keyHash: "e".repeat(64) }]),
+      MCP_AUDIT_USER_ID: "audit-user-1",
+      MCP_ALLOWED_HOSTS: "mcp.dachuan.pro",
+      MCP_TOOL_MODE: "FULL_READ_ONLY",
+    };
+    const production = { ...base, MCP_AUDIT_DATABASE_URL: "mysql://audit@db/machinery_crm" };
+    expect(loadMcpConfig({ ...production, MCP_TOOL_ALLOWLIST: "dachuan_identity_who_am_i,crm_customer_get,crm_contract_get" }).enabledTools)
+      .toEqual(["dachuan_identity_who_am_i", "crm_customer_get", "crm_contract_get"]);
+    expect(() => loadMcpConfig({ ...production, MCP_TOOL_ALLOWLIST: "dachuan_identity_who_am_i,crm_customers_list" }))
+      .toThrow(/phase one/);
+    expect(() => loadMcpConfig({ ...base, MCP_TOOL_ALLOWLIST: "dachuan_identity_who_am_i" }))
+      .toThrow(/MCP_AUDIT_DATABASE_URL/);
   });
 });

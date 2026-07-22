@@ -26,6 +26,7 @@ export type AgentAuthConfig = {
   maxRequestBytes: number;
   rateLimitPerMinute: number;
   gatewayAllowedOrigins: string[];
+  gatewayAllowedRoles: string[];
 };
 
 function required(environment: Environment, name: string) {
@@ -82,6 +83,21 @@ function normalizedFastGptUrl(value: string) {
   return url.toString();
 }
 
+function allowedRoles(environment: Environment) {
+  const roles = String(environment.AGENT_GATEWAY_ALLOWED_ROLES || "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+  const supported = new Set(["SUPER_ADMIN", "SALES", "FOREIGN_TRADE", "PURCHASE", "WAREHOUSE"]);
+  if (roles.some((role) => !supported.has(role))) {
+    throw new Error("AGENT_GATEWAY_ALLOWED_ROLES contains an unsupported role");
+  }
+  if (environment.NODE_ENV?.trim().toLowerCase() === "production" && roles.length === 0) {
+    throw new Error("AGENT_GATEWAY_ALLOWED_ROLES is required in production");
+  }
+  return [...new Set(roles)];
+}
+
 export function loadAgentAuthConfig(environment: Environment = process.env): AgentAuthConfig {
   const ttlSeconds = integer(environment, "AGENT_AUTH_TOKEN_TTL_SECONDS", 600);
   if (ttlSeconds < 300 || ttlSeconds > 900) {
@@ -108,6 +124,7 @@ export function loadAgentAuthConfig(environment: Environment = process.env): Age
       .split(",")
       .map((value) => value.trim())
       .filter(Boolean),
+    gatewayAllowedRoles: allowedRoles(environment),
   };
 }
 

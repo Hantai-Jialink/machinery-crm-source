@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { PrismaClient } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { createMcpRequestHandler } from "@/lib/mcp/application";
 import { loadMcpConfig } from "@/lib/mcp/config";
@@ -8,14 +9,21 @@ import { getAgentAuthRuntime } from "@/lib/agent-auth/runtime";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const dataSource = createPrismaMcpDataSource(prisma);
+let productionAuditClient: PrismaClient | undefined;
+
+function getAuditClient(auditDatabaseUrl?: string) {
+  if (!auditDatabaseUrl) return prisma;
+  productionAuditClient ??= new PrismaClient({ datasources: { db: { url: auditDatabaseUrl } } });
+  return productionAuditClient;
+}
 
 async function handle(request: Request) {
   try {
+    const config = loadMcpConfig();
     const agentAuth = await getAgentAuthRuntime();
     const handler = createMcpRequestHandler({
-      config: loadMcpConfig(),
-      dataSource,
+      config,
+      dataSource: createPrismaMcpDataSource(prisma, getAuditClient(config.auditDatabaseUrl)),
       identityVerifier: agentAuth.tokenService,
     });
     return await handler(request);

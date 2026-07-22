@@ -1,0 +1,166 @@
+diff --git a/packages/service/core/app/mcp.ts b/packages/service/core/app/mcp.ts
+--- a/packages/service/core/app/mcp.ts
++++ b/packages/service/core/app/mcp.ts
+@@ -14,6 +14,8 @@ import { UserError } from '@fastgpt/global/common/error/utils';
+ import $RefParser from '@apidevtools/json-schema-ref-parser';
+ import { getLogger, LogCategories } from '../../common/logger';
+ import { isInternalAddress, PRIVATE_URL_TEXT } from '../../common/system/utils';
++import { getTrustedMcpHeaders } from '../workflow/utils/context';
++import { randomUUID } from 'node:crypto';
+ 
+ const logger = getLogger(LogCategories.MODULE.APP.MCP_TOOLS);
+ 
+@@ -212,6 +214,22 @@ const getErrorMessage = (error: unknown) => {
+   return String(error);
+ };
+ 
++export const createMcpRequestHeaders = (
++  configuredHeaders: Record<string, any>,
++  createRequestId: () => string = randomUUID
++) => {
++  const requestHeaders = Object.fromEntries(
++    Object.entries(configuredHeaders).filter(
++      ([name]) => !name.toLowerCase().startsWith('x-dachuan-')
++    )
++  );
++  const trustedHeaders = getTrustedMcpHeaders();
++  requestHeaders['x-dachuan-request-id'] =
++    trustedHeaders['x-dachuan-request-id'] || createRequestId();
++  Object.assign(requestHeaders, trustedHeaders);
++  return requestHeaders;
++};
++
+ export class MCPClient {
+   private client: Client;
+   private url: string;
+@@ -244,6 +262,7 @@ export class MCPClient {
+   private async doConnect(): Promise<Client> {
+     await assertMCPUrlNotInternal(this.url);
+     const safeFetch = createMcpSafeFetch();
++    const requestHeaders = createMcpRequestHeaders(this.headers);
+ 
+     // 避免连接重复，强制关闭一次
+     await this.client.close().catch(() => {});
+@@ -253,7 +272,7 @@ export class MCPClient {
+       const transport = new StreamableHTTPClientTransport(new URL(this.url), {
+         fetch: safeFetch,
+         requestInit: {
+-          headers: this.headers
++          headers: requestHeaders
+         }
+       });
+       await this.client.connect(transport);
+@@ -268,12 +287,12 @@ export class MCPClient {
+           new SSEClientTransport(new URL(this.url), {
+             fetch: safeFetch,
+             requestInit: {
+-              headers: this.headers
++              headers: requestHeaders
+             },
+             eventSourceInit: {
+               fetch: (url, init) => {
+                 const mergedHeaders = {
+-                  ...this.headers
++                  ...requestHeaders
+                 };
+ 
+                 Object.assign(mergedHeaders, headersInitToRecord(init?.headers));
+diff --git a/packages/service/core/workflow/dispatch/index.ts b/packages/service/core/workflow/dispatch/index.ts
+--- a/packages/service/core/workflow/dispatch/index.ts
++++ b/packages/service/core/workflow/dispatch/index.ts
+@@ -97,6 +97,10 @@ type Props = Omit<
+   defaultSkipNodeQueue?: WorkflowDebugResponse['skipNodeQueue'];
+   nodeResponseWriteConfig: WorkflowNodeResponseWriteConfig;
+   agentSandboxPrepareActions?: AgentSandboxPrepareAction[];
++  trustedMcpIdentity?: {
++    assertion: string;
++    requestId: string;
++  };
+ };
+ type NodeResponseType = DispatchNodeResultType<{
+   [key: string]: any;
+@@ -264,7 +268,8 @@ export async function dispatchWorkFlow({
+       {
+         queryUrlTypeMap,
+         queryUrlFileMap,
+-        mcpClientMemory: {}
++        mcpClientMemory: {},
++        trustedMcpIdentity: data.trustedMcpIdentity
+       },
+       (ctx) => {
+         runWorkflow({
+diff --git a/packages/service/core/workflow/utils/context.ts b/packages/service/core/workflow/utils/context.ts
+--- a/packages/service/core/workflow/utils/context.ts
++++ b/packages/service/core/workflow/utils/context.ts
+@@ -12,6 +12,10 @@ type ContextType = {
+   queryUrlTypeMap: Record<string, ChatFileTypeEnum>;
+   queryUrlFileMap?: Record<string, UserChatItemFileItemType>;
+   mcpClientMemory: Record<string, MCPClient>;
++  trustedMcpIdentity?: {
++    assertion: string;
++    requestId: string;
++  };
+ };
+ 
+ export const WorkflowContext = new AsyncLocalStorage<ContextType>();
+@@ -27,6 +31,15 @@ export const getWorkflowContext = (): ContextType => {
+   return WorkflowContext.getStore()!;
+ };
+ 
++export const getTrustedMcpHeaders = (): Record<string, string> => {
++  const identity = WorkflowContext.getStore()?.trustedMcpIdentity;
++  if (!identity) return {};
++  return {
++    'x-dachuan-user-assertion': identity.assertion,
++    'x-dachuan-request-id': identity.requestId
++  };
++};
++
+ export const updateWorkflowContextVal = (val: Partial<ContextType>) => {
+   const context = getWorkflowContext();
+   if (context) {
+diff --git a/projects/app/src/pages/api/v1/chat/completions.ts b/projects/app/src/pages/api/v1/chat/completions.ts
+--- a/projects/app/src/pages/api/v1/chat/completions.ts
++++ b/projects/app/src/pages/api/v1/chat/completions.ts
+@@ -330,6 +330,19 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
+       void titleSender.start();
+     }
+ 
++    const trustedMcpIdentity = (() => {
++      const assertion = req.headers['x-dachuan-user-assertion'];
++      const requestId = req.headers['x-dachuan-request-id'];
++      if (
++        typeof assertion !== 'string' ||
++        typeof requestId !== 'string' ||
++        !/^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$/.test(requestId)
++      ) {
++        return undefined;
++      }
++      return { assertion, requestId };
++    })();
++
+     /* start flow controller */
+     const {
+       flowUsages,
+@@ -376,7 +389,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
+       nodeResponseWriteConfig: {
+         persistToDb: preparedRound.shouldPersistChatRound,
+         retainInMemory: shouldCollectFinalResponseData
+-      }
++      },
++      trustedMcpIdentity
+     });
+ 
+     const aiResponse: AIChatItemType & { dataId?: string } = {
+diff --git a/deploy/version/v4.15/docker-compose.template.yml b/deploy/version/v4.15/docker-compose.template.yml
+--- a/deploy/version/v4.15/docker-compose.template.yml
++++ b/deploy/version/v4.15/docker-compose.template.yml
+@@ -129,7 +129,7 @@ x-service-env-config: &x-service-env-config
+   PASSWORD_LOGIN_LOCK_SECONDS:
+   MAX_LOGIN_SESSION:
+   ALLOWED_ORIGINS:
+-  AGENT_ENGINE: default
++  AGENT_ENGINE: fastAgent
+   SKIP_FILE_TYPE_CHECK: false
+   WECHAT_CHANNEL_CONCURRENCY: 1000
+   PARSE_FILE_WORKERS: 5

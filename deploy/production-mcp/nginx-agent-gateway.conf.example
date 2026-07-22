@@ -1,0 +1,16 @@
+# Merge this single location into the existing CRM HTTPS server block.
+# Do not create a second server block for the CRM hostname.
+location = /api/agent-gateway/chat {
+    proxy_pass http://127.0.0.1:3010/api/agent-gateway/chat;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-Host $host;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_buffering off;
+    proxy_read_timeout 300s;
+}
+
+# The selected Nginx log format must not record Authorization, Cookie,
+# X-Dachuan-User-Assertion, request bodies, or response bodies.

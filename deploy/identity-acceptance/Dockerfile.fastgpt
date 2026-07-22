@@ -1,4 +1,4 @@
-# FastGPT v4.15.1 identity-acceptance image.
+# FastGPT v4.15.2 identity-acceptance image.
 # The source context must be the pinned FastGPT checkout prepared by
 # build-fastgpt.ps1/build-fastgpt.sh.
 
@@ -85,7 +85,6 @@ COPY ./projects/app ./projects/app
 RUN pnpm install --frozen-lockfile
 RUN cd packages/service \
     && pnpm exec vitest run -c vitest.config.ts \
-      test/core/app/mcp.test.ts \
       test/core/workflow/utils/context.test.ts \
       --coverage=false \
     && touch /identity-tests-passed

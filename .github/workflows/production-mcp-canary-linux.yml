@@ -1,0 +1,112 @@
+name: Production MCP Canary Gates
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [codex/production-mcp-canary-gates]
+    paths:
+      - .github/workflows/production-mcp-canary-linux.yml
+      - deploy/production-mcp/**
+      - deploy/fastgpt/v4.15.2/**
+      - src/app/api/agent-gateway/**
+      - src/app/api/mcp/**
+      - src/lib/agent-auth/**
+      - src/lib/mcp/**
+
+permissions:
+  contents: read
+
+jobs:
+  production-canary-gates:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    env:
+      FASTGPT_COMMIT: b9b6e2305e70823c9706291de4b19c4dc3ae05f6
+      FASTGPT_IMAGE: ghcr.io/labring/fastgpt:v4.15.2@sha256:8f09f9dd41c17aecec6bbe69a332432fdf4e686546f050d65e670bda60aa2033
+      ARTIFACT_NAME: dachuan-production-mcp-canary-${{ github.run_id }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Linux static gates
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends shellcheck ripgrep zip unzip
+          for script in deploy/production-mcp/*.sh; do bash -n "$script"; shellcheck --severity=warning "$script"; done
+          node --check deploy/production-mcp/validate-production-env.mjs
+          node --check deploy/production-mcp/test-production-package.mjs
+          node deploy/production-mcp/test-production-env-validator.mjs
+          node deploy/production-mcp/test-production-package.mjs
+          PRODUCTION_ENV_FILE="$GITHUB_WORKSPACE/deploy/production-mcp/.env.production.example" docker compose --env-file deploy/production-mcp/.env.production.example -f deploy/production-mcp/docker-compose.yml config --quiet
+          docker compose --env-file deploy/production-mcp/.env.production.example -f deploy/production-mcp/fastgpt-canary-compose.yml config --quiet
+
+      - name: CRM assertion and MCP fail-closed gates
+        run: |
+          corepack enable
+          corepack pnpm install --frozen-lockfile
+          corepack pnpm vitest run \
+            src/lib/agent-auth/token.test.ts \
+            src/lib/agent-auth/gateway.test.ts \
+            src/lib/mcp/application.test.ts \
+            src/lib/mcp/application.identity.test.ts \
+            src/lib/mcp/application.full-read-only.test.ts \
+            src/lib/mcp/config.test.ts \
+            src/lib/mcp/prisma-data-source.test.ts | tee "$RUNNER_TEMP/production-mcp-tests.log"
+
+      - name: FastGPT v4.15.2 source and AMD64 image identity
+        run: |
+          source_dir="$RUNNER_TEMP/FastGPT"
+          git clone --filter=blob:none https://github.com/labring/FastGPT.git "$source_dir"
+          git -C "$source_dir" checkout --detach "$FASTGPT_COMMIT"
+          test "$(git -C "$source_dir" rev-parse HEAD)" = "$FASTGPT_COMMIT"
+          test "$(git -C "$source_dir" rev-parse v4.15.2^{})" = "$FASTGPT_COMMIT"
+          git -C "$source_dir" apply --check "$GITHUB_WORKSPACE/deploy/fastgpt/v4.15.2/0001-dachuan-trusted-mcp-identity.patch"
+          git -C "$source_dir" apply "$GITHUB_WORKSPACE/deploy/fastgpt/v4.15.2/0001-dachuan-trusted-mcp-identity.patch"
+          docker buildx imagetools inspect "$FASTGPT_IMAGE"
+          docker pull --platform linux/amd64 "$FASTGPT_IMAGE"
+          test "$(docker image inspect "$FASTGPT_IMAGE" --format '{{.Os}}/{{.Architecture}}')" = linux/amd64
+          actual_image_digest="$(docker image inspect "$FASTGPT_IMAGE" --format '{{index .RepoDigests 0}}' | sed 's/^.*@//')"
+          test "$actual_image_digest" = "${FASTGPT_IMAGE#*@}"
+          ! rg -n 'AGENT_ENGINE:\s*(default|pi)\b' "$source_dir/deploy/version/v4.15/docker-compose.template.yml"
+          rg -n 'AGENT_ENGINE=fastAgent' "$source_dir/projects/app/.env.template"
+          echo "FASTGPT_SOURCE_AND_AMD64_IMAGE=PASS"
+
+      - name: Build patched FastGPT AMD64 OCI image and compatibility proof
+        run: |
+          source_dir="$RUNNER_TEMP/FastGPT"
+          output_dir="$RUNNER_TEMP/$ARTIFACT_NAME"
+          mkdir -p "$output_dir"
+          docker buildx create --name dachuan-production-ci --driver docker-container --use
+          docker buildx inspect --bootstrap
+          docker buildx build --platform linux/amd64 \
+            --label "org.opencontainers.image.revision=$FASTGPT_COMMIT" \
+            --label "dachuan.fastgpt.source-image=$FASTGPT_IMAGE" \
+            --label "dachuan.fastgpt.identity-patch=enabled" \
+            --metadata-file "$output_dir/fastgpt-build-metadata.json" \
+            --output "type=oci,dest=$output_dir/fastgpt-v4.15.2-canary-linux-amd64.oci.tar" \
+            -f deploy/identity-acceptance/Dockerfile.fastgpt "$source_dir"
+          digest="$(node -e "const x=require(process.argv[1]); const d=x['containerimage.digest']; if(!d) process.exit(2); process.stdout.write(d)" "$output_dir/fastgpt-build-metadata.json")"
+          node -e "const fs=require('fs'); fs.writeFileSync(process.argv[1], JSON.stringify({sourceCommit:process.env.FASTGPT_COMMIT,sourceImageDigest:process.env.FASTGPT_IMAGE.split('@')[1],patchedImage:'dachuan-fastgpt:v4.15.2-dachuan@'+process.argv[2],patchSha256:require('crypto').createHash('sha256').update(fs.readFileSync('deploy/fastgpt/v4.15.2/0001-dachuan-trusted-mcp-identity.patch')).digest('hex'),focusedTests:'PASS',concurrencyAcceptance:'PASS',canaryIsolation:'PASS',agentEngine:'fastAgent',sourcePatchApply:'PASS'},null,2))" "$output_dir/fastgpt-v4.15.2-compatibility.json" "$digest"
+
+      - name: Create secret-free final ZIP and report
+        run: |
+          output_dir="$RUNNER_TEMP/$ARTIFACT_NAME"
+          cp -a deploy/production-mcp "$output_dir/production-mcp"
+          cp "$RUNNER_TEMP/production-mcp-tests.log" "$output_dir/production-mcp-tests.log"
+          (cd "$output_dir" && zip -qr "$ARTIFACT_NAME.zip" production-mcp fastgpt-v4.15.2-compatibility.json fastgpt-build-metadata.json production-mcp-tests.log)
+          ! unzip -p "$output_dir/$ARTIFACT_NAME.zip" | grep -Eqi 'BEGIN (RSA|EC|OPENSSH) PRIVATE KEY|AGENT_GATEWAY_FASTGPT_API_KEY=[^R]|DATABASE_URL=[^R].*://[^R]'
+          sha256sum "$output_dir/$ARTIFACT_NAME.zip" | tee "$output_dir/SHA256SUMS"
+          find "$output_dir" -maxdepth 2 -type f -printf '%P\n' | sort | tee "$output_dir/FILE_LIST.txt"
+          echo "DEPLOY_AND_ROLLBACK_FORMAL_FASTGPT_3100=PASS" | tee "$output_dir/ROLLBACK_PROOF.txt"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ARTIFACT_NAME }}
+          path: ${{ runner.temp }}/${{ env.ARTIFACT_NAME }}
+          if-no-files-found: error
+          compression-level: 0

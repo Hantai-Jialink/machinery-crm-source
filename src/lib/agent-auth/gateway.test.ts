@@ -8,7 +8,7 @@ function tokenService() {
   const active = new Set<string>();
   const store: AgentJtiStore = {
     async register(jti) { active.add(jti); },
-    async isActive(jti) { return active.has(jti); },
+    async consumeOnce(jti) { if (!active.has(jti)) return false; active.delete(jti); return true; },
     async revoke(jti) { active.delete(jti); },
   };
   return createAgentTokenService({
@@ -38,7 +38,7 @@ describe("agent auth gateway", () => {
         const userId = request.headers.get("x-test-session-user");
         if (!userId) return null;
         await new Promise((resolve) => setTimeout(resolve, userId.endsWith("1") ? 15 : 1));
-        return { id: userId };
+        return { id: userId, role: "SUPER_ADMIN" };
       },
       createRequestId: (() => {
         let sequence = 0;
@@ -94,7 +94,7 @@ describe("agent auth gateway", () => {
         const userId = request.headers.get("x-test-session-user");
         const delay = Number(request.headers.get("x-test-delay") || "0");
         await new Promise((resolve) => setTimeout(resolve, delay));
-        return userId ? { id: userId } : null;
+        return userId ? { id: userId, role: "SUPER_ADMIN" } : null;
       },
       async fetchFastGpt(_url, init) {
         const headers = new Headers(init?.headers);
@@ -176,7 +176,7 @@ describe("agent auth gateway", () => {
       tokenService: tokenService(),
       loadLoggedInUser: async () => {
         loadedSession = true;
-        return { id: "erp-user-1" };
+        return { id: "erp-user-1", role: "SUPER_ADMIN" };
       },
     });
 
@@ -188,5 +188,34 @@ describe("agent auth gateway", () => {
 
     expect(response.status).toBe(403);
     expect(loadedSession).toBe(false);
+  });
+
+  it("enforces a server-side production role allowlist before signing an assertion", async () => {
+    let forwarded = false;
+    const handler = createAgentGatewayHandler({
+      config: {
+        fastGptChatUrl: "https://fastgpt.internal/api/v1/chat/completions",
+        fastGptApiKey: "fastgpt-chat-key",
+        maxRequestBytes: 100_000,
+        allowedOrigins: ["https://crm.test"],
+        allowedRoles: ["SUPER_ADMIN"],
+      },
+      tokenService: tokenService(),
+      loadLoggedInUser: async () => ({ id: "sales-user", role: "SALES" }),
+      fetchFastGpt: async () => {
+        forwarded = true;
+        return Response.json({ ok: true });
+      },
+    });
+
+    const response = await handler(new Request("https://crm.test/api/agent-gateway/chat", {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: "https://crm.test" },
+      body: "{}",
+    }));
+
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toMatchObject({ error: { code: "ROLE_NOT_ALLOWED" } });
+    expect(forwarded).toBe(false);
   });
 });

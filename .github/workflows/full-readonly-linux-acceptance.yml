@@ -8,6 +8,7 @@ on:
     paths:
       - .github/workflows/full-readonly-linux-acceptance.yml
       - deploy/identity-acceptance/**
+      - deploy/production-mcp/**
       - deploy/fastgpt/**
       - scripts/**
       - src/lib/agent-auth/**
@@ -72,10 +73,13 @@ jobs:
           bash -n deploy/identity-acceptance/pull-external-images.sh
           bash -n deploy/identity-acceptance/package-linux-artifact.sh
           node --check deploy/identity-acceptance/validate-prebuilt-image-archive.mjs
+          for script in deploy/production-mcp/*.sh; do bash -n "$script"; done
+          node --check deploy/production-mcp/validate-production-env.mjs
 
       - name: 预构建外部镜像 tar 身份校验测试
         run: |
           node deploy/identity-acceptance/test-prebuilt-image-archive.mjs
+          node deploy/production-mcp/test-production-env-validator.mjs
 
       - name: 报告生成 dry-run 预检
         run: |

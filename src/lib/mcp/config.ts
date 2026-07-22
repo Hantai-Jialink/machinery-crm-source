@@ -1,5 +1,11 @@
 import type { McpApplicationConfig } from "@/lib/mcp/application";
 
+const PRODUCTION_PHASE_ONE_TOOLS = new Set([
+  "dachuan_identity_who_am_i",
+  "crm_customer_get",
+  "crm_contract_get",
+]);
+
 type McpEnvironment = Record<string, string | undefined>;
 
 function splitCsv(value: string | undefined) {
@@ -74,6 +80,17 @@ export function loadMcpConfig(environment: McpEnvironment = process.env): McpApp
   if (legacyUserBindingEnabled && apiKeys.some((entry) => !entry.userId)) {
     throw new Error("Legacy MCP user-bound auth requires userId on every API key entry");
   }
+  const enabledTools = splitCsv(environment.MCP_TOOL_ALLOWLIST);
+  const auditDatabaseUrl = String(environment.MCP_AUDIT_DATABASE_URL || "").trim();
+  if (toolMode === "FULL_READ_ONLY" && environment.NODE_ENV?.trim().toLowerCase() === "production" && enabledTools.length === 0) {
+    throw new Error("MCP_TOOL_ALLOWLIST is required for FULL_READ_ONLY in production");
+  }
+  if (toolMode === "FULL_READ_ONLY" && environment.NODE_ENV?.trim().toLowerCase() === "production") {
+    if (!enabledTools.includes("dachuan_identity_who_am_i") || enabledTools.length > 3 || enabledTools.some((tool) => !PRODUCTION_PHASE_ONE_TOOLS.has(tool))) {
+      throw new Error("Production phase one permits who_am_i and at most two exact-ID read-only tools");
+    }
+    if (!auditDatabaseUrl) throw new Error("MCP_AUDIT_DATABASE_URL is required for production audit fail-closed mode");
+  }
 
   return {
     apiKeys,
@@ -83,5 +100,7 @@ export function loadMcpConfig(environment: McpEnvironment = process.env): McpApp
     legacyUserBindingEnabled,
     toolMode: toolMode === "FULL_READ_ONLY" ? "full-read-only" : "identity-poc",
     queryTimeoutMs: parseQueryTimeout(environment.MCP_QUERY_TIMEOUT_MS),
+    enabledTools,
+    ...(auditDatabaseUrl ? { auditDatabaseUrl } : {}),
   };
 }

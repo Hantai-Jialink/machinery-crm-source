@@ -13,8 +13,10 @@ function createJtiStore(): AgentJtiStore {
     async register(jti) {
       active.add(jti);
     },
-    async isActive(jti) {
-      return active.has(jti);
+    async consumeOnce(jti) {
+      if (!active.has(jti)) return false;
+      active.delete(jti);
+      return true;
     },
     async revoke(jti) {
       active.delete(jti);
@@ -53,7 +55,7 @@ describe("agent user assertion", () => {
     const now = new Date("2026-07-17T08:00:00.000Z");
     const service = createService({ now: () => now });
 
-    const issued = await service.issue("erp-user-1");
+    const issued = await service.issue("erp-user-1", "SUPER_ADMIN");
     const header = decodeProtectedHeader(issued.token);
     const claims = decodeJwt(issued.token);
 
@@ -66,13 +68,14 @@ describe("agent user assertion", () => {
       nbf: Math.floor(now.getTime() / 1000),
       exp: Math.floor(now.getTime() / 1000) + 600,
       jti: issued.jti,
+      role: "SUPER_ADMIN",
     });
-    expect(claims).not.toHaveProperty("role");
     expect(claims).not.toHaveProperty("region");
 
     await expect(service.verify(issued.token)).resolves.toMatchObject({
       userId: "erp-user-1",
       jti: issued.jti,
+      role: "SUPER_ADMIN",
     });
   });
 
@@ -81,7 +84,7 @@ describe("agent user assertion", () => {
     const store = createJtiStore();
     const issuedAt = new Date("2026-07-17T08:00:00.000Z");
     const issuer = createService({ keys, store, now: () => issuedAt });
-    const issued = await issuer.issue("erp-user-1");
+    const issued = await issuer.issue("erp-user-1", "SUPER_ADMIN");
 
     const expiredVerifier = createService({
       keys,
@@ -115,7 +118,7 @@ describe("agent user assertion", () => {
     const nextKey = createKeys("2026-07-next");
     const store = createJtiStore();
     const oldIssuer = createService({ keys: [oldKey], activeKid: oldKey.kid, store });
-    const oldToken = await oldIssuer.issue("erp-user-1");
+    const oldToken = await oldIssuer.issue("erp-user-1", "SUPER_ADMIN");
     const rotatingVerifier = createService({
       keys: [oldKey, nextKey],
       activeKid: nextKey.kid,
@@ -129,8 +132,38 @@ describe("agent user assertion", () => {
     await store.revoke(oldToken.jti, 600);
     await expect(rotatingVerifier.verify(oldToken.token)).rejects.toBeInstanceOf(AgentAssertionError);
     await expect(rotatingVerifier.verify(oldToken.token)).rejects.toMatchObject({
-      code: "ASSERTION_REVOKED",
+      code: "ASSERTION_REPLAYED",
     });
+  });
+
+  it("consumes each jti exactly once and rejects assertion replay", async () => {
+    const store = createJtiStore();
+    const service = createService({ store });
+    const issued = await service.issue("erp-user-1", "SUPER_ADMIN");
+
+    await expect(service.verify(issued.token)).resolves.toMatchObject({ userId: "erp-user-1" });
+    await expect(service.verify(issued.token)).rejects.toMatchObject({ code: "ASSERTION_REPLAYED" });
+  });
+
+  it("rejects a signed assertion issued in the future", async () => {
+    const keys = [createKeys()];
+    const store = createJtiStore();
+    const now = new Date("2026-07-17T08:00:00.000Z");
+    const nowSeconds = Math.floor(now.getTime() / 1000);
+    const verifier = createService({ keys, store, now: () => now });
+    await store.register("future-jti", 600);
+    const token = await new SignJWT({ role: "SUPER_ADMIN" })
+      .setProtectedHeader({ alg: "EdDSA", kid: keys[0].kid, typ: "JWT" })
+      .setIssuer("dachuanpro-crm")
+      .setSubject("erp-user-1")
+      .setAudience("dachuanpro-agent-mcp")
+      .setIssuedAt(nowSeconds + 60)
+      .setNotBefore(nowSeconds + 60)
+      .setExpirationTime(nowSeconds + 660)
+      .setJti("future-jti")
+      .sign(keys[0].privateKey);
+
+    await expect(verifier.verify(token)).rejects.toMatchObject({ code: "ASSERTION_INVALID" });
   });
 
   it("refuses token lifetimes outside the 5 to 15 minute production window", () => {

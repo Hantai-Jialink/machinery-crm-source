@@ -209,8 +209,8 @@ try {
   check(noAssertion.status === 400 && noAssertion.body?.error, "tools/call without assertion was not rejected");
   record("tools/call rejects missing user assertion");
 
-  const issuedA = await runtime.tokenService.issue("identity-acceptance-sales-a");
-  const issuedB = await runtime.tokenService.issue("identity-acceptance-sales-b");
+  const issuedA = await runtime.tokenService.issue("identity-acceptance-sales-a", "SALES");
+  const issuedB = await runtime.tokenService.issue("identity-acceptance-sales-b", "FOREIGN_TRADE");
   const normal = await rpc("tools/call", { name: "dachuan_identity_who_am_i", arguments: {} }, {
     assertion: issuedA.token,
     requestId: "accept-normal-sales-a",
@@ -227,11 +227,11 @@ try {
       WAREHOUSE: "identity-acceptance-warehouse",
     };
     const [superAdminToken, salesToken, foreignTradeToken, purchaseToken, warehouseToken] = await Promise.all([
-      runtime.tokenService.issue(userIdsByRole.SUPER_ADMIN),
-      runtime.tokenService.issue(userIdsByRole.SALES),
-      runtime.tokenService.issue(userIdsByRole.FOREIGN_TRADE),
-      runtime.tokenService.issue(userIdsByRole.PURCHASE),
-      runtime.tokenService.issue(userIdsByRole.WAREHOUSE),
+      runtime.tokenService.issue(userIdsByRole.SUPER_ADMIN, "SUPER_ADMIN"),
+      runtime.tokenService.issue(userIdsByRole.SALES, "SALES"),
+      runtime.tokenService.issue(userIdsByRole.FOREIGN_TRADE, "FOREIGN_TRADE"),
+      runtime.tokenService.issue(userIdsByRole.PURCHASE, "PURCHASE"),
+      runtime.tokenService.issue(userIdsByRole.WAREHOUSE, "WAREHOUSE"),
     ]);
     const issuedByRole: Record<McpRole, { token: string; jti: string }> = {
       SUPER_ADMIN: superAdminToken,
@@ -461,7 +461,7 @@ try {
   }
   record("tampered, expired, wrong iss/aud/kid assertions are rejected");
 
-  const revoked = await runtime.tokenService.issue("identity-acceptance-sales-a");
+  const revoked = await runtime.tokenService.issue("identity-acceptance-sales-a", "SALES");
   await runtime.stateStore.revoke(revoked.jti, 600);
   const revokedResult = await rpc("tools/call", { name: "dachuan_identity_who_am_i", arguments: {} }, {
     assertion: revoked.token,
@@ -470,7 +470,7 @@ try {
   check(revokedResult.status === 401, "Revoked JTI was not rejected");
   record("JTI revocation takes effect immediately");
 
-  const realtime = await runtime.tokenService.issue("identity-acceptance-sales-a");
+  const realtime = await runtime.tokenService.issue("identity-acceptance-sales-a", "SALES");
   await prisma.user.update({
     where: { id: "identity-acceptance-sales-a" },
     data: { role: "PURCHASE", region: "实时变更区", territories: [], viewScope: "ALL" },
@@ -479,10 +479,11 @@ try {
     assertion: realtime.token,
     requestId: "accept-role-region-changed",
   });
-  check(toolData(changed)?.role === "PURCHASE" && toolData(changed)?.region === "实时变更区", "Role/region change was not read in real time");
+  check(changed.status === 403, "Role change did not invalidate the signed assertion");
   await prisma.user.update({ where: { id: "identity-acceptance-sales-a" }, data: { isActive: false } });
+  const disabledAssertion = await runtime.tokenService.issue("identity-acceptance-sales-a", "PURCHASE");
   const disabled = await rpc("tools/call", { name: "dachuan_identity_who_am_i", arguments: {} }, {
-    assertion: realtime.token,
+    assertion: disabledAssertion.token,
     requestId: "accept-user-disabled",
   });
   check(disabled.status === 403, "Disabled user was not rejected immediately");

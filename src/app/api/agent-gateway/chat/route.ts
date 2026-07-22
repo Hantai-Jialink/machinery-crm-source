@@ -16,12 +16,13 @@ export async function POST(request: Request) {
         maxRequestBytes: agentAuth.config.maxRequestBytes,
         rateLimitPerMinute: agentAuth.config.rateLimitPerMinute,
         allowedOrigins: agentAuth.config.gatewayAllowedOrigins,
+        allowedRoles: agentAuth.config.gatewayAllowedRoles,
       },
       tokenService: agentAuth.tokenService,
       rateLimiter: agentAuth.stateStore,
       loadLoggedInUser: async () => {
         const user = await getSessionUser();
-        return user ? { id: user.id } : null;
+        return user ? { id: user.id, role: user.role } : null;
       },
     });
     return await handler(request);

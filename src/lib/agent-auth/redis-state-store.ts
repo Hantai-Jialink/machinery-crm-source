@@ -40,9 +40,13 @@ export function createRedisAgentAuthStateStore(
       const redis = await ready();
       await redis.set(jtiKey(jti), "active", { EX: ttlSeconds });
     },
-    async isActive(jti) {
+    async consumeOnce(jti) {
       const redis = await ready();
-      return await redis.get(jtiKey(jti)) === "active";
+      const consumed = await redis.eval(
+        "local value=redis.call('GET',KEYS[1]); if value ~= 'active' then return 0 end; redis.call('DEL',KEYS[1]); return 1",
+        { keys: [jtiKey(jti)], arguments: [] },
+      );
+      return Number(consumed) === 1;
     },
     async revoke(jti, ttlSeconds) {
       const redis = await ready();

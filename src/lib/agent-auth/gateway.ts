@@ -7,12 +7,13 @@ export type AgentGatewayConfig = {
   maxRequestBytes: number;
   rateLimitPerMinute?: number;
   allowedOrigins: string[];
+  allowedRoles?: string[];
 };
 
 export type AgentGatewayDependencies = {
   config: AgentGatewayConfig;
   tokenService: AgentTokenService;
-  loadLoggedInUser(request: Request): Promise<{ id: string } | null>;
+  loadLoggedInUser(request: Request): Promise<{ id: string; role?: string } | null>;
   fetchFastGpt?: typeof fetch;
   createRequestId?: () => string;
   rateLimiter?: {
@@ -55,6 +56,10 @@ export function createAgentGatewayHandler(dependencies: AgentGatewayDependencies
     if (!user) {
       return jsonResponse(401, { ok: false, error: { code: "AUTH_REQUIRED", message: "请先登录 CRM/ERP" } }, requestId);
     }
+    const allowedRoles = dependencies.config.allowedRoles || [];
+    if (allowedRoles.length && (!user.role || !allowedRoles.includes(user.role))) {
+      return jsonResponse(403, { ok: false, error: { code: "ROLE_NOT_ALLOWED", message: "当前角色未获 Agent 灰度权限" } }, requestId);
+    }
 
     if (dependencies.rateLimiter && dependencies.config.rateLimitPerMinute) {
       let allowed = false;
@@ -92,7 +97,10 @@ export function createAgentGatewayHandler(dependencies: AgentGatewayDependencies
     }
 
     try {
-      const assertion = await dependencies.tokenService.issue(user.id);
+      if (!user.role) {
+        return jsonResponse(403, { ok: false, error: { code: "ROLE_NOT_ALLOWED", message: "当前会话缺少服务器角色" } }, requestId);
+      }
+      const assertion = await dependencies.tokenService.issue(user.id, user.role as "SUPER_ADMIN" | "SALES" | "FOREIGN_TRADE" | "PURCHASE" | "WAREHOUSE");
       const upstream = await fetchFastGpt(dependencies.config.fastGptChatUrl, {
         method: "POST",
         headers: {

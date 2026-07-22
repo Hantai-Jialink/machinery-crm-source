@@ -29,7 +29,7 @@ function createDependencies(): McpApplicationDependencies {
       toolMode: "full-read-only",
       queryTimeoutMs: 100,
     },
-    identityVerifier: { verify: vi.fn().mockResolvedValue({ userId: user.id, jti: "jti-1" }) },
+    identityVerifier: { verify: vi.fn().mockResolvedValue({ userId: user.id, role: user.role, jti: "jti-1" }) },
     dataSource: {
       findUser: vi.fn().mockResolvedValue(user),
       execute: vi.fn(),

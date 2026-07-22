@@ -268,8 +268,13 @@ export function registerMcpTools(
     now: () => Date;
     includeBusinessTools?: boolean;
     queryTimeoutMs?: number;
+    enabledTools?: string[];
   },
 ) {
+  const enabledTools = context.enabledTools?.length ? new Set(context.enabledTools) : null;
+  const isEnabled = (toolName: string) => !enabledTools || enabledTools.has(toolName);
+
+  if (isEnabled(MCP_IDENTITY_TOOL_NAME)) {
   server.registerTool(
     MCP_IDENTITY_TOOL_NAME,
     {
@@ -307,10 +312,12 @@ export function registerMcpTools(
       };
     },
   );
+  }
 
   if (context.includeBusinessTools === false) return;
 
   for (const definition of toolDefinitions) {
+    if (!isEnabled(definition.name)) continue;
     server.registerTool(
       definition.name,
       {

@@ -1,0 +1,43 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+
+const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'dachuan-production-env-'));
+const validator = path.join(path.dirname(fileURLToPath(import.meta.url)), 'validate-production-env.mjs');
+const sourceCommit = 'b9b6e2305e70823c9706291de4b19c4dc3ae05f6';
+const baseImage = 'ghcr.io/labring/fastgpt:v4.15.2@sha256:8f09f9dd41c17aecec6bbe69a332432fdf4e686546f050d65e670bda60aa2033';
+const canaryImage = `dachuan-fastgpt:v4.15.2-dachuan.1@sha256:${'d'.repeat(64)}`;
+const proof = { sourceCommit, sourceImageDigest: baseImage.split('@')[1], patchedImage: canaryImage, patchSha256: 'c'.repeat(64), focusedTests: 'PASS', concurrencyAcceptance: 'PASS', canaryIsolation: 'PASS', agentEngine: 'fastAgent', sourcePatchApply: 'PASS' };
+const values = {
+  NODE_ENV: 'production', PORT: '3010', HOSTNAME: '0.0.0.0', MCP_IMAGE: `dachuanpro-mcp@sha256:${'e'.repeat(64)}`, PRODUCTION_ENV_FILE: './.env.production', CRM_DATABASE: 'machinery_crm', DATABASE_URL: 'mysql://reader@db/machinery_crm', MCP_AUDIT_DATABASE_URL: 'mysql://audit@db/machinery_crm', MYSQL_CLIENT_DEFAULTS_FILE: '/secure/mysql.cnf', AUTH_SECRET: 'test-secret', AUTH_URL: 'https://crm.example.com', MCP_AUDIT_USER_ID: 'admin-id', MCP_API_KEYS_JSON: '[{"name":"fastgpt","keyHash":"abc"}]', MCP_LEGACY_USER_BOUND_AUTH: 'false', MCP_TOOL_MODE: 'FULL_READ_ONLY', MCP_TOOL_ALLOWLIST: 'dachuan_identity_who_am_i,crm_customer_get,crm_contract_get', MCP_QUERY_TIMEOUT_MS: '5000', MCP_ALLOWED_HOSTS: 'mcp.example.com', MCP_ALLOWED_ORIGINS: 'https://fastgpt.example.com', AGENT_AUTH_ISSUER: 'https://crm.example.com', AGENT_AUTH_AUDIENCE: 'dachuan-mcp', AGENT_AUTH_TOKEN_TTL_SECONDS: '600', AGENT_AUTH_ACTIVE_KID: 'prod-k1', AGENT_AUTH_KEYS_JSON: '[{"kid":"prod-k1"}]', AGENT_AUTH_REDIS_URL: 'redis://redis:6379', AGENT_AUTH_REDIS_PREFIX: 'dachuan:prod', AGENT_GATEWAY_FASTGPT_CHAT_URL: 'http://127.0.0.1:3110/api/v1/chat/completions', AGENT_GATEWAY_FASTGPT_API_KEY: 'agent-key', AGENT_GATEWAY_MAX_REQUEST_BYTES: '1048576', AGENT_GATEWAY_RATE_LIMIT_PER_MINUTE: '10', AGENT_GATEWAY_ALLOWED_ORIGINS: 'https://crm.example.com', AGENT_GATEWAY_ALLOWED_ROLES: 'SUPER_ADMIN', FORMAL_FASTGPT_HEALTH_URL: 'http://127.0.0.1:3100', FASTGPT_CANARY_HEALTH_URL: 'http://127.0.0.1:3110', FASTGPT_CANARY_COMPATIBILITY_PROOF: './proof.json', FASTGPT_SOURCE_COMMIT: sourceCommit, FASTGPT_BASE_IMAGE: baseImage, FASTGPT_CANARY_IMAGE: canaryImage, FASTGPT_CANARY_AGENT_ENGINE: 'fastAgent', FASTGPT_DIR: '/opt/fastgpt', CRM_DIR: '/opt/crm', NGINX_GATEWAY_INCLUDE: '/etc/nginx/conf.d/mcp.conf', BACKUP_ROOT: '/opt/crm-backups',
+  FORMAL_FASTGPT_MONGO_FINGERPRINT: '1'.repeat(64), CANARY_FASTGPT_MONGO_FINGERPRINT: '2'.repeat(64), FORMAL_FASTGPT_REDIS_FINGERPRINT: '3'.repeat(64), CANARY_FASTGPT_REDIS_FINGERPRINT: '4'.repeat(64), FORMAL_FASTGPT_OBJECT_STORAGE_FINGERPRINT: '5'.repeat(64), CANARY_FASTGPT_OBJECT_STORAGE_FINGERPRINT: '6'.repeat(64), FORMAL_FASTGPT_APP_FINGERPRINT: '7'.repeat(64), CANARY_FASTGPT_APP_FINGERPRINT: '8'.repeat(64), FORMAL_FASTGPT_USER_FINGERPRINT: '9'.repeat(64), CANARY_FASTGPT_USER_FINGERPRINT: 'a'.repeat(64), FORMAL_FASTGPT_SESSION_FINGERPRINT: 'b'.repeat(64), CANARY_FASTGPT_SESSION_FINGERPRINT: 'c'.repeat(64), FORMAL_FASTGPT_API_KEY_FINGERPRINT: 'd'.repeat(64), CANARY_FASTGPT_API_KEY_FINGERPRINT: 'e'.repeat(64),
+  CANARY_MONGO_ROOT_USER: 'canary-mongo', CANARY_MONGO_ROOT_PASSWORD: 'canary-mongo-password', CANARY_MONGO_DATABASE: 'dachuan_fastgpt_canary_4152', CANARY_REDIS_PASSWORD: 'canary-redis-password', CANARY_MINIO_ROOT_USER: 'canary-minio', CANARY_MINIO_ROOT_PASSWORD: 'canary-minio-password', CANARY_STORAGE_S3_BUCKET: 'dachuan-fastgpt-canary-4152', CANARY_FASTGPT_ROOT_KEY: 'canary-root-key', CANARY_FASTGPT_TOKEN_KEY: 'canary-token-key', CANARY_FASTGPT_FILE_TOKEN_KEY: 'canary-file-token-key', CANARY_FASTGPT_AES_KEY: 'canary-aes-key',
+};
+
+function run(file) { return spawnSync(process.execPath, [validator, file], { encoding: 'utf8' }); }
+
+try {
+  fs.writeFileSync(path.join(directory, 'proof.json'), JSON.stringify(proof));
+  const valid = path.join(directory, '.env.production');
+  fs.writeFileSync(valid, `${Object.entries(values).map(([key, value]) => `${key}=${value}`).join('\n')}\n`);
+  const pass = run(valid);
+  assert.equal(pass.status, 0, pass.stderr);
+  assert.match(pass.stdout, /PRODUCTION_ENV=PASS/);
+  assert.match(pass.stdout, /FASTGPT_4152_COMPATIBILITY_PROOF=PASS/);
+  const rejected = path.join(directory, '.env.rejected');
+  fs.writeFileSync(rejected, `${Object.entries({ ...values, AGENT_GATEWAY_ALLOWED_ROLES: 'SUPER_ADMIN,SALES' }).map(([key, value]) => `${key}=${value}`).join('\n')}\n`);
+  const fail = run(rejected);
+  assert.notEqual(fail.status, 0);
+  assert.match(fail.stderr, /SUPER_ADMIN/);
+  const formalTarget = path.join(directory, '.env.formal-target');
+  fs.writeFileSync(formalTarget, `${Object.entries({ ...values, AGENT_GATEWAY_FASTGPT_CHAT_URL: 'http://127.0.0.1:3100/api/v1/chat/completions' }).map(([key, value]) => `${key}=${value}`).join('\n')}\n`);
+  const formalTargetFail = run(formalTarget);
+  assert.notEqual(formalTargetFail.status, 0);
+  assert.match(formalTargetFail.stderr, /formal FastGPT origin/);
+  process.stdout.write('PRODUCTION_ENV_VALIDATOR=PASS\n');
+} finally {
+  fs.rmSync(directory, { recursive: true, force: true });
+}

@@ -175,6 +175,30 @@ describe("Prisma MCP data source", () => {
     expect(JSON.stringify(create.mock.calls)).not.toMatch(/argument|search|authorization|password/i);
   });
 
+  it("uses the dedicated audit client and never writes through the business read client", async () => {
+    const readCreate = vi.fn();
+    const auditCreate = vi.fn().mockResolvedValue({ id: "log-1" });
+    const dataSource = createPrismaMcpDataSource(
+      { operationLog: { create: readCreate } } as never,
+      { operationLog: { create: auditCreate } } as never,
+    );
+
+    await dataSource.writeAudit({
+      requestId: "request-audit-split",
+      userId: "audit-user-1",
+      apiKeyName: "fastgpt",
+      method: "tools/call",
+      success: false,
+      statusCode: 403,
+      durationMs: 1,
+      createdAt: new Date("2026-07-17T08:00:00.000Z"),
+      rejectionReason: "ROLE_MISMATCH",
+    });
+
+    expect(readCreate).not.toHaveBeenCalled();
+    expect(auditCreate).toHaveBeenCalledOnce();
+  });
+
   it("keeps the product list aligned with the existing active-product query", async () => {
     const findMany = vi.fn().mockResolvedValue([]);
     const dataSource = createPrismaMcpDataSource({

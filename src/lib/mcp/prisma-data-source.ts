@@ -1183,7 +1183,7 @@ async function queryProductionOrder(client: PrismaClient, args: QueryArgs, user:
   return toPlainJson({ ...order, warehouse, productionResponsible: responsible, latestKitCheckResult: order.kitCheckResults[0] || null });
 }
 
-export function createPrismaMcpDataSource(client: PrismaClient): McpDataSource {
+export function createPrismaMcpDataSource(client: PrismaClient, auditClient: PrismaClient = client): McpDataSource {
   return {
     async findUser(userId) {
       const user = await client.user.findUnique({
@@ -1269,7 +1269,7 @@ export function createPrismaMcpDataSource(client: PrismaClient): McpDataSource {
     },
 
     async writeAudit(input: McpAuditInput) {
-      await client.operationLog.create({
+      await auditClient.operationLog.create({
         data: {
           userId: input.userId,
           action: "MCP_CALL",

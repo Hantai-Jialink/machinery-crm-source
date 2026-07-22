@@ -31,6 +31,8 @@ export type McpApplicationConfig = {
   legacyUserBindingEnabled?: boolean;
   toolMode?: "identity-poc" | "full-read-only";
   queryTimeoutMs?: number;
+  enabledTools?: string[];
+  auditDatabaseUrl?: string;
 };
 
 export type McpAuditInput = {
@@ -54,7 +56,7 @@ export type McpDataSource = {
 };
 
 export type McpIdentityVerifier = {
-  verify(assertion: string): Promise<{ userId: string; jti: string }>;
+  verify(assertion: string): Promise<{ userId: string; role: McpRole; jti: string }>;
 };
 
 export type McpApplicationDependencies = {
@@ -238,6 +240,7 @@ export function createMcpRequestHandler(dependencies: McpApplicationDependencies
     }
 
     let userId: string | undefined;
+    let assertedRole: McpRole | undefined;
     let user: McpUser | null = null;
     const assertion = request.headers.get("x-dachuan-user-assertion")?.trim();
     const useLegacyIdentity = dependencies.config.legacyUserBindingEnabled === true && !assertion;
@@ -261,7 +264,9 @@ export function createMcpRequestHandler(dependencies: McpApplicationDependencies
           return rejectWithAudit(503, -32603, "MCP identity verifier is unavailable", apiKey.name, "IDENTITY_VERIFIER_UNAVAILABLE");
         }
         try {
-          userId = (await dependencies.identityVerifier.verify(assertion)).userId;
+          const identity = await dependencies.identityVerifier.verify(assertion);
+          userId = identity.userId;
+          assertedRole = identity.role;
         } catch (error) {
           const reason = error instanceof AgentAssertionError ? error.code : "ASSERTION_INVALID";
           return rejectWithAudit(401, -32001, "Invalid user assertion", apiKey.name, reason);
@@ -277,6 +282,9 @@ export function createMcpRequestHandler(dependencies: McpApplicationDependencies
       }
       if (user.isActive === false) {
         return rejectWithAudit(403, -32003, "MCP user is disabled or missing", apiKey.name, "USER_DISABLED", user.id);
+      }
+      if (assertedRole && user.role !== assertedRole) {
+        return rejectWithAudit(403, -32003, "MCP user role has changed", apiKey.name, "ROLE_MISMATCH", user.id);
       }
     }
 
@@ -297,6 +305,7 @@ export function createMcpRequestHandler(dependencies: McpApplicationDependencies
       now,
       includeBusinessTools: dependencies.config.toolMode !== "identity-poc",
       queryTimeoutMs: dependencies.config.queryTimeoutMs ?? 5_000,
+      enabledTools: dependencies.config.enabledTools,
     });
 
     let response: Response;

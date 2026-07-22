@@ -47,6 +47,7 @@ function sha256(value: string) {
 }
 
 function dependencies(currentUsers: Map<string, McpUser>): McpApplicationDependencies {
+  const assertedRoles = new Map([...currentUsers.values()].map((user) => [user.id, user.role]));
   return {
     config: {
       apiKeys: [{ name: "fastgpt-service", keyHash: sha256("service-secret") }],
@@ -59,7 +60,8 @@ function dependencies(currentUsers: Map<string, McpUser>): McpApplicationDepende
     },
     identityVerifier: {
       async verify(assertion) {
-        return { userId: assertion.replace(/^assertion-/, ""), jti: `jti-${assertion}` };
+        const userId = assertion.replace(/^assertion-/, "");
+        return { userId, role: assertedRoles.get(userId) ?? "SUPER_ADMIN", jti: `jti-${assertion}` };
       },
     },
     dataSource: {
@@ -201,10 +203,12 @@ describe("FULL_READ_ONLY 21-tool trusted identity matrix", () => {
 
       const allowed = await handler(call(toolName, validArguments[toolName], identity, `dynamic-before-${index}`));
       expect((await allowed.json()).result.isError, toolName).not.toBe(true);
+      vi.mocked(deps.dataSource.execute).mockClear();
 
       currentUsers.set(identity.id, { ...identity, role: forbiddenRole });
       const roleChanged = await handler(call(toolName, validArguments[toolName], identity, `dynamic-role-${index}`));
-      expect((await roleChanged.json()).result, toolName).toMatchObject({ isError: true, structuredContent: { error: { code: "FORBIDDEN" } } });
+      expect(roleChanged.status, toolName).toBe(403);
+      expect(deps.dataSource.execute, toolName).not.toHaveBeenCalled();
 
       currentUsers.set(identity.id, { ...identity, isActive: false });
       const disabled = await handler(call(toolName, validArguments[toolName], identity, `dynamic-disabled-${index}`));

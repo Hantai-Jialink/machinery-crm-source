@@ -11,12 +11,13 @@ type AgentSigningKey = KeyObject | CryptoKey | JWK | Uint8Array;
 
 export type AgentJtiStore = {
   register(jti: string, ttlSeconds: number): Promise<void>;
-  isActive(jti: string): Promise<boolean>;
+  consumeOnce(jti: string): Promise<boolean>;
   revoke(jti: string, ttlSeconds: number): Promise<void>;
 };
 
 export type AgentAssertionIdentity = {
   userId: string;
+  role: "SUPER_ADMIN" | "SALES" | "FOREIGN_TRADE" | "PURCHASE" | "WAREHOUSE";
   jti: string;
   issuedAt: Date;
   expiresAt: Date;
@@ -30,7 +31,7 @@ export class AgentAssertionError extends Error {
       | "ASSERTION_EXPIRED"
       | "ASSERTION_ISSUER_INVALID"
       | "ASSERTION_AUDIENCE_INVALID"
-      | "ASSERTION_REVOKED",
+      | "ASSERTION_REPLAYED",
     message: string,
   ) {
     super(message);
@@ -72,6 +73,10 @@ function assertionError(error: unknown) {
   return new AgentAssertionError("ASSERTION_INVALID", "用户身份令牌无效");
 }
 
+const supportedRoles = new Set<AgentAssertionIdentity["role"]>([
+  "SUPER_ADMIN", "SALES", "FOREIGN_TRADE", "PURCHASE", "WAREHOUSE",
+]);
+
 export function createAgentTokenService(options: AgentTokenServiceOptions) {
   if (!Number.isInteger(options.ttlSeconds) || options.ttlSeconds < 300 || options.ttlSeconds > 900) {
     throw new Error("AGENT_AUTH_TOKEN_TTL_SECONDS must be between 300 and 900");
@@ -90,13 +95,14 @@ export function createAgentTokenService(options: AgentTokenServiceOptions) {
   const createJti = options.createJti ?? randomUUID;
 
   return {
-    async issue(userIdInput: string) {
+    async issue(userIdInput: string, roleInput: AgentAssertionIdentity["role"]) {
       const userId = requiredText(userIdInput, "userId");
+      if (!supportedRoles.has(roleInput)) throw new Error("role is required and must be supported");
       const issuedAt = now();
       const issuedAtSeconds = Math.floor(issuedAt.getTime() / 1000);
       const expiresAtSeconds = issuedAtSeconds + options.ttlSeconds;
       const jti = createJti();
-      const token = await new SignJWT({})
+      const token = await new SignJWT({ role: roleInput })
         .setProtectedHeader({ alg: "EdDSA", kid: activeKid, typ: "JWT" })
         .setIssuer(issuer)
         .setSubject(userId)
@@ -135,12 +141,20 @@ export function createAgentTokenService(options: AgentTokenServiceOptions) {
         if (
           !protectedHeader.kid
           || typeof payload.sub !== "string"
+          || typeof payload.role !== "string"
           || typeof payload.jti !== "string"
           || typeof payload.iat !== "number"
           || typeof payload.nbf !== "number"
           || typeof payload.exp !== "number"
         ) {
           throw new AgentAssertionError("ASSERTION_INVALID", "用户身份令牌缺少必要声明");
+        }
+        if (!supportedRoles.has(payload.role as AgentAssertionIdentity["role"])) {
+          throw new AgentAssertionError("ASSERTION_INVALID", "用户身份令牌角色无效");
+        }
+        const currentSeconds = Math.floor(now().getTime() / 1000);
+        if (payload.iat > currentSeconds + 5 || payload.nbf > currentSeconds + 5) {
+          throw new AgentAssertionError("ASSERTION_INVALID", "用户身份令牌签发时间无效");
         }
         const signedLifetime = payload.exp - payload.iat;
         if (
@@ -150,11 +164,12 @@ export function createAgentTokenService(options: AgentTokenServiceOptions) {
         ) {
           throw new AgentAssertionError("ASSERTION_INVALID", "用户身份令牌有效期无效");
         }
-        if (!(await options.stateStore.isActive(payload.jti))) {
-          throw new AgentAssertionError("ASSERTION_REVOKED", "用户身份令牌已撤销或不存在");
+        if (!(await options.stateStore.consumeOnce(payload.jti))) {
+          throw new AgentAssertionError("ASSERTION_REPLAYED", "用户身份令牌已消费、撤销或不存在");
         }
         return {
           userId: payload.sub,
+          role: payload.role as AgentAssertionIdentity["role"],
           jti: payload.jti,
           issuedAt: new Date(payload.iat * 1000),
           expiresAt: new Date(payload.exp * 1000),

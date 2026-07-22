@@ -60,7 +60,7 @@ try {
   }
   checks.push("single isolated ERP user completes real CRM login and session verification");
 
-  const issued = await runtime.tokenService.issue(salesUser.expectedUserId);
+  const issued = await runtime.tokenService.issue(salesUser.expectedUserId, "SALES");
   const response = await trackedFetch(tracker, required("ACCEPTANCE_MCP_URL"), {
     method: "POST",
     headers: {

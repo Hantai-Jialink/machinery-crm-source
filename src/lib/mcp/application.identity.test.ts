@@ -48,8 +48,8 @@ function dependencies(): McpApplicationDependencies {
     },
     identityVerifier: {
       async verify(assertion) {
-        if (assertion === "assertion-user-1") return { userId: "erp-user-1", jti: "jti-1" };
-        if (assertion === "assertion-user-2") return { userId: "erp-user-2", jti: "jti-2" };
+        if (assertion === "assertion-user-1") return { userId: "erp-user-1", role: "SALES", jti: "jti-1" };
+        if (assertion === "assertion-user-2") return { userId: "erp-user-2", role: "PURCHASE", jti: "jti-2" };
         throw new AgentAssertionError("ASSERTION_INVALID", "invalid");
       },
     },
@@ -129,6 +129,29 @@ describe("MCP strict dual identity PoC", () => {
     expect(catalogText).not.toMatch(/Prisma|MySQL|SQL|数据库|数据表|字段表达式/i);
     expect(catalogText).not.toMatch(/角色|权限|负责省市|业务线|受限视图|SUPER_ADMIN/i);
     expect(deps.dataSource.findUser).not.toHaveBeenCalled();
+  });
+
+  it("hides and rejects tools outside the server-side production allowlist", async () => {
+    const deps = dependencies();
+    deps.config.toolMode = "full-read-only";
+    deps.config.enabledTools = ["dachuan_identity_who_am_i", "crm_customers_list"];
+    const handler = createMcpRequestHandler(deps);
+
+    const catalog = await handler(request(
+      { jsonrpc: "2.0", id: 1, method: "tools/list", params: {} },
+      { requestId: "allowlist-catalog-1" },
+    ));
+    expect((await catalog.json()).result.tools.map((tool: { name: string }) => tool.name)).toEqual([
+      "dachuan_identity_who_am_i",
+      "crm_customers_list",
+    ]);
+
+    const rejected = await handler(request(
+      { jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "crm_customer_get", arguments: { id: "customer-1" } } },
+      { assertion: "assertion-user-1", requestId: "allowlist-rejected-1" },
+    ));
+    expect((await rejected.json()).result.isError).toBe(true);
+    expect(deps.dataSource.execute).not.toHaveBeenCalled();
   });
 
   it("allows initialize and ping with service identity only", async () => {
@@ -275,7 +298,7 @@ describe("MCP strict dual identity PoC", () => {
     const activeJtis = new Set<string>();
     const stateStore: AgentJtiStore = {
       async register(jti) { activeJtis.add(jti); },
-      async isActive(jti) { return activeJtis.has(jti); },
+      async consumeOnce(jti) { if (!activeJtis.has(jti)) return false; activeJtis.delete(jti); return true; },
       async revoke(jti) { activeJtis.delete(jti); },
     };
     const tokenService = createAgentTokenService({
@@ -289,7 +312,7 @@ describe("MCP strict dual identity PoC", () => {
       now: () => new Date("2026-07-17T08:00:00.000Z"),
       createJti: () => "signed-jti-1",
     });
-    const issued = await tokenService.issue("erp-user-2");
+    const issued = await tokenService.issue("erp-user-2", "PURCHASE");
     const deps = dependencies();
     deps.identityVerifier = tokenService;
 
@@ -419,11 +442,13 @@ describe("MCP strict dual identity PoC", () => {
 
     current = { ...current, role: "PURCHASE", region: "总部", territories: [] };
     const second = await handle(callWhoAmI("assertion-user-1", "role-after"));
-    expect((await second.json()).result.structuredContent.data).toMatchObject({
+    expect(second.status).toBe(403);
+    expect(deps.dataSource.writeAudit).toHaveBeenCalledWith(expect.objectContaining({
+      requestId: "role-after",
       userId: "erp-user-1",
-      role: "PURCHASE",
-      region: "总部",
-    });
+      rejectionReason: "ROLE_MISMATCH",
+      success: false,
+    }));
 
     current = { ...current, isActive: false };
     const disabled = await handle(callWhoAmI("assertion-user-1", "user-disabled"));

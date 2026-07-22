@@ -1,0 +1,81 @@
+services:
+  fastgpt-canary:
+    image: ${FASTGPT_CANARY_IMAGE:?FASTGPT_CANARY_IMAGE is required}
+    restart: unless-stopped
+    environment:
+      MONGODB_URI: mongodb://${CANARY_MONGO_ROOT_USER}:${CANARY_MONGO_ROOT_PASSWORD}@fastgpt-canary-mongo:27017/${CANARY_MONGO_DATABASE}?authSource=admin
+      REDIS_URL: redis://default:${CANARY_REDIS_PASSWORD}@fastgpt-canary-redis:6379
+      STORAGE_S3_ENDPOINT: http://fastgpt-canary-minio:9000
+      STORAGE_S3_FORCE_PATH_STYLE: "true"
+      STORAGE_S3_BUCKET: ${CANARY_STORAGE_S3_BUCKET}
+      STORAGE_S3_ACCESS_KEY: ${CANARY_MINIO_ROOT_USER}
+      STORAGE_S3_SECRET_KEY: ${CANARY_MINIO_ROOT_PASSWORD}
+      ROOT_KEY: ${CANARY_FASTGPT_ROOT_KEY}
+      TOKEN_KEY: ${CANARY_FASTGPT_TOKEN_KEY}
+      FILE_TOKEN_KEY: ${CANARY_FASTGPT_FILE_TOKEN_KEY}
+      AES_KEY: ${CANARY_FASTGPT_AES_KEY}
+      AGENT_ENGINE: ${FASTGPT_CANARY_AGENT_ENGINE:-fastAgent}
+    ports:
+      - "127.0.0.1:3110:3000"
+    depends_on:
+      fastgpt-canary-mongo:
+        condition: service_healthy
+      fastgpt-canary-redis:
+        condition: service_healthy
+      fastgpt-canary-minio:
+        condition: service_healthy
+    networks: [fastgpt-canary-data]
+    labels:
+      dachuan.canary.isolated: "true"
+
+  fastgpt-canary-mongo:
+    image: mongo:7.0
+    command: ["mongod", "--replSet", "rs0", "--bind_ip_all"]
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${CANARY_MONGO_ROOT_USER}
+      MONGO_INITDB_ROOT_PASSWORD: ${CANARY_MONGO_ROOT_PASSWORD}
+    volumes: ["fastgpt-canary-mongo:/data/db"]
+    networks: [fastgpt-canary-data]
+    healthcheck:
+      test: ["CMD-SHELL", "mongosh --quiet --eval 'db.adminCommand(\"ping\").ok' | grep 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  fastgpt-canary-redis:
+    image: redis:7.2-alpine
+    command: ["redis-server", "--requirepass", "${CANARY_REDIS_PASSWORD}", "--appendonly", "yes"]
+    volumes: ["fastgpt-canary-redis:/data"]
+    networks: [fastgpt-canary-data]
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$$CANARY_REDIS_PASSWORD\" ping | grep PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  fastgpt-canary-minio:
+    image: minio/minio:RELEASE.2025-04-22T22-12-26Z
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${CANARY_MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${CANARY_MINIO_ROOT_PASSWORD}
+    volumes: ["fastgpt-canary-minio:/data"]
+    networks: [fastgpt-canary-data]
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+networks:
+  fastgpt-canary-data:
+    name: dachuan-fastgpt-canary-data
+    internal: true
+
+volumes:
+  fastgpt-canary-mongo:
+    name: dachuan-fastgpt-canary-mongo
+  fastgpt-canary-redis:
+    name: dachuan-fastgpt-canary-redis
+  fastgpt-canary-minio:
+    name: dachuan-fastgpt-canary-minio
