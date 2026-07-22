@@ -44,13 +44,37 @@ services:
     labels:
       dachuan.canary.isolated: "true"
 
+  fastgpt-canary-mongo-key-init:
+    image: mongo:7.0
+    restart: "no"
+    network_mode: none
+    volumes:
+      - type: bind
+        source: ${CANARY_MONGO_REPLICA_KEY_FILE:?CANARY_MONGO_REPLICA_KEY_FILE is required}
+        target: /run/canary-secrets/mongodb-keyfile
+        read_only: true
+      - fastgpt-canary-mongo-key:/mongo-key
+    entrypoint: ["/bin/bash", "-ec"]
+    command: |
+      mongo_uid="$$(id -u mongodb)"
+      mongo_gid="$$(id -g mongodb)"
+      install -m 0400 -o "$$mongo_uid" -g "$$mongo_gid" /run/canary-secrets/mongodb-keyfile /mongo-key/mongodb-keyfile
+      test "$$(stat -c '%a' /mongo-key/mongodb-keyfile)" = 400
+      test "$$(stat -c '%u:%g' /mongo-key/mongodb-keyfile)" = "$$mongo_uid:$$mongo_gid"
+      echo 'CANARY_MONGO_KEYFILE_INIT=PASS'
+
   fastgpt-canary-mongo:
     image: mongo:7.0
-    command: ["mongod", "--auth", "--replSet", "rs0", "--bind_ip_all"]
+    command: ["mongod", "--auth", "--keyFile", "/etc/mongo-key/mongodb-keyfile", "--replSet", "rs0", "--bind_ip_all"]
     environment:
       MONGO_INITDB_ROOT_USERNAME: ${CANARY_MONGO_ROOT_USER}
       MONGO_INITDB_ROOT_PASSWORD: ${CANARY_MONGO_ROOT_PASSWORD}
-    volumes: ["fastgpt-canary-mongo:/data/db"]
+    volumes:
+      - fastgpt-canary-mongo:/data/db
+      - fastgpt-canary-mongo-key:/etc/mongo-key:ro
+    depends_on:
+      fastgpt-canary-mongo-key-init:
+        condition: service_completed_successfully
     networks: [fastgpt-canary-data]
     healthcheck:
       test: ["CMD-SHELL", "mongosh --host 127.0.0.1 --username \"$$MONGO_INITDB_ROOT_USERNAME\" --password \"$$MONGO_INITDB_ROOT_PASSWORD\" --authenticationDatabase admin --quiet --eval 'rs.status().ok' | grep -x 1"]
@@ -201,6 +225,8 @@ networks:
 volumes:
   fastgpt-canary-mongo:
     name: dachuan-fastgpt-canary-mongo
+  fastgpt-canary-mongo-key:
+    name: dachuan-fastgpt-canary-mongo-key
   fastgpt-canary-redis:
     name: dachuan-fastgpt-canary-redis
   fastgpt-canary-minio:

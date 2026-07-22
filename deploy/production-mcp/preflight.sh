@@ -20,6 +20,9 @@ test -d "$FASTGPT_DIR" || fail "Formal FastGPT directory is missing."
 test -d "$CRM_DIR" || fail "Formal CRM directory is missing."
 test -f "$MYSQL_CLIENT_DEFAULTS_FILE" || fail "Restricted read-only MySQL client configuration is missing."
 test -f "$MCP_AUDIT_MYSQL_CLIENT_DEFAULTS_FILE" || fail "Restricted audit MySQL client configuration is missing."
+test -f "$CANARY_MONGO_REPLICA_KEY_FILE" || fail "Canary Mongo replica-set keyfile is missing."
+mongo_key_mode="$(stat -c '%a' "$CANARY_MONGO_REPLICA_KEY_FILE")"
+(( (8#$mongo_key_mode & 8#077) == 0 )) || fail "Canary Mongo keyfile permissions must deny group and other access."
 
 docker image inspect "$MCP_IMAGE" >/dev/null || fail "MCP_IMAGE is not present locally."
 docker image inspect "$FASTGPT_CANARY_IMAGE" >/dev/null || fail "FASTGPT_CANARY_IMAGE is not present locally."
@@ -38,7 +41,7 @@ for service in fastgpt-canary-mongo fastgpt-canary-redis fastgpt-canary-minio fa
   test -n "$id" || fail "Canary service is absent: $service"
   test "$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{end}}' "$id")" = healthy || fail "Canary service is not healthy: $service"
 done
-for service in fastgpt-canary-mongo-init fastgpt-canary-minio-init; do
+for service in fastgpt-canary-mongo-key-init fastgpt-canary-mongo-init fastgpt-canary-minio-init; do
   id="$(docker compose -p dachuan-fastgpt-canary --env-file "$env_file" -f "$deploy_dir/fastgpt-canary-compose.yml" ps -q "$service")"
   test -n "$id" || fail "Canary initializer is absent: $service"
   test "$(docker inspect -f '{{.State.ExitCode}}' "$id")" = 0 || fail "Canary initializer failed: $service"

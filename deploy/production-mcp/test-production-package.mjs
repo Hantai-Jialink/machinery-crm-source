@@ -17,7 +17,7 @@ for (const resource of ['MONGO', 'REDIS', 'OBJECT_STORAGE', 'APP', 'USER', 'SESS
 }
 
 const compose = read('fastgpt-canary-compose.yml');
-for (const required of ['dachuan-fastgpt-canary-data', 'dachuan-fastgpt-canary-ai-egress', 'dachuan-fastgpt-canary-mongo', 'dachuan-fastgpt-canary-redis', 'dachuan-fastgpt-canary-minio', 'fastgpt-canary-mongo-init', 'fastgpt-canary-minio-init', 'fastgpt-canary-aiproxy']) {
+for (const required of ['dachuan-fastgpt-canary-data', 'dachuan-fastgpt-canary-ai-egress', 'dachuan-fastgpt-canary-mongo', 'dachuan-fastgpt-canary-redis', 'dachuan-fastgpt-canary-minio', 'fastgpt-canary-mongo-key-init', 'fastgpt-canary-mongo-init', 'fastgpt-canary-minio-init', 'fastgpt-canary-aiproxy']) {
   assert.match(compose, new RegExp(required));
 }
 assert.match(compose, /AGENT_ENGINE: \$\{FASTGPT_CANARY_AGENT_ENGINE:-fastAgent\}/);
@@ -25,6 +25,9 @@ assert.match(compose, /CANARY_REDIS_PASSWORD: \$\{CANARY_REDIS_PASSWORD\}/);
 assert.match(compose, /redis-cli -a \\\"\$\$CANARY_REDIS_PASSWORD\\\" ping/);
 assert.match(compose, /replicaSet=rs0/);
 assert.match(compose, /rs\.status\(\)\.ok/);
+assert.match(compose, /--keyFile/);
+assert.match(compose, /CANARY_MONGO_REPLICA_KEY_FILE/);
+assert.match(compose, /install -m 0400 -o "\$\$mongo_uid" -g "\$\$mongo_gid"/);
 assert.match(compose, /mc mb --ignore-existing/);
 assert.match(compose, /minio\/health\/live/);
 assert.match(compose, /failed after \$\$attempt attempts/);
@@ -34,7 +37,7 @@ assert.doesNotMatch(compose, /fastgpt:3100|\/opt\/fastgpt|FORMAL_FASTGPT_/);
 const canaryRuntime = read('runtime-canary-accept.sh');
 assert.match(canaryRuntime, /CANARY_RUNTIME_REDIS_MONGO_MINIO_FASTGPT_MODEL=PASS/);
 assert.match(canaryRuntime, /updateWithJson/);
-assert.match(canaryRuntime, /logs --no-color fastgpt-canary-minio fastgpt-canary-minio-init/);
+assert.match(canaryRuntime, /logs --no-color fastgpt-canary-mongo-key-init fastgpt-canary-mongo fastgpt-canary-mongo-init fastgpt-canary-minio fastgpt-canary-minio-init/);
 assert.match(read('fastgpt-canary-compose.ci.yml'), /model-mock/);
 
 const mcpCompose = read('docker-compose.yml');

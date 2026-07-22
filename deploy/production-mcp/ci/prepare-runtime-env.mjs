@@ -16,11 +16,14 @@ const write = (values) => {
 };
 
 if (mode === "canary") {
+  const mongoReplicaKeyFile = `${output}.mongo-key`;
+  writeFileSync(mongoReplicaKeyFile, `${randomBytes(48).toString("hex")}\n`, { encoding: "utf8", flag: "wx", mode: 0o600 });
   write({
     FASTGPT_CANARY_IMAGE: "dachuan-fastgpt-canary-ci:runtime",
     CANARY_MONGO_ROOT_USER: "canary_runtime",
     CANARY_MONGO_ROOT_PASSWORD: secret(),
     CANARY_MONGO_DATABASE: "dachuan_fastgpt_canary_4152",
+    CANARY_MONGO_REPLICA_KEY_FILE: mongoReplicaKeyFile,
     CANARY_REDIS_PASSWORD: secret(),
     CANARY_MINIO_ROOT_USER: "canaryruntime",
     CANARY_MINIO_ROOT_PASSWORD: secret(),

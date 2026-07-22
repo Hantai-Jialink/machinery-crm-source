@@ -19,13 +19,18 @@ else
   status=$?
   echo "Canary Compose startup failed; diagnostic state follows." >&2
   "${compose[@]}" ps -a >&2 || true
-  "${compose[@]}" logs --no-color fastgpt-canary-minio fastgpt-canary-minio-init >&2 || true
+  "${compose[@]}" logs --no-color fastgpt-canary-mongo-key-init fastgpt-canary-mongo fastgpt-canary-mongo-init fastgpt-canary-minio fastgpt-canary-minio-init >&2 || true
   exit "$status"
 fi
 for service in fastgpt-canary fastgpt-canary-mongo fastgpt-canary-redis fastgpt-canary-minio fastgpt-canary-aiproxy fastgpt-canary-model-mock; do
   id="$("${compose[@]}" ps -q "$service")"
   test -n "$id"
   test "$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{end}}' "$id")" = healthy
+done
+for service in fastgpt-canary-mongo-key-init fastgpt-canary-mongo-init fastgpt-canary-minio-init; do
+  id="$("${compose[@]}" ps -q --all "$service")"
+  test -n "$id"
+  test "$(docker inspect -f '{{.State.ExitCode}}' "$id")" = 0
 done
 "${compose[@]}" exec -T fastgpt-canary-redis sh -ec 'redis-cli -a "$CANARY_REDIS_PASSWORD" ping | grep -x PONG'
 "${compose[@]}" exec -T fastgpt-canary-mongo mongosh --username "$CANARY_MONGO_ROOT_USER" --password "$CANARY_MONGO_ROOT_PASSWORD" --authenticationDatabase admin --quiet --eval 'rs.status().ok' | grep -x 1

@@ -21,7 +21,7 @@ const required = [
   'FORMAL_FASTGPT_OBJECT_STORAGE_FINGERPRINT', 'CANARY_FASTGPT_OBJECT_STORAGE_FINGERPRINT', 'FORMAL_FASTGPT_APP_FINGERPRINT', 'CANARY_FASTGPT_APP_FINGERPRINT',
   'FORMAL_FASTGPT_USER_FINGERPRINT', 'CANARY_FASTGPT_USER_FINGERPRINT', 'FORMAL_FASTGPT_SESSION_FINGERPRINT', 'CANARY_FASTGPT_SESSION_FINGERPRINT',
   'FORMAL_FASTGPT_API_KEY_FINGERPRINT', 'CANARY_FASTGPT_API_KEY_FINGERPRINT', 'FORMAL_FASTGPT_AI_PROXY_FINGERPRINT', 'CANARY_FASTGPT_AI_PROXY_FINGERPRINT', 'FORMAL_FASTGPT_MODEL_SERVICE_FINGERPRINT', 'CANARY_FASTGPT_MODEL_SERVICE_FINGERPRINT',
-  'CANARY_MONGO_ROOT_USER', 'CANARY_MONGO_ROOT_PASSWORD', 'CANARY_MONGO_DATABASE', 'CANARY_REDIS_PASSWORD', 'CANARY_MINIO_ROOT_USER', 'CANARY_MINIO_ROOT_PASSWORD', 'CANARY_STORAGE_PUBLIC_BUCKET', 'CANARY_STORAGE_PRIVATE_BUCKET',
+  'CANARY_MONGO_ROOT_USER', 'CANARY_MONGO_ROOT_PASSWORD', 'CANARY_MONGO_DATABASE', 'CANARY_MONGO_REPLICA_KEY_FILE', 'CANARY_REDIS_PASSWORD', 'CANARY_MINIO_ROOT_USER', 'CANARY_MINIO_ROOT_PASSWORD', 'CANARY_STORAGE_PUBLIC_BUCKET', 'CANARY_STORAGE_PRIVATE_BUCKET',
   'CANARY_FASTGPT_ROOT_PASSWORD', 'CANARY_FASTGPT_ROOT_KEY', 'CANARY_FASTGPT_TOKEN_KEY', 'CANARY_FASTGPT_FILE_TOKEN_KEY', 'CANARY_FASTGPT_AES_KEY', 'CANARY_AIPROXY_IMAGE', 'CANARY_AIPROXY_ADMIN_KEY', 'CANARY_AIPROXY_POSTGRES_PASSWORD', 'CANARY_MODEL_UPSTREAM_ENDPOINT', 'CANARY_MODEL_UPSTREAM_API_KEY',
 ];
 for (const name of required) {
@@ -42,6 +42,15 @@ if (!tools.includes('dachuan_identity_who_am_i') || tools.length > 3 || tools.so
 if (!/@sha256:[a-f0-9]{64}$/i.test(values.MCP_IMAGE)) throw new Error('MCP_IMAGE must use an immutable @sha256 digest');
 if (!/@sha256:[a-f0-9]{64}$/i.test(values.CANARY_AIPROXY_IMAGE)) throw new Error('CANARY_AIPROXY_IMAGE must use an immutable @sha256 digest');
 if (/^(localhost|127\.0\.0\.1|::1)$/i.test(values.MCP_DATABASE_GRANT_HOST)) throw new Error('MCP_DATABASE_GRANT_HOST must be the actual Docker source host, never localhost');
+if (!path.isAbsolute(values.CANARY_MONGO_REPLICA_KEY_FILE)) throw new Error('CANARY_MONGO_REPLICA_KEY_FILE must be an absolute path');
+let mongoReplicaKey;
+try {
+  mongoReplicaKey = fs.readFileSync(values.CANARY_MONGO_REPLICA_KEY_FILE, 'utf8').trim();
+} catch {
+  throw new Error('CANARY_MONGO_REPLICA_KEY_FILE is missing or unreadable');
+}
+if (!/^[a-f0-9]{64,1024}$/i.test(mongoReplicaKey)) throw new Error('Canary Mongo replica keyfile must contain 64-1024 hexadecimal characters');
+if (mongoReplicaKey === values.CANARY_MONGO_ROOT_PASSWORD) throw new Error('Canary Mongo replica key must differ from the root password');
 if (values.FASTGPT_SOURCE_COMMIT !== 'b9b6e2305e70823c9706291de4b19c4dc3ae05f6') throw new Error('FastGPT source must be exact v4.15.2 commit b9b6e2305e70823c9706291de4b19c4dc3ae05f6');
 if (values.FASTGPT_BASE_IMAGE !== 'ghcr.io/labring/fastgpt:v4.15.2@sha256:8f09f9dd41c17aecec6bbe69a332432fdf4e686546f050d65e670bda60aa2033') throw new Error('FastGPT base image must be the approved v4.15.2 AMD64 digest');
 if (!/@sha256:[a-f0-9]{64}$/i.test(values.FASTGPT_CANARY_IMAGE) || values.FASTGPT_CANARY_IMAGE === values.FASTGPT_BASE_IMAGE) throw new Error('FastGPT Canary must be a separately built immutable image');
