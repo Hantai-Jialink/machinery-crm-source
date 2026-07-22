@@ -36,6 +36,27 @@ assert.match(read('fastgpt-canary-compose.ci.yml'), /model-mock/);
 const mcpCompose = read('docker-compose.yml');
 assert.match(mcpCompose, /subnet: 172\.30\.31\.0\/28/);
 assert.match(mcpCompose, /ipv4_address: 172\.30\.31\.10/);
+const mcpRuntimeCompose = read('ci/mcp-runtime-compose.yml');
+assert.match(mcpRuntimeCompose, /mysql:8\.0\.44/);
+assert.match(mcpRuntimeCompose, /ipv4_address: 172\.30\.31\.10/);
+assert.match(mcpRuntimeCompose, /prepare-mysql-grants\.mjs/);
+assert.match(mcpRuntimeCompose, /run-mcp-runtime-acceptance\.ts/);
+const mcpRuntime = read('runtime-mcp-accept.sh');
+assert.match(mcpRuntime, /127\.0\.0\.1:3100:8080/);
+assert.match(mcpRuntime, /rollback\.sh/);
+assert.match(mcpRuntime, /sentinel_before/);
+assert.match(mcpRuntime, /sentinel_after/);
+assert.match(mcpRuntime, /DEPLOY_AND_ROLLBACK_FORMAL_FASTGPT_3100=PASS/);
+const mcpRuntimeAcceptance = read('ci/run-mcp-runtime-acceptance.ts');
+for (const gate of [
+  'MCP_RUNTIME_MINIMUM_DB_QUERY=PASS',
+  'MCP_RUNTIME_AUDIT_INSERT_AND_FAIL_CLOSED=PASS',
+  'MCP_RUNTIME_ASSERTION_GATEWAY_REPLAY_ALLOWLIST=PASS',
+  'MCP_RUNTIME_CONCURRENCY=PASS',
+]) assert.match(mcpRuntimeAcceptance, new RegExp(gate));
+assert.match(mcpRuntimeAcceptance, /REVOKE INSERT/);
+assert.match(mcpRuntimeAcceptance, /salesGateway\.status === 403/);
+assert.match(mcpRuntimeAcceptance, /wrong-audience/);
 
 const deploy = read('deploy.sh');
 const rollback = read('rollback.sh');

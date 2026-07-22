@@ -1,0 +1,112 @@
+services:
+  mysql:
+    image: mysql:8.0.44
+    command: ["--character-set-server=utf8mb4", "--collation-server=utf8mb4_unicode_ci"]
+    environment:
+      MYSQL_DATABASE: ${CRM_DATABASE}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+    volumes:
+      - production-mcp-runtime-mysql:/var/lib/mysql
+    networks:
+      dachuan-mcp-prod:
+        ipv4_address: 172.30.31.12
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  dachuanpro-mcp-redis:
+    image: redis:7.2-alpine
+    command: ["sh", "-ec", "exec redis-server --requirepass \"$$REDIS_PASSWORD\" --appendonly yes"]
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+    networks:
+      dachuan-mcp-prod:
+        ipv4_address: 172.30.31.11
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" ping | grep -x PONG"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  db-init:
+    build:
+      context: ../../..
+      dockerfile: deploy/identity-acceptance/Dockerfile.acceptance
+    image: dachuanpro-production-mcp-runtime-runner:ci
+    env_file: ${PRODUCTION_ENV_FILE}
+    environment:
+      IDENTITY_ACCEPTANCE_ENV: isolated
+      COMPOSE_PROJECT_NAME: dachuan-identity-acceptance
+      DATABASE_URL: ${ACCEPTANCE_ADMIN_DATABASE_URL}
+    command:
+      - sh
+      - -ec
+      - >-
+        corepack pnpm exec prisma migrate deploy &&
+        corepack pnpm exec tsx scripts/seed-identity-acceptance.ts &&
+        node deploy/production-mcp/ci/prepare-mysql-grants.mjs
+    depends_on:
+      mysql:
+        condition: service_healthy
+    networks: [dachuan-mcp-prod]
+    restart: "no"
+
+  fastgpt-gateway-upstream:
+    image: node:20-alpine
+    command: ["node", "/mock/model-mock.mjs"]
+    volumes:
+      - ./model-mock.mjs:/mock/model-mock.mjs:ro
+    networks: [dachuan-mcp-prod]
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8080/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  dachuanpro-mcp:
+    build:
+      context: ../../..
+      dockerfile: deploy/identity-acceptance/Dockerfile.mcp
+    image: ${MCP_IMAGE}
+    env_file: ${PRODUCTION_ENV_FILE}
+    depends_on:
+      db-init:
+        condition: service_completed_successfully
+      dachuanpro-mcp-redis:
+        condition: service_healthy
+      fastgpt-gateway-upstream:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:3010:3010"
+    networks:
+      dachuan-mcp-prod:
+        ipv4_address: 172.30.31.10
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3010/api/mcp/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+
+  mcp-runtime-acceptance:
+    image: dachuanpro-production-mcp-runtime-runner:ci
+    env_file: ${PRODUCTION_ENV_FILE}
+    command: ["corepack", "pnpm", "exec", "tsx", "deploy/production-mcp/ci/run-mcp-runtime-acceptance.ts"]
+    depends_on:
+      dachuanpro-mcp:
+        condition: service_healthy
+    networks: [dachuan-mcp-prod]
+    profiles: [acceptance]
+
+volumes:
+  production-mcp-runtime-mysql:
+
+networks:
+  dachuan-mcp-prod:
+    name: dachuan-mcp-prod
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.30.31.0/28
