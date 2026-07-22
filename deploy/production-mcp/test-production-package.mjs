@@ -27,10 +27,14 @@ assert.match(compose, /replicaSet=rs0/);
 assert.match(compose, /rs\.status\(\)\.ok/);
 assert.match(compose, /mc mb --ignore-existing/);
 assert.match(compose, /minio\/health\/live/);
+assert.match(compose, /failed after \$\$attempt attempts/);
+assert.match(compose, /until mc alias set/);
 assert.match(compose, /AIPROXY_API_ENDPOINT: http:\/\/fastgpt-canary-aiproxy:3000/);
 assert.doesNotMatch(compose, /fastgpt:3100|\/opt\/fastgpt|FORMAL_FASTGPT_/);
-assert.match(read('runtime-canary-accept.sh'), /CANARY_RUNTIME_REDIS_MONGO_MINIO_FASTGPT_MODEL=PASS/);
-assert.match(read('runtime-canary-accept.sh'), /updateWithJson/);
+const canaryRuntime = read('runtime-canary-accept.sh');
+assert.match(canaryRuntime, /CANARY_RUNTIME_REDIS_MONGO_MINIO_FASTGPT_MODEL=PASS/);
+assert.match(canaryRuntime, /updateWithJson/);
+assert.match(canaryRuntime, /logs --no-color fastgpt-canary-minio fastgpt-canary-minio-init/);
 assert.match(read('fastgpt-canary-compose.ci.yml'), /model-mock/);
 
 const mcpCompose = read('docker-compose.yml');

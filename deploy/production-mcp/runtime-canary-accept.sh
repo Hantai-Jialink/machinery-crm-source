@@ -13,7 +13,15 @@ if [[ "${CANARY_RUNTIME_CI_OVERLAY:-0}" == "1" ]]; then
 fi
 cleanup() { "${compose[@]}" down --volumes --remove-orphans; }
 trap cleanup EXIT
-"${compose[@]}" up -d --wait --wait-timeout 300
+if "${compose[@]}" up -d --wait --wait-timeout 300; then
+  :
+else
+  status=$?
+  echo "Canary Compose startup failed; diagnostic state follows." >&2
+  "${compose[@]}" ps -a >&2 || true
+  "${compose[@]}" logs --no-color fastgpt-canary-minio fastgpt-canary-minio-init >&2 || true
+  exit "$status"
+fi
 for service in fastgpt-canary fastgpt-canary-mongo fastgpt-canary-redis fastgpt-canary-minio fastgpt-canary-aiproxy fastgpt-canary-model-mock; do
   id="$("${compose[@]}" ps -q "$service")"
   test -n "$id"
