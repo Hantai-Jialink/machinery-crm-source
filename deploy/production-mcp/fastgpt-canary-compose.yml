@@ -45,10 +45,10 @@ services:
         condition: service_completed_successfully
     networks: [fastgpt-canary-data, fastgpt-canary-ai-egress]
     healthcheck:
-      test: ["CMD-SHELL", "curl --fail --silent --show-error http://127.0.0.1:3000/health"]
-      interval: 15s
-      timeout: 5s
-      retries: 30
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3000/health').then((res) => { if (!res.ok) throw new Error(String(res.status)); })"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
       start_period: 90s
     labels:
       dachuan.canary.isolated: "true"

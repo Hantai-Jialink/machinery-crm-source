@@ -35,7 +35,7 @@ assert.equal(services['fastgpt-canary-minio-init'].command, null);
 
 assert.match(
   JSON.stringify(services['fastgpt-canary'].healthcheck.test),
-  /http:\/\/127\.0\.0\.1:3000\/health/,
+  /http:\/\/localhost:3000\/health/,
   'FastGPT v4.15.2 healthcheck must use the upstream /health endpoint',
 );
 assert.equal(
