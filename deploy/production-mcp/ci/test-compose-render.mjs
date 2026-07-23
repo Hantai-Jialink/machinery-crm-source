@@ -49,6 +49,36 @@ assert.equal(
   'FastGPT must use the isolated fastgpt vector database instead of localhost PostgreSQL',
 );
 assert.equal(
+  services['fastgpt-canary'].environment.PLUGIN_BASE_URL,
+  'http://fastgpt-canary-plugin:3000',
+  'FastGPT v4.15.2 must use the isolated plugin service instead of localhost:3004',
+);
+assert.equal(
+  services['fastgpt-canary'].environment.PLUGIN_TOKEN,
+  'REPLACE_WITH_CANARY_FASTGPT_PLUGIN_TOKEN',
+  'FastGPT must receive a dedicated Canary plugin token',
+);
+assert.equal(
+  services['fastgpt-canary'].depends_on['fastgpt-canary-plugin'].condition,
+  'service_healthy',
+  'FastGPT must wait for plugin startup before instrumentation checks',
+);
+assert.equal(
+  services['fastgpt-canary-plugin'].image,
+  'ghcr.io/labring/fastgpt-plugin:v1.0.2@sha256:a1a63eeef3d49c2a81db466243cf3ac88d9156b158076d4eece13e892dcd007f',
+  'Plugin image must pin the approved v1.0.2 AMD64 digest',
+);
+assert.equal(
+  services['fastgpt-canary-plugin'].environment.MONGODB_URI,
+  'mongodb://REPLACE_WITH_CANARY_MONGO_USER:REPLACE_WITH_CANARY_MONGO_PASSWORD@fastgpt-canary-mongo:27017/fastgpt-plugin?authSource=admin&replicaSet=rs0',
+  'Plugin must use its own Mongo database',
+);
+assert.deepEqual(
+  Object.keys(services['fastgpt-canary-plugin'].networks).sort(),
+  ['fastgpt-canary-ai-egress', 'fastgpt-canary-data'],
+  'Plugin must use only the Canary data and controlled egress networks',
+);
+assert.equal(
   services['fastgpt-canary'].depends_on['fastgpt-canary-pg-init'].condition,
   'service_completed_successfully',
   'FastGPT must wait for its vector database initialization',

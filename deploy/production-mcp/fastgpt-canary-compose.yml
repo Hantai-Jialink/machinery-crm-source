@@ -23,9 +23,11 @@ services:
       AIPROXY_API_ENDPOINT: http://fastgpt-canary-aiproxy:3000
       AIPROXY_API_TOKEN: ${CANARY_AIPROXY_ADMIN_KEY}
       PG_URL: postgresql://postgres:${CANARY_AIPROXY_POSTGRES_PASSWORD}@fastgpt-canary-aiproxy-postgres:5432/fastgpt
+      PLUGIN_BASE_URL: http://fastgpt-canary-plugin:3000
+      PLUGIN_TOKEN: ${CANARY_FASTGPT_PLUGIN_TOKEN:-REPLACE_WITH_CANARY_FASTGPT_PLUGIN_TOKEN}
       AGENT_ENGINE: ${FASTGPT_CANARY_AGENT_ENGINE:-fastAgent}
-      NO_PROXY: localhost,127.0.0.1,fastgpt-canary-mongo,fastgpt-canary-redis,fastgpt-canary-minio,fastgpt-canary-aiproxy
-      no_proxy: localhost,127.0.0.1,fastgpt-canary-mongo,fastgpt-canary-redis,fastgpt-canary-minio,fastgpt-canary-aiproxy
+      NO_PROXY: localhost,127.0.0.1,fastgpt-canary-mongo,fastgpt-canary-redis,fastgpt-canary-minio,fastgpt-canary-aiproxy,fastgpt-canary-plugin
+      no_proxy: localhost,127.0.0.1,fastgpt-canary-mongo,fastgpt-canary-redis,fastgpt-canary-minio,fastgpt-canary-aiproxy,fastgpt-canary-plugin
     ports:
       - "127.0.0.1:3110:3000"
     depends_on:
@@ -36,6 +38,8 @@ services:
       fastgpt-canary-minio-init:
         condition: service_completed_successfully
       fastgpt-canary-aiproxy:
+        condition: service_healthy
+      fastgpt-canary-plugin:
         condition: service_healthy
       fastgpt-canary-pg-init:
         condition: service_completed_successfully
@@ -177,6 +181,28 @@ services:
       fastgpt-canary-aiproxy-postgres:
         condition: service_healthy
     networks: [fastgpt-canary-data]
+
+  fastgpt-canary-plugin:
+    image: ghcr.io/labring/fastgpt-plugin:v1.0.2@sha256:a1a63eeef3d49c2a81db466243cf3ac88d9156b158076d4eece13e892dcd007f
+    platform: linux/amd64
+    restart: unless-stopped
+    environment:
+      MONGODB_URI: mongodb://${CANARY_MONGO_ROOT_USER}:${CANARY_MONGO_ROOT_PASSWORD}@fastgpt-canary-mongo:27017/fastgpt-plugin?authSource=admin&replicaSet=rs0
+      AUTH_TOKEN: ${CANARY_FASTGPT_PLUGIN_TOKEN:-REPLACE_WITH_CANARY_FASTGPT_PLUGIN_TOKEN}
+      FASTGPT_BASE_URL: http://fastgpt-canary:3000
+      DB_MAX_LINK: "100"
+    depends_on:
+      fastgpt-canary-mongo:
+        condition: service_healthy
+      fastgpt-canary-minio:
+        condition: service_healthy
+    networks: [fastgpt-canary-data, fastgpt-canary-ai-egress]
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+      start_period: 30s
 
   fastgpt-canary-aiproxy:
     image: ${CANARY_AIPROXY_IMAGE:?CANARY_AIPROXY_IMAGE is required}

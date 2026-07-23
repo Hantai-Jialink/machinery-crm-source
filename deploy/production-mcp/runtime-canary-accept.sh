@@ -8,6 +8,11 @@ set -a
 source "$env_file"
 set +a
 compose=(docker compose -p dachuan-fastgpt-canary-runtime --profile ci --env-file "$env_file" -f "$deploy_dir/fastgpt-canary-compose.yml")
+plugin_image='ghcr.io/labring/fastgpt-plugin:v1.0.2@sha256:a1a63eeef3d49c2a81db466243cf3ac88d9156b158076d4eece13e892dcd007f'
+docker pull --platform linux/amd64 "$plugin_image"
+test "$(docker image inspect "$plugin_image" --format '{{.Os}}/{{.Architecture}}')" = linux/amd64
+actual_plugin_digest="$(docker image inspect "$plugin_image" --format '{{index .RepoDigests 0}}' | sed 's/^.*@//')"
+test "$actual_plugin_digest" = "${plugin_image#*@}"
 if [[ "${CANARY_RUNTIME_CI_OVERLAY:-0}" == "1" ]]; then
   compose+=( -f "$deploy_dir/fastgpt-canary-compose.ci.yml" )
 fi
@@ -19,11 +24,11 @@ else
   status=$?
   echo "Canary Compose startup failed; diagnostic state follows." >&2
   "${compose[@]}" ps -a >&2 || true
-  "${compose[@]}" logs --no-color fastgpt-canary-mongo-key-init fastgpt-canary-mongo fastgpt-canary-mongo-init fastgpt-canary-minio fastgpt-canary-minio-init fastgpt-canary-aiproxy fastgpt-canary-pg-init fastgpt-canary >&2 || true
+  "${compose[@]}" logs --no-color fastgpt-canary-mongo-key-init fastgpt-canary-mongo fastgpt-canary-mongo-init fastgpt-canary-minio fastgpt-canary-minio-init fastgpt-canary-aiproxy fastgpt-canary-plugin fastgpt-canary-pg-init fastgpt-canary >&2 || true
   "${compose[@]}" logs --no-color --tail 100 fastgpt-canary >&2 || true
   exit "$status"
 fi
-for service in fastgpt-canary fastgpt-canary-mongo fastgpt-canary-redis fastgpt-canary-minio fastgpt-canary-aiproxy fastgpt-canary-model-mock; do
+for service in fastgpt-canary fastgpt-canary-mongo fastgpt-canary-redis fastgpt-canary-minio fastgpt-canary-aiproxy fastgpt-canary-plugin fastgpt-canary-model-mock; do
   id="$("${compose[@]}" ps -q "$service")"
   test -n "$id"
   test "$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{end}}' "$id")" = healthy
