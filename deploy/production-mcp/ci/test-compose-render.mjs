@@ -43,6 +43,31 @@ assert.equal(
   'REPLACE_WITH_CANARY_INVOKE_TOKEN_SECRET',
   'FastGPT v4.15.2 must receive a dedicated Canary invoke-token secret',
 );
+assert.equal(
+  services['fastgpt-canary'].environment.PG_URL,
+  'postgresql://postgres:REPLACE_WITH_CANARY_AIPROXY_POSTGRES_PASSWORD@fastgpt-canary-aiproxy-postgres:5432/fastgpt',
+  'FastGPT must use the isolated fastgpt vector database instead of localhost PostgreSQL',
+);
+assert.equal(
+  services['fastgpt-canary'].depends_on['fastgpt-canary-pg-init'].condition,
+  'service_completed_successfully',
+  'FastGPT must wait for its vector database initialization',
+);
+assert.equal(
+  services['fastgpt-canary-pg-init'].depends_on['fastgpt-canary-aiproxy-postgres'].condition,
+  'service_healthy',
+  'The vector database initializer must wait for PostgreSQL health',
+);
+assert.deepEqual(
+  Object.keys(services['fastgpt-canary-pg-init'].networks),
+  ['fastgpt-canary-data'],
+  'The vector database initializer must remain on the internal data network only',
+);
+assert.match(
+  JSON.stringify(services['fastgpt-canary-pg-init'].command),
+  /CREATE DATABASE fastgpt/,
+  'The vector database initializer must create the isolated fastgpt database idempotently',
+);
 assert.ok(
   Object.hasOwn(services['fastgpt-canary'].networks, 'fastgpt-canary-ai-egress'),
   'FastGPT must be attached to the controlled egress network',

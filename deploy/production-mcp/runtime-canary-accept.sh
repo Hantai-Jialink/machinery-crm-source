@@ -13,13 +13,14 @@ if [[ "${CANARY_RUNTIME_CI_OVERLAY:-0}" == "1" ]]; then
 fi
 cleanup() { "${compose[@]}" down --volumes --remove-orphans; }
 trap cleanup EXIT
-if "${compose[@]}" up -d --wait --wait-timeout 240; then
+if "${compose[@]}" up -d --wait --wait-timeout 600; then
   :
 else
   status=$?
   echo "Canary Compose startup failed; diagnostic state follows." >&2
   "${compose[@]}" ps -a >&2 || true
-  "${compose[@]}" logs --no-color fastgpt-canary-mongo-key-init fastgpt-canary-mongo fastgpt-canary-mongo-init fastgpt-canary-minio fastgpt-canary-minio-init fastgpt-canary-aiproxy fastgpt-canary >&2 || true
+  "${compose[@]}" logs --no-color fastgpt-canary-mongo-key-init fastgpt-canary-mongo fastgpt-canary-mongo-init fastgpt-canary-minio fastgpt-canary-minio-init fastgpt-canary-aiproxy fastgpt-canary-pg-init fastgpt-canary >&2 || true
+  "${compose[@]}" logs --no-color --tail 100 fastgpt-canary >&2 || true
   exit "$status"
 fi
 for service in fastgpt-canary fastgpt-canary-mongo fastgpt-canary-redis fastgpt-canary-minio fastgpt-canary-aiproxy fastgpt-canary-model-mock; do
@@ -27,7 +28,7 @@ for service in fastgpt-canary fastgpt-canary-mongo fastgpt-canary-redis fastgpt-
   test -n "$id"
   test "$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{end}}' "$id")" = healthy
 done
-for service in fastgpt-canary-mongo-key-init fastgpt-canary-mongo-init fastgpt-canary-minio-init; do
+for service in fastgpt-canary-mongo-key-init fastgpt-canary-mongo-init fastgpt-canary-minio-init fastgpt-canary-pg-init; do
   id="$("${compose[@]}" ps -q --all "$service")"
   test -n "$id"
   test "$(docker inspect -f '{{.State.ExitCode}}' "$id")" = 0
