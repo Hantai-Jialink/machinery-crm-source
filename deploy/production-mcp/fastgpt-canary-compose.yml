@@ -188,9 +188,21 @@ services:
     restart: unless-stopped
     environment:
       MONGODB_URI: mongodb://${CANARY_MONGO_ROOT_USER}:${CANARY_MONGO_ROOT_PASSWORD}@fastgpt-canary-mongo:27017/fastgpt-plugin?authSource=admin&replicaSet=rs0
+      REDIS_URL: redis://default:${CANARY_REDIS_PASSWORD}@fastgpt-canary-redis:6379
+      STORAGE_VENDOR: minio
+      STORAGE_REGION: us-east-1
+      STORAGE_ACCESS_KEY_ID: ${CANARY_MINIO_ROOT_USER}
+      STORAGE_SECRET_ACCESS_KEY: ${CANARY_MINIO_ROOT_PASSWORD}
+      STORAGE_PUBLIC_BUCKET: ${CANARY_STORAGE_PUBLIC_BUCKET}
+      STORAGE_PRIVATE_BUCKET: ${CANARY_STORAGE_PRIVATE_BUCKET}
+      STORAGE_S3_ENDPOINT: http://fastgpt-canary-minio:9000
+      STORAGE_S3_FORCE_PATH_STYLE: "true"
       AUTH_TOKEN: ${CANARY_FASTGPT_PLUGIN_TOKEN:-REPLACE_WITH_CANARY_FASTGPT_PLUGIN_TOKEN}
       FASTGPT_BASE_URL: http://fastgpt-canary:3000
       DB_MAX_LINK: "100"
+      MAX_API_SIZE: "10"
+      NO_PROXY: localhost,127.0.0.1,fastgpt-canary-mongo,fastgpt-canary-redis,fastgpt-canary-minio,fastgpt-canary-aiproxy,fastgpt-canary,fastgpt-canary-plugin
+      no_proxy: localhost,127.0.0.1,fastgpt-canary-mongo,fastgpt-canary-redis,fastgpt-canary-minio,fastgpt-canary-aiproxy,fastgpt-canary,fastgpt-canary-plugin
     depends_on:
       fastgpt-canary-mongo:
         condition: service_healthy
