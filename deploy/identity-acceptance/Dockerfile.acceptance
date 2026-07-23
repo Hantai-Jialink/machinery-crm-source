@@ -17,6 +17,7 @@ RUN pnpm install --frozen-lockfile
 RUN node -e "const fs=require('node:fs'); const p=JSON.parse(fs.readFileSync('package.json','utf8')); p.type='module'; fs.writeFileSync('package.json', JSON.stringify(p));"
 COPY prisma ./prisma
 COPY scripts ./scripts
+COPY deploy ./deploy
 COPY src ./src
 COPY tsconfig.json next.config.ts vitest.config.ts ./
 RUN pnpm exec prisma generate
