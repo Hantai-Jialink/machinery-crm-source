@@ -38,6 +38,11 @@ assert.match(
   /http:\/\/127\.0\.0\.1:3000\/health/,
   'FastGPT v4.15.2 healthcheck must use the upstream /health endpoint',
 );
+assert.equal(
+  services['fastgpt-canary'].environment.INVOKE_TOKEN_SECRET,
+  'REPLACE_WITH_CANARY_INVOKE_TOKEN_SECRET',
+  'FastGPT v4.15.2 must receive a dedicated Canary invoke-token secret',
+);
 assert.ok(
   Object.hasOwn(services['fastgpt-canary'].networks, 'fastgpt-canary-ai-egress'),
   'FastGPT must be attached to the controlled egress network',

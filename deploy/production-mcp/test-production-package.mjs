@@ -24,6 +24,7 @@ for (const required of ['dachuan-fastgpt-canary-data', 'dachuan-fastgpt-canary-a
 }
 assert.match(compose, /AGENT_ENGINE: \$\{FASTGPT_CANARY_AGENT_ENGINE:-fastAgent\}/);
 assert.match(compose, /CANARY_REDIS_PASSWORD: \$\{CANARY_REDIS_PASSWORD\}/);
+assert.match(compose, /INVOKE_TOKEN_SECRET: \$\{CANARY_FASTGPT_INVOKE_TOKEN_SECRET\}/);
 assert.match(compose, /redis-cli -a \\\"\$\$CANARY_REDIS_PASSWORD\\\" ping/);
 assert.match(compose, /replicaSet=rs0/);
 assert.match(compose, /rs\.status\(\)\.ok/);
@@ -56,6 +57,7 @@ assert.match(canaryProbe, /preLogin/);
 assert.match(canaryProbe, /createHash\('sha256'\)/);
 assert.match(canaryProbe, /updateWithJson/);
 assert.match(read('fastgpt-canary-compose.ci.yml'), /model-mock/);
+assert.match(read('ci/prepare-runtime-env.mjs'), /CANARY_FASTGPT_INVOKE_TOKEN_SECRET: secret\(32\)/);
 for (const document of [compose, read('fastgpt-canary-compose.ci.yml'), read('docker-compose.yml'), read('ci/mcp-runtime-compose.yml')]) {
   for (const line of document.split(/\r?\n/).filter((value) => /^\s*image:\s*(?:node|mongo|redis|mysql|minio\/|pgvector\/)/.test(value))) {
     assert.match(line, /@sha256:[a-f0-9]{64}\s*$/, `Unpinned runtime image: ${line.trim()}`);

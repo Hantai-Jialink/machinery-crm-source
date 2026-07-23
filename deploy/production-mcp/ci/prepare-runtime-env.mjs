@@ -34,6 +34,7 @@ if (mode === "canary") {
     CANARY_FASTGPT_TOKEN_KEY: secret(),
     CANARY_FASTGPT_FILE_TOKEN_KEY: secret(),
     CANARY_FASTGPT_AES_KEY: secret(),
+    CANARY_FASTGPT_INVOKE_TOKEN_SECRET: secret(32),
     CANARY_AIPROXY_IMAGE: "node:24.16.0-alpine",
     CANARY_AIPROXY_ADMIN_KEY: secret(),
     CANARY_AIPROXY_POSTGRES_PASSWORD: secret(),
