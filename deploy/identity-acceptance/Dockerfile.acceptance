@@ -1,4 +1,4 @@
-FROM node:20.20.2-bookworm-slim
+FROM node:20.20.2-bookworm-slim@sha256:3d0f05455dea2c82e2f76e7e2543964c30f6b7d673fc1a83286736d44fe4c41c
 WORKDIR /workspace
 ARG PNPM_VERSION=10.33.4
 RUN apt-get update \

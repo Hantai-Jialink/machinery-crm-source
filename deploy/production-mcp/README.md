@@ -4,11 +4,12 @@
 
 ## 不可跳过的门禁
 
-1. `fastgpt-v4.15.2-compatibility.json` 必须由精确 FastGPT 4.15.2 源码兼容移植产生，记录源码提交、原始镜像 digest、补丁 SHA256、聚焦测试和并发验收 PASS。
+1. `fastgpt-v4.15.2-compatibility.json` 必须在真实 Canary、MCP、并发和回滚验收全部通过后生成，记录源码提交、官方镜像 digest、补丁 SHA256、归档 Manifest/Config Digest 与运行验收 PASS。
 2. Canary FastGPT 必须已经健康；该包只连接 Canary，不会修改正式 3100。
 3. `.env.production` 必须为 0600，且只有 `SUPER_ADMIN` 与至多两个批准的业务只读工具。
 4. `CANARY_MONGO_REPLICA_KEY_FILE` 必须指向包外、权限为 0600、内容为 64–1024 位十六进制字符的 Canary 专用 Mongo Keyfile；不得复用正式密钥。
-5. `backup.sh` 先成功，`deploy.sh` 才允许启动新的 `dachuan-mcp-prod` 项目。
+5. `FASTGPT_CANARY_ARCHIVE` 与 `MCP_IMAGE_ARCHIVE` 必须指向 Artifact 内标准 Docker archive；preflight 先校验归档 SHA256、`manifest.json` RepoTags、tar 内 Config Digest 和 linux/amd64，再检查 Docker 已加载标签。不得使用运行时 `.Id` 代替归档 Config Digest。
+6. `backup.sh` 先成功，`deploy.sh` 才允许启动新的 `dachuan-mcp-prod` 项目。
 
 ## 脚本顺序
 

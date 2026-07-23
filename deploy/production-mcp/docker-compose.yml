@@ -1,12 +1,15 @@
 services:
   dachuanpro-mcp-redis:
-    image: redis:7.2-alpine
+    image: redis:7.2-alpine@sha256:942b86c020b801daa83baee4ab6a125c244bf6dba7e5c6996d03e569e6aa1c19
+    platform: linux/amd64
     restart: unless-stopped
-    command: ["redis-server", "--appendonly", "yes", "--save", "60", "1"]
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
+    command: ["sh", "-ec", "exec redis-server --requirepass \"$$REDIS_PASSWORD\" --appendonly yes --save 60 1"]
     volumes:
       - dachuanpro-mcp-prod-redis:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" ping | grep -x PONG"]
       interval: 10s
       timeout: 3s
       retries: 5
@@ -16,6 +19,7 @@ services:
 
   dachuanpro-mcp:
     image: ${MCP_IMAGE:?MCP_IMAGE is required}
+    platform: linux/amd64
     restart: unless-stopped
     env_file:
       - ${PRODUCTION_ENV_FILE:?PRODUCTION_ENV_FILE is required}

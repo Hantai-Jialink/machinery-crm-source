@@ -1269,8 +1269,8 @@ export function createPrismaMcpDataSource(client: PrismaClient, auditClient: Pri
     },
 
     async writeAudit(input: McpAuditInput) {
-      await auditClient.operationLog.create({
-        data: {
+      const result = await auditClient.operationLog.createMany({
+        data: [{
           userId: input.userId,
           action: "MCP_CALL",
           entityType: "McpRequest",
@@ -1286,8 +1286,9 @@ export function createPrismaMcpDataSource(client: PrismaClient, auditClient: Pri
             rejectionReason: input.rejectionReason || null,
             createdAt: input.createdAt,
           }),
-        },
+        }],
       });
+      if (result.count !== 1) throw new Error("MCP audit insert did not affect exactly one row");
     },
   };
 }

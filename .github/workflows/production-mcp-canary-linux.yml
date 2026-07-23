@@ -23,13 +23,14 @@ jobs:
     env:
       FASTGPT_COMMIT: b9b6e2305e70823c9706291de4b19c4dc3ae05f6
       FASTGPT_IMAGE: ghcr.io/labring/fastgpt:v4.15.2@sha256:8f09f9dd41c17aecec6bbe69a332432fdf4e686546f050d65e670bda60aa2033
+      AIPROXY_IMAGE: ghcr.io/labring/aiproxy:v0.6.5@sha256:e96073363ac3e38fd0c28b7653aa18916e93c57a688452450c619023b7811e4d
       ARTIFACT_NAME: dachuan-production-mcp-canary-${{ github.run_id }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 24
 
@@ -37,12 +38,17 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends shellcheck ripgrep zip unzip
-          for script in deploy/production-mcp/*.sh; do bash -n "$script"; shellcheck --severity=warning "$script"; done
+          while IFS= read -r -d '' script; do
+            bash -n "$script"
+            shellcheck --severity=warning "$script"
+          done < <(find deploy/production-mcp -type f -name '*.sh' -print0)
           node --check deploy/production-mcp/validate-production-env.mjs
           node --check deploy/production-mcp/test-production-package.mjs
           for script in deploy/production-mcp/ci/*.mjs; do node --check "$script"; done
           node deploy/production-mcp/test-production-env-validator.mjs
           node deploy/production-mcp/test-production-package.mjs
+          node deploy/production-mcp/ci/test-compose-render.mjs
+          node deploy/production-mcp/ci/test-artifact-secret-scan.mjs
           PRODUCTION_ENV_FILE="$GITHUB_WORKSPACE/deploy/production-mcp/.env.production.example" docker compose --env-file deploy/production-mcp/.env.production.example -f deploy/production-mcp/docker-compose.yml config --quiet
           docker compose --env-file deploy/production-mcp/.env.production.example -f deploy/production-mcp/fastgpt-canary-compose.yml config --quiet
           mcp_runtime_env="$RUNNER_TEMP/mcp-runtime-config.env"
@@ -76,29 +82,40 @@ jobs:
           test "$(docker image inspect "$FASTGPT_IMAGE" --format '{{.Os}}/{{.Architecture}}')" = linux/amd64
           actual_image_digest="$(docker image inspect "$FASTGPT_IMAGE" --format '{{index .RepoDigests 0}}' | sed 's/^.*@//')"
           test "$actual_image_digest" = "${FASTGPT_IMAGE#*@}"
+          docker pull --platform linux/amd64 "$AIPROXY_IMAGE"
+          test "$(docker image inspect "$AIPROXY_IMAGE" --format '{{.Os}}/{{.Architecture}}')" = linux/amd64
           ! rg -n 'AGENT_ENGINE:\s*(default|pi)\b' "$source_dir/deploy/version/v4.15/docker-compose.template.yml"
           rg -n 'AGENT_ENGINE=fastAgent' "$source_dir/projects/app/.env.template"
           echo "FASTGPT_SOURCE_AND_AMD64_IMAGE=PASS"
 
-      - name: Build patched FastGPT AMD64 OCI image and compatibility proof
+      - name: Build and cold-load patched FastGPT AMD64 Docker archive
         run: |
           source_dir="$RUNNER_TEMP/FastGPT"
           output_dir="$RUNNER_TEMP/$ARTIFACT_NAME"
+          image_tag="dachuan-fastgpt:v4.15.2-dachuan-${GITHUB_RUN_ID}"
           mkdir -p "$output_dir"
           docker buildx create --name dachuan-production-ci --driver docker-container --use
           docker buildx inspect --bootstrap
           docker buildx build --platform linux/amd64 \
+            -t "$image_tag" \
             --label "org.opencontainers.image.revision=$FASTGPT_COMMIT" \
-            --label "dachuan.fastgpt.source-image=$FASTGPT_IMAGE" \
+            --label "dachuan.fastgpt.compatibility-baseline=$FASTGPT_IMAGE" \
             --label "dachuan.fastgpt.identity-patch=enabled" \
             --metadata-file "$output_dir/fastgpt-build-metadata.json" \
-            --output "type=oci,dest=$output_dir/fastgpt-v4.15.2-canary-linux-amd64.oci.tar" \
+            --output "type=docker,dest=$output_dir/fastgpt-v4.15.2-canary-linux-amd64.tar" \
             -f deploy/identity-acceptance/Dockerfile.fastgpt "$source_dir"
-          docker buildx build --platform linux/amd64 --load \
-            -t dachuan-fastgpt-canary-ci:runtime \
-            -f deploy/identity-acceptance/Dockerfile.fastgpt "$source_dir"
-          digest="$(node -e "const x=require(process.argv[1]); const d=x['containerimage.digest']; if(!d) process.exit(2); process.stdout.write(d)" "$output_dir/fastgpt-build-metadata.json")"
-          node -e "const fs=require('fs'); fs.writeFileSync(process.argv[1], JSON.stringify({sourceCommit:process.env.FASTGPT_COMMIT,sourceImageDigest:process.env.FASTGPT_IMAGE.split('@')[1],patchedImage:'dachuan-fastgpt:v4.15.2-dachuan@'+process.argv[2],patchSha256:require('crypto').createHash('sha256').update(fs.readFileSync('deploy/fastgpt/v4.15.2/0001-dachuan-trusted-mcp-identity.patch')).digest('hex'),focusedTests:'PASS',concurrencyAcceptance:'PASS',canaryIsolation:'PASS',agentEngine:'fastAgent',sourcePatchApply:'PASS'},null,2))" "$output_dir/fastgpt-v4.15.2-compatibility.json" "$digest"
+          archive_dir="$RUNNER_TEMP/fastgpt-docker-archive"
+          mkdir -p "$archive_dir"
+          tar -xf "$output_dir/fastgpt-v4.15.2-canary-linux-amd64.tar" -C "$archive_dir"
+          node deploy/production-mcp/ci/inspect-docker-archive.mjs "$archive_dir" "$image_tag" "$output_dir/fastgpt-image-archive-manifest.json"
+          metadata_digest="$(node -e "const x=require(process.argv[1]); const d=x['containerimage.digest']; if(!d) process.exit(2); process.stdout.write(d)" "$output_dir/fastgpt-build-metadata.json")"
+          test -n "$metadata_digest"
+          docker load -i "$output_dir/fastgpt-v4.15.2-canary-linux-amd64.tar"
+          test "$(docker image inspect "$image_tag" --format '{{.Os}}/{{.Architecture}}')" = linux/amd64
+          docker tag "$image_tag" dachuan-fastgpt-canary-ci:runtime
+          echo "FASTGPT_PATCHED_IMAGE_TAG=$image_tag" >> "$GITHUB_ENV"
+          echo "FASTGPT_PATCHED_IMAGE_DIGEST=$metadata_digest" >> "$GITHUB_ENV"
+          echo "FASTGPT_PATCHED_ARCHIVE_LOAD=PASS"
 
       - name: Real Linux Canary runtime acceptance
         run: |
@@ -113,6 +130,7 @@ jobs:
           node deploy/production-mcp/ci/prepare-runtime-env.mjs mcp "$runtime_env" "dachuanpro-mcp-runtime:${GITHUB_RUN_ID}"
           bash deploy/production-mcp/runtime-mcp-accept.sh "$runtime_env" | tee "$RUNNER_TEMP/mcp-runtime-acceptance.log"
           grep -qx 'MCP_RUNTIME_MINIMUM_DB_QUERY=PASS' "$RUNNER_TEMP/mcp-runtime-acceptance.log"
+          grep -qx 'MCP_RUNTIME_SHOW_GRANTS=PASS' "$RUNNER_TEMP/mcp-runtime-acceptance.log"
           grep -qx 'MCP_RUNTIME_AUDIT_INSERT_AND_FAIL_CLOSED=PASS' "$RUNNER_TEMP/mcp-runtime-acceptance.log"
           grep -qx 'MCP_RUNTIME_ASSERTION_GATEWAY_REPLAY_ALLOWLIST=PASS' "$RUNNER_TEMP/mcp-runtime-acceptance.log"
           grep -qx 'MCP_RUNTIME_CONCURRENCY=PASS' "$RUNNER_TEMP/mcp-runtime-acceptance.log"
@@ -121,17 +139,43 @@ jobs:
       - name: Create secret-free final ZIP and report
         run: |
           output_dir="$RUNNER_TEMP/$ARTIFACT_NAME"
+          mcp_tag="dachuanpro-mcp-runtime:${GITHUB_RUN_ID}"
+          test "$(docker image inspect "$mcp_tag" --format '{{.Os}}/{{.Architecture}}')" = linux/amd64
+          docker save -o "$output_dir/dachuanpro-mcp-linux-amd64.tar" "$mcp_tag"
+          mcp_archive_dir="$RUNNER_TEMP/mcp-docker-archive"
+          mkdir -p "$mcp_archive_dir"
+          tar -xf "$output_dir/dachuanpro-mcp-linux-amd64.tar" -C "$mcp_archive_dir"
+          node deploy/production-mcp/ci/inspect-docker-archive.mjs "$mcp_archive_dir" "$mcp_tag" "$output_dir/mcp-image-archive-manifest.json"
           cp -a deploy/production-mcp "$output_dir/production-mcp"
           cp "$RUNNER_TEMP/production-mcp-tests.log" "$output_dir/production-mcp-tests.log"
           cp "$RUNNER_TEMP/canary-runtime-acceptance.log" "$output_dir/canary-runtime-acceptance.log"
           cp "$RUNNER_TEMP/mcp-runtime-acceptance.log" "$output_dir/mcp-runtime-acceptance.log"
-          (cd "$output_dir" && zip -qr "$ARTIFACT_NAME.zip" production-mcp fastgpt-v4.15.2-compatibility.json fastgpt-build-metadata.json production-mcp-tests.log canary-runtime-acceptance.log mcp-runtime-acceptance.log)
-          ! unzip -p "$output_dir/$ARTIFACT_NAME.zip" | grep -Eqi 'BEGIN (RSA|EC|OPENSSH) PRIVATE KEY|AGENT_GATEWAY_FASTGPT_API_KEY=[^R]|DATABASE_URL=[^R].*://[^R]'
-          sha256sum "$output_dir/$ARTIFACT_NAME.zip" | tee "$output_dir/SHA256SUMS"
-          find "$output_dir" -type f -printf '%P\n' | sort | tee "$output_dir/FILE_LIST.txt"
+          node deploy/production-mcp/ci/generate-final-proof.mjs "$output_dir" "$FASTGPT_PATCHED_IMAGE_TAG"
           grep -x 'DEPLOY_AND_ROLLBACK_FORMAL_FASTGPT_3100=PASS' "$RUNNER_TEMP/mcp-runtime-acceptance.log" | tee "$output_dir/ROLLBACK_PROOF.txt"
+          node deploy/production-mcp/ci/scan-artifact-secrets.mjs \
+            "$output_dir/production-mcp" \
+            "$output_dir/production-mcp-tests.log" \
+            "$output_dir/canary-runtime-acceptance.log" \
+            "$output_dir/mcp-runtime-acceptance.log"
+          (cd "$output_dir" && zip -qr "$ARTIFACT_NAME.zip" \
+            production-mcp \
+            fastgpt-v4.15.2-canary-linux-amd64.tar \
+            dachuanpro-mcp-linux-amd64.tar \
+            fastgpt-v4.15.2-compatibility.json \
+            fastgpt-build-metadata.json \
+            fastgpt-image-archive-manifest.json \
+            mcp-image-archive-manifest.json \
+            IMAGE_DIGESTS.tsv \
+            ROLLBACK_PROOF.txt \
+            production-mcp-tests.log \
+            canary-runtime-acceptance.log \
+            mcp-runtime-acceptance.log)
+          unzip -t "$output_dir/$ARTIFACT_NAME.zip" >/dev/null
+          (cd "$output_dir" && sha256sum "$ARTIFACT_NAME.zip" | tee SHA256SUMS)
+          rm "$output_dir/fastgpt-v4.15.2-canary-linux-amd64.tar" "$output_dir/dachuanpro-mcp-linux-amd64.tar"
+          find "$output_dir" -type f -printf '%P\n' | sort | tee "$output_dir/FILE_LIST.txt"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: ${{ env.ARTIFACT_NAME }}
           path: ${{ runner.temp }}/${{ env.ARTIFACT_NAME }}

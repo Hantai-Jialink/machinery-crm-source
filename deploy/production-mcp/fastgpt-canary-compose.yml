@@ -1,6 +1,7 @@
 services:
   fastgpt-canary:
     image: ${FASTGPT_CANARY_IMAGE:?FASTGPT_CANARY_IMAGE is required}
+    platform: linux/amd64
     restart: unless-stopped
     environment:
       MONGODB_URI: mongodb://${CANARY_MONGO_ROOT_USER}:${CANARY_MONGO_ROOT_PASSWORD}@fastgpt-canary-mongo:27017/${CANARY_MONGO_DATABASE}?authSource=admin&replicaSet=rs0
@@ -34,9 +35,9 @@ services:
         condition: service_completed_successfully
       fastgpt-canary-aiproxy:
         condition: service_healthy
-    networks: [fastgpt-canary-data]
+    networks: [fastgpt-canary-data, fastgpt-canary-ai-egress]
     healthcheck:
-      test: ["CMD-SHELL", "curl --fail --silent --show-error http://127.0.0.1:3000/api/health"]
+      test: ["CMD-SHELL", "curl --fail --silent --show-error http://127.0.0.1:3000/health"]
       interval: 15s
       timeout: 5s
       retries: 30
@@ -45,7 +46,8 @@ services:
       dachuan.canary.isolated: "true"
 
   fastgpt-canary-mongo-key-init:
-    image: mongo:7.0
+    image: mongo:7.0@sha256:c8e9c92621124cd1da98f540c40157b9f6f338ba59babf296cf0f381ac8f60f4
+    platform: linux/amd64
     restart: "no"
     network_mode: none
     volumes:
@@ -54,17 +56,12 @@ services:
         target: /run/canary-secrets/mongodb-keyfile
         read_only: true
       - fastgpt-canary-mongo-key:/mongo-key
-    entrypoint: ["/bin/bash", "-ec"]
-    command: |
-      mongo_uid="$$(id -u mongodb)"
-      mongo_gid="$$(id -g mongodb)"
-      install -m 0400 -o "$$mongo_uid" -g "$$mongo_gid" /run/canary-secrets/mongodb-keyfile /mongo-key/mongodb-keyfile
-      test "$$(stat -c '%a' /mongo-key/mongodb-keyfile)" = 400
-      test "$$(stat -c '%u:%g' /mongo-key/mongodb-keyfile)" = "$$mongo_uid:$$mongo_gid"
-      echo 'CANARY_MONGO_KEYFILE_INIT=PASS'
+      - ./ci/mongo-key-init.sh:/usr/local/bin/dachuan-mongo-key-init:ro
+    entrypoint: ["/bin/bash", "/usr/local/bin/dachuan-mongo-key-init"]
 
   fastgpt-canary-mongo:
-    image: mongo:7.0
+    image: mongo:7.0@sha256:c8e9c92621124cd1da98f540c40157b9f6f338ba59babf296cf0f381ac8f60f4
+    platform: linux/amd64
     command: ["mongod", "--auth", "--keyFile", "/etc/mongo-key/mongodb-keyfile", "--replSet", "rs0", "--bind_ip_all"]
     environment:
       MONGO_INITDB_ROOT_USERNAME: ${CANARY_MONGO_ROOT_USER}
@@ -84,27 +81,23 @@ services:
       start_period: 20s
 
   fastgpt-canary-mongo-init:
-    image: mongo:7.0
+    image: mongo:7.0@sha256:c8e9c92621124cd1da98f540c40157b9f6f338ba59babf296cf0f381ac8f60f4
+    platform: linux/amd64
     restart: "no"
     environment:
       CANARY_MONGO_ROOT_USER: ${CANARY_MONGO_ROOT_USER}
       CANARY_MONGO_ROOT_PASSWORD: ${CANARY_MONGO_ROOT_PASSWORD}
+    volumes:
+      - ./ci/mongo-replica-init.sh:/usr/local/bin/dachuan-mongo-replica-init:ro
     depends_on:
       fastgpt-canary-mongo:
         condition: service_started
     networks: [fastgpt-canary-data]
-    command:
-      - bash
-      - -ec
-      - |
-        until mongosh --host fastgpt-canary-mongo --username "$$CANARY_MONGO_ROOT_USER" --password "$$CANARY_MONGO_ROOT_PASSWORD" --authenticationDatabase admin --quiet --eval 'db.adminCommand({ ping: 1 }).ok' | grep -x 1; do sleep 2; done
-        if ! mongosh --host fastgpt-canary-mongo --username "$$CANARY_MONGO_ROOT_USER" --password "$$CANARY_MONGO_ROOT_PASSWORD" --authenticationDatabase admin --quiet --eval 'try { rs.status().ok } catch (_) { 0 }' | grep -x 1; then
-          mongosh --host fastgpt-canary-mongo --username "$$CANARY_MONGO_ROOT_USER" --password "$$CANARY_MONGO_ROOT_PASSWORD" --authenticationDatabase admin --quiet --eval 'rs.initiate({_id:"rs0", members:[{_id:0, host:"fastgpt-canary-mongo:27017"}]})'
-        fi
-        until mongosh --host fastgpt-canary-mongo --username "$$CANARY_MONGO_ROOT_USER" --password "$$CANARY_MONGO_ROOT_PASSWORD" --authenticationDatabase admin --quiet --eval 'rs.status().ok' | grep -x 1; do sleep 2; done
+    entrypoint: ["/bin/bash", "/usr/local/bin/dachuan-mongo-replica-init"]
 
   fastgpt-canary-redis:
-    image: redis:7.2-alpine
+    image: redis:7.2-alpine@sha256:942b86c020b801daa83baee4ab6a125c244bf6dba7e5c6996d03e569e6aa1c19
+    platform: linux/amd64
     environment:
       CANARY_REDIS_PASSWORD: ${CANARY_REDIS_PASSWORD}
     command: ["sh", "-ec", "exec redis-server --requirepass \"$$CANARY_REDIS_PASSWORD\" --appendonly yes"]
@@ -117,7 +110,8 @@ services:
       retries: 12
 
   fastgpt-canary-minio:
-    image: minio/minio:RELEASE.2025-04-22T22-12-26Z
+    image: minio/minio:RELEASE.2025-04-22T22-12-26Z@sha256:3f97c5651cb6662b880c787a232b6b34fec8d8922e08d6617b25d241a21164bb
+    platform: linux/amd64
     command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: ${CANARY_MINIO_ROOT_USER}
@@ -131,7 +125,8 @@ services:
       retries: 20
 
   fastgpt-canary-minio-init:
-    image: minio/mc:RELEASE.2025-04-16T18-13-26Z
+    image: minio/mc:RELEASE.2025-04-16T18-13-26Z@sha256:2582c2f48b1e31545143ba5285c67d7b38c8b8f6912142d0630686dc7aaac28b
+    platform: linux/amd64
     restart: "no"
     environment:
       CANARY_MINIO_ROOT_USER: ${CANARY_MINIO_ROOT_USER}
@@ -142,37 +137,19 @@ services:
       fastgpt-canary-minio:
         condition: service_healthy
     networks: [fastgpt-canary-data]
-    entrypoint: ["/bin/sh", "-ec"]
-    command: |
-      attempt=1
-      until mc alias set canary http://fastgpt-canary-minio:9000 "$$CANARY_MINIO_ROOT_USER" "$$CANARY_MINIO_ROOT_PASSWORD"; do
-        if [ "$$attempt" -ge 30 ]; then
-          echo "MinIO alias initialization failed after $$attempt attempts" >&2
-          exit 1
-        fi
-        attempt=$$((attempt + 1))
-        sleep 2
-      done
-      mc mb --ignore-existing "canary/$$CANARY_STORAGE_PUBLIC_BUCKET"
-      mc mb --ignore-existing "canary/$$CANARY_STORAGE_PRIVATE_BUCKET"
-      attempt=1
-      until mc stat "canary/$$CANARY_STORAGE_PUBLIC_BUCKET" && mc stat "canary/$$CANARY_STORAGE_PRIVATE_BUCKET"; do
-        if [ "$$attempt" -ge 30 ]; then
-          echo "Canary bucket existence check failed after $$attempt attempts" >&2
-          exit 1
-        fi
-        attempt=$$((attempt + 1))
-        sleep 2
-      done
+    volumes:
+      - ./ci/minio-init.sh:/usr/local/bin/dachuan-minio-init:ro
+    entrypoint: ["/bin/sh", "/usr/local/bin/dachuan-minio-init"]
 
   fastgpt-canary-aiproxy-postgres:
-    image: pgvector/pgvector:0.8.0-pg15
+    image: pgvector/pgvector:0.8.0-pg15@sha256:c50b98b074c4c370da995eb03c8f6bb6dcc2e9d8911e1974c1af981055a168e6
+    platform: linux/amd64
     environment:
       POSTGRES_USER: postgres
       POSTGRES_DB: aiproxy
       POSTGRES_PASSWORD: ${CANARY_AIPROXY_POSTGRES_PASSWORD}
     volumes: ["fastgpt-canary-aiproxy-postgres:/var/lib/postgresql/data"]
-    networks: [fastgpt-canary-data, fastgpt-canary-ai-egress]
+    networks: [fastgpt-canary-data]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d aiproxy"]
       interval: 5s
@@ -181,6 +158,7 @@ services:
 
   fastgpt-canary-aiproxy:
     image: ${CANARY_AIPROXY_IMAGE:?CANARY_AIPROXY_IMAGE is required}
+    platform: linux/amd64
     environment:
       ADMIN_KEY: ${CANARY_AIPROXY_ADMIN_KEY}
       SQL_DSN: postgresql://postgres:${CANARY_AIPROXY_POSTGRES_PASSWORD}@fastgpt-canary-aiproxy-postgres:5432/aiproxy
@@ -195,14 +173,15 @@ services:
         condition: service_healthy
     networks: [fastgpt-canary-data, fastgpt-canary-ai-egress]
     healthcheck:
-      test: ["CMD-SHELL", "curl --fail --silent --show-error http://127.0.0.1:3000/health"]
+      test: ["CMD-SHELL", "curl --fail --silent --show-error http://127.0.0.1:3000/api/status"]
       interval: 10s
       timeout: 5s
       retries: 30
 
   # 仅 CI profile 使用的确定性 OpenAI 兼容模型；正式 Compose 不会启动它。
   fastgpt-canary-model-mock:
-    image: node:24.16.0-alpine
+    image: node:24.16.0-alpine@sha256:bc23e6976e92708e9eadae437d7dd180b3fd47ed75edf322d6cfa36eba4a7fc8
+    platform: linux/amd64
     profiles: ["ci"]
     volumes:
       - ./ci/model-mock.mjs:/app/model-mock.mjs:ro

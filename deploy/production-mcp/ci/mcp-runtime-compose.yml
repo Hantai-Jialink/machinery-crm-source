@@ -1,6 +1,7 @@
 services:
   mysql:
-    image: mysql:8.0.44
+    image: mysql:8.0.44@sha256:f7878bec832c6be5e61c39d3949651be8aa977daf875089b4560ae1434d2cb9c
+    platform: linux/amd64
     command: ["--character-set-server=utf8mb4", "--collation-server=utf8mb4_unicode_ci"]
     environment:
       MYSQL_DATABASE: ${CRM_DATABASE}
@@ -17,7 +18,8 @@ services:
       retries: 30
 
   dachuanpro-mcp-redis:
-    image: redis:7.2-alpine
+    image: redis:7.2-alpine@sha256:942b86c020b801daa83baee4ab6a125c244bf6dba7e5c6996d03e569e6aa1c19
+    platform: linux/amd64
     command: ["sh", "-ec", "exec redis-server --requirepass \"$$REDIS_PASSWORD\" --appendonly yes"]
     environment:
       REDIS_PASSWORD: ${REDIS_PASSWORD}
@@ -35,6 +37,7 @@ services:
       context: ../../..
       dockerfile: deploy/identity-acceptance/Dockerfile.acceptance
     image: dachuanpro-production-mcp-runtime-runner:ci
+    platform: linux/amd64
     env_file: ${PRODUCTION_ENV_FILE}
     environment:
       IDENTITY_ACCEPTANCE_ENV: isolated
@@ -54,7 +57,8 @@ services:
     restart: "no"
 
   fastgpt-gateway-upstream:
-    image: node:20-alpine
+    image: node:20-alpine@sha256:afdf98210b07b586eb71fa22ba2e432e058e4cd1304d31ed60888755b8c865fb
+    platform: linux/amd64
     command: ["node", "/mock/model-mock.mjs"]
     volumes:
       - ./model-mock.mjs:/mock/model-mock.mjs:ro
@@ -70,6 +74,7 @@ services:
       context: ../../..
       dockerfile: deploy/identity-acceptance/Dockerfile.mcp
     image: ${MCP_IMAGE}
+    platform: linux/amd64
     env_file: ${PRODUCTION_ENV_FILE}
     depends_on:
       db-init:
@@ -92,6 +97,7 @@ services:
 
   mcp-runtime-acceptance:
     image: dachuanpro-production-mcp-runtime-runner:ci
+    platform: linux/amd64
     env_file: ${PRODUCTION_ENV_FILE}
     command: ["corepack", "pnpm", "exec", "tsx", "deploy/production-mcp/ci/run-mcp-runtime-acceptance.ts"]
     depends_on:

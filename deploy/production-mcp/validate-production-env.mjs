@@ -11,11 +11,11 @@ const values = Object.fromEntries(fs.readFileSync(envFile, 'utf8').split(/\r?\n/
     return [line.slice(0, index), line.slice(index + 1)];
   }));
 const required = [
-  'MCP_IMAGE', 'CRM_DATABASE', 'DATABASE_URL', 'MCP_AUDIT_DATABASE_URL', 'MYSQL_CLIENT_DEFAULTS_FILE', 'MCP_AUDIT_MYSQL_CLIENT_DEFAULTS_FILE', 'MCP_DATABASE_GRANT_HOST', 'MCP_DATABASE_READ_USER', 'MCP_DATABASE_AUDIT_USER', 'AUTH_SECRET', 'AUTH_URL', 'MCP_AUDIT_USER_ID',
+  'MCP_IMAGE', 'MCP_IMAGE_ARCHIVE', 'MCP_IMAGE_IDENTITY_PROOF', 'CRM_DATABASE', 'DATABASE_URL', 'MCP_AUDIT_DATABASE_URL', 'MYSQL_CLIENT_DEFAULTS_FILE', 'MCP_AUDIT_MYSQL_CLIENT_DEFAULTS_FILE', 'MYSQL_CLIENT_IMAGE', 'MCP_DATABASE_GRANT_HOST', 'MCP_DATABASE_READ_USER', 'MCP_DATABASE_AUDIT_USER', 'AUTH_SECRET', 'AUTH_URL', 'MCP_AUDIT_USER_ID',
   'MCP_API_KEYS_JSON', 'MCP_TOOL_MODE', 'MCP_TOOL_ALLOWLIST', 'MCP_ALLOWED_HOSTS', 'AGENT_AUTH_ISSUER', 'AGENT_AUTH_AUDIENCE',
-  'AGENT_AUTH_ACTIVE_KID', 'AGENT_AUTH_KEYS_JSON', 'AGENT_AUTH_REDIS_URL', 'AGENT_GATEWAY_FASTGPT_CHAT_URL',
+  'AGENT_AUTH_ACTIVE_KID', 'AGENT_AUTH_KEYS_JSON', 'REDIS_PASSWORD', 'AGENT_AUTH_REDIS_URL', 'AGENT_GATEWAY_FASTGPT_CHAT_URL',
   'AGENT_GATEWAY_FASTGPT_API_KEY', 'AGENT_GATEWAY_ALLOWED_ORIGINS', 'AGENT_GATEWAY_ALLOWED_ROLES',
-  'FORMAL_FASTGPT_HEALTH_URL', 'FASTGPT_CANARY_HEALTH_URL', 'FASTGPT_CANARY_COMPATIBILITY_PROOF', 'FASTGPT_SOURCE_COMMIT', 'FASTGPT_BASE_IMAGE', 'FASTGPT_CANARY_IMAGE', 'FASTGPT_DIR', 'CRM_DIR',
+  'FORMAL_FASTGPT_HEALTH_URL', 'FASTGPT_CANARY_HEALTH_URL', 'FASTGPT_CANARY_COMPATIBILITY_PROOF', 'FASTGPT_SOURCE_COMMIT', 'FASTGPT_BASE_IMAGE', 'FASTGPT_CANARY_IMAGE', 'FASTGPT_CANARY_ARCHIVE', 'FASTGPT_DIR', 'CRM_DIR',
   'NGINX_GATEWAY_INCLUDE', 'BACKUP_ROOT',
   'FORMAL_FASTGPT_MONGO_FINGERPRINT', 'CANARY_FASTGPT_MONGO_FINGERPRINT', 'FORMAL_FASTGPT_REDIS_FINGERPRINT', 'CANARY_FASTGPT_REDIS_FINGERPRINT',
   'FORMAL_FASTGPT_OBJECT_STORAGE_FINGERPRINT', 'CANARY_FASTGPT_OBJECT_STORAGE_FINGERPRINT', 'FORMAL_FASTGPT_APP_FINGERPRINT', 'CANARY_FASTGPT_APP_FINGERPRINT',
@@ -39,9 +39,20 @@ const phaseOneTools = new Set(['dachuan_identity_who_am_i', 'crm_customer_get', 
 if (!tools.includes('dachuan_identity_who_am_i') || tools.length > 3 || tools.some((tool) => !phaseOneTools.has(tool))) {
   throw new Error('Phase one permits who_am_i and at most two exact-ID read-only tools');
 }
-if (!/@sha256:[a-f0-9]{64}$/i.test(values.MCP_IMAGE)) throw new Error('MCP_IMAGE must use an immutable @sha256 digest');
-if (!/@sha256:[a-f0-9]{64}$/i.test(values.CANARY_AIPROXY_IMAGE)) throw new Error('CANARY_AIPROXY_IMAGE must use an immutable @sha256 digest');
-if (/^(localhost|127\.0\.0\.1|::1)$/i.test(values.MCP_DATABASE_GRANT_HOST)) throw new Error('MCP_DATABASE_GRANT_HOST must be the actual Docker source host, never localhost');
+if (!/^dachuanpro-mcp-runtime:[0-9]+$/.test(values.MCP_IMAGE)) throw new Error('MCP_IMAGE must use the fixed RepoTag from the approved artifact');
+if (!path.isAbsolute(values.MCP_IMAGE_ARCHIVE)) throw new Error('MCP_IMAGE_ARCHIVE must be an absolute path');
+if (!/^mysql:8\.0\.44@sha256:[a-f0-9]{64}$/i.test(values.MYSQL_CLIENT_IMAGE)) throw new Error('MYSQL_CLIENT_IMAGE must pin MySQL 8.0.44 by digest');
+if (values.CANARY_AIPROXY_IMAGE !== 'ghcr.io/labring/aiproxy:v0.6.5@sha256:e96073363ac3e38fd0c28b7653aa18916e93c57a688452450c619023b7811e4d') throw new Error('CANARY_AIPROXY_IMAGE must use the approved v0.6.5 AMD64 digest');
+let agentRedis;
+try {
+  agentRedis = new URL(values.AGENT_AUTH_REDIS_URL);
+} catch {
+  throw new Error('AGENT_AUTH_REDIS_URL must be a valid absolute URL');
+}
+if (agentRedis.protocol !== 'redis:' || agentRedis.hostname !== 'dachuanpro-mcp-redis' || agentRedis.password !== values.REDIS_PASSWORD) {
+  throw new Error('Agent assertion Redis must use the dedicated password-protected production container');
+}
+if (values.MCP_DATABASE_GRANT_HOST !== '172.30.31.10') throw new Error('MCP_DATABASE_GRANT_HOST must match the fixed MCP container address 172.30.31.10');
 if (!path.isAbsolute(values.CANARY_MONGO_REPLICA_KEY_FILE)) throw new Error('CANARY_MONGO_REPLICA_KEY_FILE must be an absolute path');
 let mongoReplicaKey;
 try {
@@ -51,9 +62,15 @@ try {
 }
 if (!/^[a-f0-9]{64,1024}$/i.test(mongoReplicaKey)) throw new Error('Canary Mongo replica keyfile must contain 64-1024 hexadecimal characters');
 if (mongoReplicaKey === values.CANARY_MONGO_ROOT_PASSWORD) throw new Error('Canary Mongo replica key must differ from the root password');
+for (const name of ['CANARY_MONGO_ROOT_USER', 'CANARY_MONGO_ROOT_PASSWORD', 'CANARY_REDIS_PASSWORD', 'CANARY_AIPROXY_POSTGRES_PASSWORD']) {
+  if (!/^[A-Za-z0-9._~-]+$/.test(values[name])) {
+    throw new Error(`${name} must use URI-safe characters because Compose embeds it in a connection URL`);
+  }
+}
 if (values.FASTGPT_SOURCE_COMMIT !== 'b9b6e2305e70823c9706291de4b19c4dc3ae05f6') throw new Error('FastGPT source must be exact v4.15.2 commit b9b6e2305e70823c9706291de4b19c4dc3ae05f6');
 if (values.FASTGPT_BASE_IMAGE !== 'ghcr.io/labring/fastgpt:v4.15.2@sha256:8f09f9dd41c17aecec6bbe69a332432fdf4e686546f050d65e670bda60aa2033') throw new Error('FastGPT base image must be the approved v4.15.2 AMD64 digest');
-if (!/@sha256:[a-f0-9]{64}$/i.test(values.FASTGPT_CANARY_IMAGE) || values.FASTGPT_CANARY_IMAGE === values.FASTGPT_BASE_IMAGE) throw new Error('FastGPT Canary must be a separately built immutable image');
+if (!/^dachuan-fastgpt:v4\.15\.2-dachuan-[0-9]+$/.test(values.FASTGPT_CANARY_IMAGE)) throw new Error('FastGPT Canary must use the fixed RepoTag from the approved artifact');
+if (!path.isAbsolute(values.FASTGPT_CANARY_ARCHIVE)) throw new Error('FASTGPT_CANARY_ARCHIVE must be an absolute path');
 const agentEngine = String(values.FASTGPT_CANARY_AGENT_ENGINE || '').trim();
 if (agentEngine && !['fastAgent', 'piAgent'].includes(agentEngine)) throw new Error('FASTGPT_CANARY_AGENT_ENGINE may be only fastAgent, piAgent, or unset');
 for (const resource of ['MONGO', 'REDIS', 'OBJECT_STORAGE', 'APP', 'USER', 'SESSION', 'API_KEY', 'AI_PROXY', 'MODEL_SERVICE']) {
@@ -74,16 +91,23 @@ try {
 if (formalFastGpt.origin === canaryFastGpt.origin || formalFastGpt.origin === gatewayFastGpt.origin) {
   throw new Error('Canary and gateway targets must not share the formal FastGPT origin');
 }
+if (canaryFastGpt.pathname !== '/health') throw new Error('FastGPT v4.15.2 Canary health URL must use /health');
 if (canaryFastGpt.origin !== gatewayFastGpt.origin) {
   throw new Error('Agent Gateway must target the same FastGPT Canary origin checked by preflight');
 }
 console.log(`PRODUCTION_ENV=PASS phaseOneTools=${tools.length}`);
+const mcpProofPath = path.resolve(path.dirname(envFile), values.MCP_IMAGE_IDENTITY_PROOF);
+const mcpProof = JSON.parse(fs.readFileSync(mcpProofPath, 'utf8'));
+if (mcpProof.repoTag !== values.MCP_IMAGE || !/^sha256:[a-f0-9]{64}$/i.test(mcpProof.configDigest) || !/^sha256:[a-f0-9]{64}$/i.test(mcpProof.archiveSha256) || mcpProof.os !== 'linux' || mcpProof.architecture !== 'amd64') {
+  throw new Error('MCP image archive identity proof is not approved');
+}
+console.log('MCP_IMAGE_ARCHIVE_PROOF=PASS');
 const proofPath = path.resolve(path.dirname(envFile), values.FASTGPT_CANARY_COMPATIBILITY_PROOF);
 const proof = JSON.parse(fs.readFileSync(proofPath, 'utf8'));
-for (const name of ['sourceCommit', 'sourceImageDigest', 'patchedImage', 'patchSha256', 'focusedTests', 'concurrencyAcceptance', 'canaryIsolation', 'agentEngine', 'sourcePatchApply']) {
+for (const name of ['sourceCommit', 'sourceImageDigest', 'patchedImage', 'patchedManifestDigest', 'patchedConfigDigest', 'patchedArchiveSha256', 'patchSha256', 'focusedTests', 'concurrencyAcceptance', 'canaryIsolation', 'agentEngine', 'sourcePatchApply', 'runtimeAcceptance', 'rollbackProof']) {
   if (!proof[name]) throw new Error(`FastGPT compatibility proof is missing ${name}`);
 }
-if (proof.sourceCommit !== values.FASTGPT_SOURCE_COMMIT || proof.sourceImageDigest !== values.FASTGPT_BASE_IMAGE.split('@')[1] || proof.patchedImage !== values.FASTGPT_CANARY_IMAGE || !String(proof.patchedImage).includes('v4.15.2') || proof.focusedTests !== 'PASS' || proof.concurrencyAcceptance !== 'PASS' || proof.canaryIsolation !== 'PASS' || proof.sourcePatchApply !== 'PASS' || (proof.agentEngine && !['fastAgent', 'piAgent'].includes(proof.agentEngine)) || (agentEngine && proof.agentEngine !== agentEngine)) {
+if (proof.sourceCommit !== values.FASTGPT_SOURCE_COMMIT || proof.sourceImageDigest !== values.FASTGPT_BASE_IMAGE.split('@')[1] || proof.patchedImageTag !== values.FASTGPT_CANARY_IMAGE || proof.patchedImage !== `${proof.patchedImageTag}@${proof.patchedManifestDigest}` || !String(proof.patchedImage).includes('v4.15.2') || !/^sha256:[a-f0-9]{64}$/i.test(proof.patchedManifestDigest) || !/^sha256:[a-f0-9]{64}$/i.test(proof.patchedConfigDigest) || !/^sha256:[a-f0-9]{64}$/i.test(proof.patchedArchiveSha256) || proof.focusedTests !== 'PASS' || proof.concurrencyAcceptance !== 'PASS' || proof.canaryIsolation !== 'PASS' || proof.sourcePatchApply !== 'PASS' || proof.runtimeAcceptance !== 'PASS' || proof.rollbackProof !== 'PASS' || (proof.agentEngine && !['fastAgent', 'piAgent'].includes(proof.agentEngine)) || (agentEngine && proof.agentEngine !== agentEngine)) {
   throw new Error('FastGPT 4.15.2 compatibility proof is not approved');
 }
 console.log('FASTGPT_4152_COMPATIBILITY_PROOF=PASS');

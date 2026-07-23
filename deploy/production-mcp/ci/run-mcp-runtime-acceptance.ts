@@ -51,14 +51,14 @@ async function issue(userId = "identity-acceptance-admin", role: "SUPER_ADMIN" |
   return (await runtime.tokenService.issue(userId, role)).token;
 }
 
-async function customAssertion({ audience, expired = false, wrongKey = false }: { audience?: string; expired?: boolean; wrongKey?: boolean }) {
+async function customAssertion({ audience, expired = false, future = false, wrongKey = false }: { audience?: string; expired?: boolean; future?: boolean; wrongKey?: boolean }) {
   const configured = JSON.parse(required("AGENT_AUTH_KEYS_JSON")) as Array<{ kid: string; privateJwk: JWK }>;
   const active = configured.find((entry) => entry.kid === required("AGENT_AUTH_ACTIVE_KID"));
   if (!active?.privateJwk) throw new Error("CI signing key is missing");
   const alternate = generateKeyPairSync("ed25519").privateKey.export({ format: "jwk" });
   const signingKey = await importJWK(wrongKey ? alternate : active.privateJwk, "EdDSA");
   const now = Math.floor(Date.now() / 1000);
-  const issuedAt = expired ? now - 900 : now;
+  const issuedAt = expired ? now - 900 : future ? now + 120 : now;
   const jti = `runtime-custom-${randomUUID()}`;
   const token = await new SignJWT({ role: "SUPER_ADMIN" })
     .setProtectedHeader({ alg: "EdDSA", kid: active.kid, typ: "JWT" })
@@ -88,6 +88,8 @@ try {
   check(wrongSignature.status === 401, "Wrong-signature assertion was not rejected");
   const expired = await rpc("tools/call", { name: "dachuan_identity_who_am_i", arguments: {} }, await customAssertion({ expired: true }));
   check(expired.status === 401, "Expired assertion was not rejected");
+  const future = await rpc("tools/call", { name: "dachuan_identity_who_am_i", arguments: {} }, await customAssertion({ future: true }));
+  check(future.status === 401, "Future-issued assertion was not rejected");
 
   const replayToken = await issue();
   const replayFirst = await rpc("tools/call", { name: "dachuan_identity_who_am_i", arguments: {} }, replayToken);
@@ -104,6 +106,15 @@ try {
   ]);
   check(customer.status === 200 && data(customer)?.id === "identity-acceptance-customer-sales-a", "MCP minimum-account customer query failed");
   check(contract.status === 200 && data(contract)?.id === "identity-acceptance-contract-sales-a", "MCP minimum-account contract query failed");
+  const concurrent = await Promise.all(Array.from({ length: 12 }, async (_, index) => {
+    return rpc(
+      "tools/call",
+      { name: "dachuan_identity_who_am_i", arguments: {} },
+      await issue(),
+      `runtime-concurrent-${String(index + 1).padStart(2, "0")}`,
+    );
+  }));
+  check(concurrent.every((result) => result.status === 200 && data(result)?.role === "SUPER_ADMIN"), "Concurrent MCP identity calls were not isolated");
 
   const salesSession = await crmLoginSession({
     crmUrl,
@@ -137,9 +148,10 @@ try {
   for (const table of ["users", "customers", "customer_quotes", "follow_records", "contracts", "contract_items", "contract_payments", "shipments"]) {
     check(readGrants.includes(table), `Read grant is missing ${table}`);
   }
-  check(!/UPDATE|DELETE|CREATE|ALTER|DROP|FILE|PROCESS|GRANT OPTION/i.test(readGrants), "Read account has a forbidden privilege");
+  check(!/INSERT|UPDATE|DELETE|CREATE|ALTER|DROP|FILE|PROCESS|GRANT OPTION/i.test(readGrants), "Read account has a forbidden privilege");
   check(/INSERT/i.test(auditGrants) && auditGrants.includes("operation_logs"), "Audit account lacks operation_logs INSERT");
   check(!/SELECT|UPDATE|DELETE|CREATE|ALTER|DROP|FILE|PROCESS|GRANT OPTION/i.test(auditGrants), "Audit account has a forbidden privilege");
+  console.log("MCP_RUNTIME_SHOW_GRANTS=PASS");
 
   await admin.$executeRawUnsafe(`REVOKE INSERT ON dachuan_identity_acceptance.\`operation_logs\` FROM '${auditUser}'@'${host}'`);
   const failClosed = await rpc("tools/call", { name: "crm_customer_get", arguments: { id: "identity-acceptance-customer-sales-a" } }, await issue(), "runtime-audit-fail-closed");

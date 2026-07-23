@@ -1,4 +1,4 @@
-FROM node:20.20.2-bookworm-slim AS pnpm-toolchain
+FROM node:20.20.2-bookworm-slim@sha256:3d0f05455dea2c82e2f76e7e2543964c30f6b7d673fc1a83286736d44fe4c41c AS pnpm-toolchain
 WORKDIR /app
 ARG PNPM_VERSION=10.33.4
 RUN apt-get update \
@@ -33,7 +33,7 @@ RUN set -eux; \
     cp -aL "$prisma_generated" /runtime-prisma/.prisma; \
     cp -aL node_modules/@prisma /runtime-prisma/@prisma
 
-FROM node:20.20.2-bookworm-slim AS runtime
+FROM node:20.20.2-bookworm-slim@sha256:3d0f05455dea2c82e2f76e7e2543964c30f6b7d673fc1a83286736d44fe4c41c AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=3010

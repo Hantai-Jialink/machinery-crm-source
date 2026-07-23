@@ -2,7 +2,7 @@
 # The source context must be the pinned FastGPT checkout prepared by
 # build-fastgpt.ps1/build-fastgpt.sh.
 
-FROM node:24.16.0-alpine AS pnpm-toolchain
+FROM node:24.16.0-alpine@sha256:bc23e6976e92708e9eadae437d7dd180b3fd47ed75edf322d6cfa36eba4a7fc8 AS pnpm-toolchain
 WORKDIR /app
 
 ENV PNPM_VERSION=10.33.4
@@ -36,7 +36,7 @@ RUN set -eux; \
 # MongoMemoryServer does not publish an Alpine/musl binary. Run only the
 # trusted-identity patch tests in a Debian/glibc stage with the same Node and
 # pnpm versions; none of this stage is copied into the application image.
-FROM node:24.16.0-bookworm-slim AS identity-test-toolchain
+FROM node:24.16.0-bookworm-slim@sha256:ca520832af80fa37a57c14077ed0fcdd83b5aefccc356059fdc3a9a05b78ae1f AS identity-test-toolchain
 WORKDIR /app
 
 ENV PNPM_VERSION=10.33.4
@@ -176,7 +176,7 @@ RUN rm -rf projects/app/.next/standalone/node_modules/.pnpm/@next+rspack-binding
     projects/app/.next/standalone/node_modules/.pnpm/@img+sharp-libvips-linux-x64@*/
 
 # --------- runner -----------
-FROM node:24.16.0-alpine AS runner
+FROM node:24.16.0-alpine@sha256:bc23e6976e92708e9eadae437d7dd180b3fd47ed75edf322d6cfa36eba4a7fc8 AS runner
 WORKDIR /app
 
 ARG proxy

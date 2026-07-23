@@ -142,8 +142,8 @@ describe("Prisma MCP data source", () => {
   });
 
   it("records only the minimal audit identity and status fields", async () => {
-    const create = vi.fn().mockResolvedValue({ id: "log-1" });
-    const dataSource = createPrismaMcpDataSource({ operationLog: { create } } as never);
+    const createMany = vi.fn().mockResolvedValue({ count: 1 });
+    const dataSource = createPrismaMcpDataSource({ operationLog: { createMany } } as never);
 
     await dataSource.writeAudit({
       requestId: "request-1",
@@ -157,7 +157,7 @@ describe("Prisma MCP data source", () => {
       createdAt: new Date("2026-07-17T08:00:00.000Z"),
     });
 
-    expect(create).toHaveBeenCalledWith({ data: expect.objectContaining({
+    expect(createMany).toHaveBeenCalledWith({ data: [expect.objectContaining({
       userId: "audit-user-1",
       entityId: "request-1",
       afterData: {
@@ -171,16 +171,16 @@ describe("Prisma MCP data source", () => {
         rejectionReason: null,
         createdAt: "2026-07-17T08:00:00.000Z",
       },
-    }) });
-    expect(JSON.stringify(create.mock.calls)).not.toMatch(/argument|search|authorization|password/i);
+    })] });
+    expect(JSON.stringify(createMany.mock.calls)).not.toMatch(/argument|search|authorization|password/i);
   });
 
   it("uses the dedicated audit client and never writes through the business read client", async () => {
-    const readCreate = vi.fn();
-    const auditCreate = vi.fn().mockResolvedValue({ id: "log-1" });
+    const readCreateMany = vi.fn();
+    const auditCreateMany = vi.fn().mockResolvedValue({ count: 1 });
     const dataSource = createPrismaMcpDataSource(
-      { operationLog: { create: readCreate } } as never,
-      { operationLog: { create: auditCreate } } as never,
+      { operationLog: { createMany: readCreateMany } } as never,
+      { operationLog: { createMany: auditCreateMany } } as never,
     );
 
     await dataSource.writeAudit({
@@ -195,8 +195,8 @@ describe("Prisma MCP data source", () => {
       rejectionReason: "ROLE_MISMATCH",
     });
 
-    expect(readCreate).not.toHaveBeenCalled();
-    expect(auditCreate).toHaveBeenCalledOnce();
+    expect(readCreateMany).not.toHaveBeenCalled();
+    expect(auditCreateMany).toHaveBeenCalledOnce();
   });
 
   it("keeps the product list aligned with the existing active-product query", async () => {

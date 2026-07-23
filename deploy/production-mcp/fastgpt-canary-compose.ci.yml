@@ -1,7 +1,7 @@
 services:
   # CI 使用隔离 OpenAI 兼容 mock 替代外部 Canary AIProxy；正式 compose 不含此覆盖文件。
   fastgpt-canary-aiproxy:
-    image: node:24.16.0-alpine
+    image: node:24.16.0-alpine@sha256:bc23e6976e92708e9eadae437d7dd180b3fd47ed75edf322d6cfa36eba4a7fc8
     environment:
       PORT: "3000"
     volumes:

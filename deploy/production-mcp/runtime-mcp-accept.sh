@@ -21,7 +21,7 @@ cleanup() {
 trap cleanup EXIT
 
 docker run -d --name "$sentinel_name" -p 127.0.0.1:3100:8080 \
-  -v "$deploy_dir/ci/model-mock.mjs:/mock/model-mock.mjs:ro" node:20-alpine node /mock/model-mock.mjs >/dev/null
+  -v "$deploy_dir/ci/model-mock.mjs:/mock/model-mock.mjs:ro" node:20-alpine@sha256:afdf98210b07b586eb71fa22ba2e432e058e4cd1304d31ed60888755b8c865fb node /mock/model-mock.mjs >/dev/null
 for _ in $(seq 1 30); do
   curl --fail --silent http://127.0.0.1:3100/health >/dev/null && break
   sleep 1
@@ -29,8 +29,17 @@ done
 curl --fail --silent --show-error "$FORMAL_FASTGPT_HEALTH_URL" >/dev/null
 sentinel_before="$(docker inspect -f '{{.Id}}' "$sentinel_name")"
 
-"${compose[@]}" up -d --build --wait --wait-timeout 300 mysql dachuanpro-mcp-redis fastgpt-gateway-upstream db-init dachuanpro-mcp
-"${compose[@]}" --profile acceptance run --rm mcp-runtime-acceptance
+if ! "${compose[@]}" up -d --build --wait --wait-timeout 300 mysql dachuanpro-mcp-redis fastgpt-gateway-upstream db-init dachuanpro-mcp; then
+  echo "MCP runtime startup failed; diagnostic state follows." >&2
+  "${compose[@]}" ps -a >&2 || true
+  "${compose[@]}" logs --no-color mysql dachuanpro-mcp-redis db-init dachuanpro-mcp fastgpt-gateway-upstream >&2 || true
+  exit 1
+fi
+if ! "${compose[@]}" --profile acceptance run --rm mcp-runtime-acceptance; then
+  echo "MCP runtime acceptance failed; service logs follow." >&2
+  "${compose[@]}" logs --no-color mysql dachuanpro-mcp-redis db-init dachuanpro-mcp fastgpt-gateway-upstream >&2 || true
+  exit 1
+fi
 
 mkdir -p "$temporary_dir/backup" "$temporary_dir/bin"
 printf '%s\n' "$temporary_dir/backup" > "$backup_pointer"
