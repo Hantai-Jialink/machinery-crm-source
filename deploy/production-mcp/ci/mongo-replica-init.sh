@@ -20,7 +20,7 @@ wait_for_eval() {
     fi
     sleep 2
   done
-  echo "$description failed after 60 attempts" >&2
+  echo "$description failed after $attempt attempts" >&2
   return 1
 }
 
