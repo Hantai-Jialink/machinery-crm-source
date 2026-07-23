@@ -118,6 +118,7 @@ assert.match(preflight, /MYSQL_CLIENT_IMAGE/);
 
 const workflow = readWorkspace('.github/workflows/production-mcp-canary-linux.yml');
 assert.match(workflow, /inspect-docker-archive\.mjs/);
+assert.match(workflow, /test-inspect-docker-archive\.mjs/);
 assert.match(workflow, /docker load -i/);
 assert.match(workflow, /docker save -o/);
 assert.match(workflow, /IMAGE_DIGESTS\.tsv/);

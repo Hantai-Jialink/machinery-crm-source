@@ -49,6 +49,7 @@ jobs:
           node deploy/production-mcp/test-production-package.mjs
           node deploy/production-mcp/ci/test-compose-render.mjs
           node deploy/production-mcp/ci/test-artifact-secret-scan.mjs
+          node deploy/production-mcp/ci/test-inspect-docker-archive.mjs
           PRODUCTION_ENV_FILE="$GITHUB_WORKSPACE/deploy/production-mcp/.env.production.example" docker compose --env-file deploy/production-mcp/.env.production.example -f deploy/production-mcp/docker-compose.yml config --quiet
           docker compose --env-file deploy/production-mcp/.env.production.example -f deploy/production-mcp/fastgpt-canary-compose.yml config --quiet
           mcp_runtime_env="$RUNNER_TEMP/mcp-runtime-config.env"
