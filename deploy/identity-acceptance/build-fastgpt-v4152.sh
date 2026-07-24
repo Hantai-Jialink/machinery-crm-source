@@ -40,8 +40,10 @@ else
   echo "PATCH_ALREADY_APPLIED"
 fi
 
-# 3) 验证补丁文件确实就位
-dockerfile="$acceptance_dir/Dockerfile.fastgpt"
+# 3) 验证 Dockerfile 副本与补丁文件就位
+#    用 -v4152 副本（base 改 node:22 纯 tag），不用原 Dockerfile.fastgpt
+#    （其 base 是 Docker Hub 不存在的 node:24.16.0-alpine@sha256 digest 锁定）。
+dockerfile="$acceptance_dir/Dockerfile.fastgpt-v4152"
 test -f "$dockerfile" || { echo "Missing $dockerfile" >&2; exit 1; }
 test -f "$patch_dir/0001-dachuan-trusted-mcp-identity.patch" || {
   echo "Missing $patch_dir/0001-dachuan-trusted-mcp-identity.patch" >&2; exit 1; }
