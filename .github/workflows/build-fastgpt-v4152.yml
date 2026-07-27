@@ -1,0 +1,72 @@
+name: Build FastGPT v4.15.2 identity image
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - codex/production-mcp-canary-gates
+    paths:
+      - .github/workflows/build-fastgpt-v4152.yml
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    env:
+      ACR_REGISTRY: ${{ secrets.ACR_REGISTRY }}
+      ACR_NAMESPACE: ${{ secrets.ACR_NAMESPACE }}
+      ACR_USERNAME: ${{ secrets.ACR_USERNAME }}
+      ACR_PASSWORD: ${{ secrets.ACR_PASSWORD }}
+      FASTGPT_COMMIT: b9b6e2305e70823c9706291de4b19c4dc3ae05f6
+      FASTGPT_IMAGE_TAG: v4.15.2-identity-poc.1
+
+    steps:
+      - name: Checkout build definitions
+        uses: actions/checkout@v4
+        with:
+          ref: codex/production-mcp-canary-gates
+
+      - name: Clone FastGPT at the pinned commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          fastgpt_dir="$(mktemp -d)"
+          echo "FASTGPT_DIR=$fastgpt_dir" >> "$GITHUB_ENV"
+          git clone --quiet https://github.com/labring/FastGPT.git "$fastgpt_dir"
+          git -C "$fastgpt_dir" checkout --quiet "$FASTGPT_COMMIT"
+          actual_commit="$(git -C "$fastgpt_dir" rev-parse HEAD)"
+          test "$actual_commit" = "$FASTGPT_COMMIT"
+          echo "SOURCE_COMMIT_OK=$actual_commit"
+
+      - name: Apply Dachuan trusted MCP identity patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash ./deploy/fastgpt/v4.15.2/apply.sh "$FASTGPT_DIR"
+
+      - name: Build patched FastGPT image
+        shell: bash
+        run: |
+          set -euo pipefail
+          image="$ACR_REGISTRY/$ACR_NAMESPACE/dachuan-fastgpt:$FASTGPT_IMAGE_TAG"
+          docker build --progress=plain \
+            --build-arg proxy= \
+            --label "org.opencontainers.image.revision=$FASTGPT_COMMIT" \
+            --label "dachuan.identity.poc=true" \
+            --label "dachuan.fastgpt.version=v4.15.2" \
+            -f deploy/identity-acceptance/Dockerfile.fastgpt-v4152 \
+            -t "$image" \
+            "$FASTGPT_DIR"
+
+      - name: Login and push to Alibaba Cloud ACR
+        shell: bash
+        run: |
+          set -euo pipefail
+          image="$ACR_REGISTRY/$ACR_NAMESPACE/dachuan-fastgpt:$FASTGPT_IMAGE_TAG"
+          printf '%s' "$ACR_PASSWORD" | docker login "$ACR_REGISTRY" -u "$ACR_USERNAME" --password-stdin
+          docker push "$image"
+          digest="$(docker buildx imagetools inspect --format '{{.Digest}}' "$image")"
+          echo "FASTGPT_IMAGE_DIGEST=$digest"
+          echo "FASTGPT_IMAGE_READY=crpi-s9p349q5fuw3o6ud.cn-beijing.personal.cr.aliyuncs.com/dachuanpro/dachuan-fastgpt:v4.15.2-identity-poc.1"
