@@ -32,8 +32,12 @@ jobs:
         run: |
           set -euo pipefail
           image="$ACR_REGISTRY/$ACR_NAMESPACE/dachuan-mcp:$MCP_IMAGE_TAG"
+          ci_dockerfile="$(mktemp)"
+          trap 'rm -f "$ci_dockerfile"' EXIT
+          sed '/^RUN corepack enable$/a RUN corepack prepare "pnpm@10.33.4" --activate' Dockerfile.mcp > "$ci_dockerfile"
+          grep -F 'corepack prepare "pnpm@10.33.4" --activate' "$ci_dockerfile"
           docker build --progress=plain \
-            -f Dockerfile.mcp \
+            -f "$ci_dockerfile" \
             -t "$image" \
             .
 
