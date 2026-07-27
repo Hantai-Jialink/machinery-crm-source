@@ -1,0 +1,49 @@
+name: Build DachuanPro MCP image
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - codex/production-mcp-canary-gates
+    paths:
+      - .github/workflows/build-dachuan-mcp.yml
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    env:
+      ACR_REGISTRY: ${{ secrets.ACR_REGISTRY }}
+      ACR_NAMESPACE: ${{ secrets.ACR_NAMESPACE }}
+      ACR_USERNAME: ${{ secrets.ACR_USERNAME }}
+      ACR_PASSWORD: ${{ secrets.ACR_PASSWORD }}
+      MCP_IMAGE_TAG: 1.1.0-identity-poc
+
+    steps:
+      - name: Checkout MCP source
+        uses: actions/checkout@v4
+        with:
+          ref: codex/production-mcp-canary-gates
+
+      - name: Build DachuanPro MCP image
+        shell: bash
+        run: |
+          set -euo pipefail
+          image="$ACR_REGISTRY/$ACR_NAMESPACE/dachuan-mcp:$MCP_IMAGE_TAG"
+          docker build --progress=plain \
+            -f Dockerfile.mcp \
+            -t "$image" \
+            .
+
+      - name: Login and push to Alibaba Cloud ACR
+        shell: bash
+        run: |
+          set -euo pipefail
+          image="$ACR_REGISTRY/$ACR_NAMESPACE/dachuan-mcp:$MCP_IMAGE_TAG"
+          printf '%s' "$ACR_PASSWORD" | docker login "$ACR_REGISTRY" -u "$ACR_USERNAME" --password-stdin
+          docker push "$image"
+          digest="$(docker buildx imagetools inspect --format '{{.Manifest.Digest}}' "$image")"
+          echo "MCP_IMAGE_READY=crpi-s9p349q5fuw3o6ud.cn-beijing.personal.cr.aliyuncs.com/dachuanpro/dachuan-mcp:1.1.0-identity-poc"
+          echo "MCP_IMAGE_DIGEST=$digest"
