@@ -41,6 +41,7 @@ jobs:
           source = Path('Dockerfile.mcp').read_text()
           original_corepack = 'RUN corepack enable\n'
           original_prisma_copy = 'RUN mkdir -p /runtime-prisma && cp -aL node_modules/.prisma /runtime-prisma/.prisma && cp -aL node_modules/@prisma /runtime-prisma/@prisma'
+          original_runtime_prisma_copy = 'COPY --from=build --chown=nextjs:nodejs /runtime-prisma/.prisma ./node_modules/.prisma'
           pinned_corepack = 'RUN corepack enable\nRUN corepack prepare "pnpm@10.33.4" --activate\n'
           pnpm_virtual_store_copy = '''RUN set -eux; \\
               prisma_generated="$(find node_modules/.pnpm -type d -path '*/node_modules/.prisma' -print -quit)"; \\
@@ -50,14 +51,22 @@ jobs:
               mkdir -p /runtime-prisma; \\
               cp -aL "$prisma_generated" /runtime-prisma/.prisma; \\
               cp -aL node_modules/@prisma /runtime-prisma/@prisma'''
-          if source.count(original_corepack) != 1 or source.count(original_prisma_copy) != 1:
+          runtime_prisma_copy = 'RUN rm -rf ./node_modules/@prisma\n' + original_runtime_prisma_copy
+          if (
+              source.count(original_corepack) != 1
+              or source.count(original_prisma_copy) != 1
+              or source.count(original_runtime_prisma_copy) != 1
+          ):
               raise SystemExit('Unexpected Dockerfile.mcp layout')
           Path(sys.argv[1]).write_text(
-              source.replace(original_corepack, pinned_corepack).replace(original_prisma_copy, pnpm_virtual_store_copy)
+              source.replace(original_corepack, pinned_corepack)
+              .replace(original_prisma_copy, pnpm_virtual_store_copy)
+              .replace(original_runtime_prisma_copy, runtime_prisma_copy)
           )
           PY
           grep -F 'corepack prepare "pnpm@10.33.4" --activate' "$ci_dockerfile"
           grep -F 'PRISMA_GENERATED_PATH=' "$ci_dockerfile"
+          grep -F 'RUN rm -rf ./node_modules/@prisma' "$ci_dockerfile"
           docker build --progress=plain \
             -f "$ci_dockerfile" \
             -t "$image" \
