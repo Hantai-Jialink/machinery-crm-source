@@ -6,9 +6,8 @@ import { useSession } from "next-auth/react";
 import { PointerEvent, useRef, useState } from "react";
 import { AgentExpression, AgentPresence, AgentAvatar } from "./AgentAvatar";
 import { ChatPanel } from "./ChatPanel";
-import petStanding from "./assets/pet-standing.png";
-import petWaveRaised from "./assets/pet-wave-raised.png";
-import petWaveStart from "./assets/pet-wave-start.png";
+import petGreetingHighResolution from "./assets/pet-greeting-hd.png";
+import petStandingHighResolution from "./assets/pet-standing-hd.png";
 import styles from "./FloatingPet.module.css";
 
 type PetMode = "standing" | "bubble" | "chat";
@@ -157,6 +156,13 @@ export function FloatingPet() {
       style={fixedPosition}
       className={`group fixed z-[60] ${styles.petFloat}`}
     >
+      <div className={styles.petShadow} aria-hidden="true" />
+      <div
+        aria-hidden="true"
+        className={`${styles.greetingBubble} ${isGreeting ? styles.greetingBubbleVisible : ""}`}
+      >
+        你好，我是小川，<br />有什么问题都可以问我
+      </div>
       <button
         type="button"
         onClick={handlePetClick}
@@ -170,26 +176,20 @@ export function FloatingPet() {
         onFocus={() => setIsGreeting(true)}
         onBlur={() => setIsGreeting(false)}
         aria-label="打开小川 Ai 助手聊天面板"
-        className={`group relative block w-[152px] touch-none select-none sm:w-[176px] ${styles.petCard} ${styles.draggablePet} focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 focus-visible:ring-offset-2`}
+        className={`group relative z-10 block w-[136px] touch-none select-none sm:w-[152px] ${styles.petCard} ${styles.draggablePet} focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 focus-visible:ring-offset-2`}
       >
         <Image
-          src={petStanding}
+          src={petStandingHighResolution}
           alt="小川 Ai 助手桌宠"
           draggable={false}
           className={`h-auto w-full transition-opacity duration-300 ${isGreeting ? "opacity-0" : "opacity-100"}`}
           priority
         />
         <Image
-          src={petWaveStart}
+          src={petGreetingHighResolution}
           alt=""
           draggable={false}
-          className={`pointer-events-none absolute inset-0 h-full w-full transition-opacity duration-200 ${isGreeting ? styles.waveStart : "opacity-0"}`}
-        />
-        <Image
-          src={petWaveRaised}
-          alt=""
-          draggable={false}
-          className={`pointer-events-none absolute inset-0 h-full w-full transition-opacity duration-200 ${isGreeting ? styles.waveRaised : "opacity-0"}`}
+          className={`pointer-events-none absolute inset-0 h-full w-full transition-opacity duration-300 ${isGreeting ? styles.greetingPet : "opacity-0"}`}
         />
       </button>
       <button

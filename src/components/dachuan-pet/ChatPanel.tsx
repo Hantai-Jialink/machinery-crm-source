@@ -1,7 +1,7 @@
 "use client";
 
 import { Bot, ChevronDown, Send } from "lucide-react";
-import { FormEvent, useState } from "react";
+import { FormEvent, PointerEvent, useRef, useState } from "react";
 import { AgentAvatar, AgentExpression, AgentPresence } from "./AgentAvatar";
 
 type ChatPanelProps = {
@@ -12,6 +12,20 @@ type ChatPanelProps = {
   onRestorePet: () => void;
 };
 
+type PanelSize = {
+  height: number;
+  width: number;
+};
+
+type ResizeState = PanelSize & {
+  pointerX: number;
+  pointerY: number;
+};
+
+const MIN_PANEL_HEIGHT = 352;
+const MIN_PANEL_WIDTH = 320;
+const VIEWPORT_GUTTER = 32;
+
 export function ChatPanel({
   expression,
   presence,
@@ -20,6 +34,9 @@ export function ChatPanel({
   onRestorePet,
 }: ChatPanelProps) {
   const [input, setInput] = useState("");
+  const [panelSize, setPanelSize] = useState<PanelSize | null>(null);
+  const panelRef = useRef<HTMLElement>(null);
+  const resizeStateRef = useRef<ResizeState | null>(null);
   const messages: never[] = [];
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -29,11 +46,69 @@ export function ChatPanel({
     setInput("");
   }
 
+  function handleResizePointerDown(event: PointerEvent<HTMLButtonElement>) {
+    if (event.pointerType === "mouse" && event.button !== 0) return;
+    const panel = panelRef.current;
+    if (!panel) return;
+
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    const bounds = panel.getBoundingClientRect();
+    resizeStateRef.current = {
+      height: bounds.height,
+      pointerX: event.clientX,
+      pointerY: event.clientY,
+      width: bounds.width,
+    };
+  }
+
+  function handleResizePointerMove(event: PointerEvent<HTMLButtonElement>) {
+    const resizeState = resizeStateRef.current;
+    if (!resizeState) return;
+
+    setPanelSize({
+      height: Math.min(
+        Math.max(resizeState.height - (event.clientY - resizeState.pointerY), MIN_PANEL_HEIGHT),
+        window.innerHeight - VIEWPORT_GUTTER,
+      ),
+      width: Math.min(
+        Math.max(resizeState.width - (event.clientX - resizeState.pointerX), MIN_PANEL_WIDTH),
+        window.innerWidth - VIEWPORT_GUTTER,
+      ),
+    });
+  }
+
+  function handleResizePointerUp(event: PointerEvent<HTMLButtonElement>) {
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    resizeStateRef.current = null;
+  }
+
   return (
     <section
+      ref={panelRef}
       aria-label="小川 Ai 助手聊天面板"
-      className="fixed inset-x-4 bottom-4 z-[60] flex h-[min(34rem,calc(100dvh-2rem))] max-h-[calc(100dvh-2rem)] min-h-[22rem] flex-col overflow-hidden rounded-3xl border border-orange-100 bg-white shadow-[0_24px_60px_rgba(17,24,39,0.22)] sm:left-auto sm:right-4 sm:w-[380px] sm:min-w-[320px] sm:max-w-[calc(100vw-2rem)] sm:resize lg:right-6"
+      style={panelSize ?? undefined}
+      className="fixed inset-x-4 bottom-4 z-[60] flex h-[min(34rem,calc(100dvh-2rem))] max-h-[calc(100dvh-2rem)] min-h-[22rem] flex-col overflow-hidden rounded-3xl border border-orange-100 bg-white shadow-[0_24px_60px_rgba(17,24,39,0.22)] sm:left-auto sm:right-4 sm:w-[380px] sm:min-w-[320px] sm:max-w-[calc(100vw-2rem)] lg:right-6"
     >
+      <button
+        type="button"
+        aria-label="拖动调整聊天窗口大小"
+        title="拖动调整窗口大小"
+        onPointerDown={handleResizePointerDown}
+        onPointerMove={handleResizePointerMove}
+        onPointerUp={handleResizePointerUp}
+        onPointerCancel={handleResizePointerUp}
+        className="absolute left-0 top-0 z-10 hidden size-9 touch-none cursor-nwse-resize items-center justify-center rounded-br-xl text-gray-400 transition-colors hover:bg-orange-50 hover:text-orange-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 sm:flex"
+      >
+        <span aria-hidden="true" className="grid size-3 grid-cols-2 gap-0.5">
+          <span className="rounded-sm bg-current" />
+          <span className="rounded-sm bg-current" />
+          <span className="rounded-sm bg-current" />
+          <span className="rounded-sm bg-current" />
+        </span>
+      </button>
       <header className="flex items-center justify-between border-b border-orange-100 bg-gradient-to-r from-orange-50 to-white px-4 py-3">
         <div className="flex min-w-0 items-center gap-3">
           <div className="flex size-10 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-white ring-1 ring-orange-100">
