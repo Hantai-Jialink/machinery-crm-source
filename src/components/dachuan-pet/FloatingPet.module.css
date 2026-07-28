@@ -8,29 +8,74 @@
 }
 
 .petCard {
-  filter: drop-shadow(0 14px 12px rgb(17 24 39 / 18%));
   transform: perspective(900px) rotateX(2deg) rotateY(-6deg);
   transform-style: preserve-3d;
-  transition: filter 200ms ease, transform 200ms ease;
+  transition: transform 200ms ease;
 }
 
 .petCard:hover,
 .petCard:focus-visible {
-  filter: drop-shadow(0 18px 16px rgb(238 125 44 / 28%));
   transform: perspective(900px) translateY(-4px) rotateX(0deg) rotateY(0deg) scale(1.02);
 }
 
-.waveStart,
-.waveRaised {
-  transform-origin: 50% 78%;
+.petShadow {
+  position: absolute;
+  bottom: 4%;
+  left: 50%;
+  z-index: 0;
+  width: 58%;
+  height: 9px;
+  border-radius: 999px;
+  background: rgb(17 24 39 / 28%);
+  filter: blur(5px);
+  transform: translateX(-50%);
+  animation: pet-shadow 3.8s ease-in-out infinite;
 }
 
-.waveStart {
-  animation: pet-wave-start 1.05s ease-in-out infinite;
+.greetingPet {
+  animation: greeting-pet 2.4s ease-in-out infinite;
 }
 
-.waveRaised {
-  animation: pet-wave-raised 1.05s ease-in-out infinite;
+.greetingBubble {
+  position: absolute;
+  right: 62%;
+  bottom: 56%;
+  z-index: 1;
+  width: max-content;
+  max-width: 196px;
+  border: 1px solid rgb(238 125 44 / 38%);
+  border-radius: 16px 16px 4px;
+  background: rgb(255 255 255 / 96%);
+  box-shadow: 0 10px 22px rgb(17 24 39 / 14%);
+  color: #374151;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.55;
+  opacity: 0;
+  padding: 9px 12px;
+  pointer-events: none;
+  transform: translate3d(6px, 8px, 0) scale(0.96);
+  transform-origin: right bottom;
+  transition: opacity 180ms ease, transform 220ms ease;
+  white-space: nowrap;
+}
+
+.greetingBubble::after {
+  position: absolute;
+  right: 12px;
+  bottom: -7px;
+  width: 12px;
+  height: 12px;
+  border-right: 1px solid rgb(238 125 44 / 38%);
+  border-bottom: 1px solid rgb(238 125 44 / 38%);
+  background: rgb(255 255 255 / 96%);
+  content: "";
+  transform: rotate(45deg);
+}
+
+.greetingBubbleVisible {
+  opacity: 1;
+  transform: translate3d(0, 0, 0) scale(1);
 }
 
 @keyframes pet-float {
@@ -44,39 +89,34 @@
   }
 }
 
-@keyframes pet-wave-start {
+@keyframes pet-shadow {
   0%,
   100% {
-    opacity: 1;
-    transform: translate3d(0, 0, 0) rotate(-1deg);
+    opacity: 0.28;
+    transform: translateX(-50%) scaleX(1);
   }
 
-  48%,
-  72% {
-    opacity: 0;
-    transform: translate3d(-1px, -4px, 0) rotate(1deg);
+  50% {
+    opacity: 0.18;
+    transform: translateX(-50%) scaleX(0.78);
   }
 }
 
-@keyframes pet-wave-raised {
+@keyframes greeting-pet {
   0%,
-  28%,
-  76%,
   100% {
-    opacity: 0;
-    transform: translate3d(1px, 3px, 0) rotate(1deg);
+    transform: translate3d(0, 0, 0) rotate(0deg);
   }
 
-  48% {
-    opacity: 1;
-    transform: translate3d(0, -3px, 0) rotate(-1deg);
+  50% {
+    transform: translate3d(0, -3px, 0) rotate(-0.7deg);
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .petFloat,
-  .waveStart,
-  .waveRaised {
+  .petShadow,
+  .greetingPet {
     animation: none;
   }
 }
