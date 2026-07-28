@@ -2,6 +2,11 @@
   animation: pet-float 3.8s ease-in-out infinite;
 }
 
+.draggablePet {
+  -webkit-user-drag: none;
+  user-select: none;
+}
+
 .petCard {
   filter: drop-shadow(0 14px 12px rgb(17 24 39 / 18%));
   transform: perspective(900px) rotateX(2deg) rotateY(-6deg);
@@ -15,6 +20,19 @@
   transform: perspective(900px) translateY(-4px) rotateX(0deg) rotateY(0deg) scale(1.02);
 }
 
+.waveStart,
+.waveRaised {
+  transform-origin: 50% 78%;
+}
+
+.waveStart {
+  animation: pet-wave-start 1.05s ease-in-out infinite;
+}
+
+.waveRaised {
+  animation: pet-wave-raised 1.05s ease-in-out infinite;
+}
+
 @keyframes pet-float {
   0%,
   100% {
@@ -26,8 +44,39 @@
   }
 }
 
+@keyframes pet-wave-start {
+  0%,
+  100% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) rotate(-1deg);
+  }
+
+  48%,
+  72% {
+    opacity: 0;
+    transform: translate3d(-1px, -4px, 0) rotate(1deg);
+  }
+}
+
+@keyframes pet-wave-raised {
+  0%,
+  28%,
+  76%,
+  100% {
+    opacity: 0;
+    transform: translate3d(1px, 3px, 0) rotate(1deg);
+  }
+
+  48% {
+    opacity: 1;
+    transform: translate3d(0, -3px, 0) rotate(-1deg);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .petFloat {
+  .petFloat,
+  .waveStart,
+  .waveRaised {
     animation: none;
   }
 }

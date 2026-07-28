@@ -1,54 +1,69 @@
 "use client";
 
-import Image from "next/image";
-import { ChevronDown, RotateCcw, Send } from "lucide-react";
+import { Bot, ChevronDown, Send } from "lucide-react";
 import { FormEvent, useState } from "react";
-import petAvatar from "./assets/pet-avatar.png";
+import { AgentAvatar, AgentExpression, AgentPresence } from "./AgentAvatar";
 
 type ChatPanelProps = {
+  expression: AgentExpression;
+  presence: AgentPresence;
   onClose: () => void;
-  onRestorePet?: () => void;
+  onMessageSubmit: () => void;
+  onRestorePet: () => void;
 };
 
-export function ChatPanel({ onClose, onRestorePet }: ChatPanelProps) {
+export function ChatPanel({
+  expression,
+  presence,
+  onClose,
+  onMessageSubmit,
+  onRestorePet,
+}: ChatPanelProps) {
   const [input, setInput] = useState("");
   const messages: never[] = [];
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (!input.trim()) return;
+    onMessageSubmit();
     setInput("");
   }
 
   return (
     <section
-      aria-label="大川 Agent 聊天面板"
-      className="fixed inset-x-4 bottom-4 z-[60] flex h-[min(34rem,calc(100dvh-2rem))] flex-col overflow-hidden rounded-3xl border border-orange-100 bg-white shadow-[0_24px_60px_rgba(17,24,39,0.22)] sm:left-auto sm:right-4 sm:w-[380px] lg:right-6"
+      aria-label="小川 Ai 助手聊天面板"
+      className="fixed inset-x-4 bottom-4 z-[60] flex h-[min(34rem,calc(100dvh-2rem))] max-h-[calc(100dvh-2rem)] min-h-[22rem] flex-col overflow-hidden rounded-3xl border border-orange-100 bg-white shadow-[0_24px_60px_rgba(17,24,39,0.22)] sm:left-auto sm:right-4 sm:w-[380px] sm:min-w-[320px] sm:max-w-[calc(100vw-2rem)] sm:resize lg:right-6"
     >
       <header className="flex items-center justify-between border-b border-orange-100 bg-gradient-to-r from-orange-50 to-white px-4 py-3">
         <div className="flex min-w-0 items-center gap-3">
           <div className="flex size-10 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-white ring-1 ring-orange-100">
-            <Image src={petAvatar} alt="大川 Agent 桌宠" className="h-full w-full object-contain" priority />
+            <AgentAvatar
+              expression={expression}
+              presence={presence}
+              alt="小川 Ai 助手头像"
+              className="size-full"
+              priority
+            />
           </div>
           <div className="min-w-0">
-            <p className="truncate text-sm font-semibold text-gray-900">大川 Agent</p>
+            <p className="truncate text-sm font-semibold text-gray-900">小川 Ai 助手</p>
             <p className="text-xs text-orange-600">智能助手 · 即将接入</p>
           </div>
         </div>
         <div className="flex items-center gap-1">
-          {onRestorePet && (
-            <button
-              type="button"
-              onClick={onRestorePet}
-              aria-label="恢复桌宠"
-              className="inline-flex size-9 items-center justify-center rounded-xl text-gray-500 transition-colors hover:bg-white hover:text-gray-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500"
-            >
-              <RotateCcw className="size-4" aria-hidden="true" />
-            </button>
-          )}
+          <button
+            type="button"
+            onClick={onRestorePet}
+            aria-label="恢复站立桌宠"
+            title="恢复站立桌宠"
+            className="inline-flex size-9 items-center justify-center rounded-xl text-gray-500 transition-colors hover:bg-white hover:text-gray-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500"
+          >
+            <Bot className="size-4" aria-hidden="true" />
+          </button>
           <button
             type="button"
             onClick={onClose}
-            aria-label="收起 Agent 聊天面板"
+            aria-label="收起小川 Ai 助手聊天面板"
             className="inline-flex size-9 items-center justify-center rounded-xl text-gray-500 transition-colors hover:bg-white hover:text-gray-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500"
           >
             <ChevronDown className="size-5" aria-hidden="true" />
@@ -60,9 +75,9 @@ export function ChatPanel({ onClose, onRestorePet }: ChatPanelProps) {
         {messages.length === 0 && (
           <div className="m-auto flex max-w-[15rem] flex-col items-center text-center">
             <div className="mb-3 flex size-16 items-center justify-center overflow-hidden rounded-3xl bg-white shadow-sm ring-1 ring-orange-100">
-              <Image src={petAvatar} alt="" className="h-full w-full object-contain" />
+              <AgentAvatar expression={expression} presence={presence} alt="" className="size-full" />
             </div>
-            <p className="text-sm font-medium text-gray-800">Agent 接入中...</p>
+            <p className="text-sm font-medium text-gray-800">小川 Ai 助手接入中...</p>
             <p className="mt-1 text-xs leading-5 text-gray-500">聊天能力将在第二阶段开放</p>
           </div>
         )}

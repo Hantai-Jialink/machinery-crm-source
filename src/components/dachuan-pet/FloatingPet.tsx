@@ -3,77 +3,198 @@
 import Image from "next/image";
 import { X } from "lucide-react";
 import { useSession } from "next-auth/react";
-import { useState } from "react";
+import { PointerEvent, useRef, useState } from "react";
+import { AgentExpression, AgentPresence, AgentAvatar } from "./AgentAvatar";
 import { ChatPanel } from "./ChatPanel";
-import petAvatar from "./assets/pet-avatar.png";
-import petMain from "./assets/pet-main.png";
-import petWave from "./assets/pet-wave.png";
+import petStanding from "./assets/pet-standing.png";
+import petWaveRaised from "./assets/pet-wave-raised.png";
+import petWaveStart from "./assets/pet-wave-start.png";
 import styles from "./FloatingPet.module.css";
+
+type PetMode = "standing" | "bubble" | "chat";
+
+type PetPosition = {
+  bottom: number;
+  right: number;
+};
+
+type DragState = {
+  bottom: number;
+  pointerX: number;
+  pointerY: number;
+  right: number;
+};
+
+const DRAG_THRESHOLD = 6;
+const SCREEN_GUTTER = 12;
 
 export function FloatingPet() {
   const { data: session, status } = useSession();
-  const [isOpen, setIsOpen] = useState(false);
-  const [isPetHidden, setIsPetHidden] = useState(false);
+  const [mode, setMode] = useState<PetMode>("standing");
   const [isGreeting, setIsGreeting] = useState(false);
+  const [position, setPosition] = useState<PetPosition>({ bottom: 16, right: 24 });
+  const [expression, setExpression] = useState<AgentExpression>("smile");
+  const [presence] = useState<AgentPresence>("connecting");
+  const [hasUnreadReply, setHasUnreadReply] = useState(false);
+  const dragStateRef = useRef<DragState | null>(null);
+  const didDragRef = useRef(false);
+  const petRef = useRef<HTMLDivElement>(null);
   const isSuperAdmin = session?.user.role === "SUPER_ADMIN";
 
   if (status === "loading" || !isSuperAdmin) return null;
 
-  if (isOpen) {
+  function openChat() {
+    setHasUnreadReply(false);
+    setMode("chat");
+  }
+
+  function handlePointerDown(event: PointerEvent<HTMLButtonElement>) {
+    if (event.pointerType === "mouse" && event.button !== 0) return;
+
+    event.currentTarget.setPointerCapture(event.pointerId);
+    didDragRef.current = false;
+    dragStateRef.current = {
+      bottom: position.bottom,
+      pointerX: event.clientX,
+      pointerY: event.clientY,
+      right: position.right,
+    };
+  }
+
+  function handlePointerMove(event: PointerEvent<HTMLButtonElement>) {
+    const dragState = dragStateRef.current;
+    const petElement = petRef.current;
+    if (!dragState || !petElement) return;
+
+    const deltaX = event.clientX - dragState.pointerX;
+    const deltaY = event.clientY - dragState.pointerY;
+    if (Math.hypot(deltaX, deltaY) > DRAG_THRESHOLD) {
+      didDragRef.current = true;
+    }
+
+    if (!didDragRef.current) return;
+
+    const bounds = petElement.getBoundingClientRect();
+    setPosition({
+      bottom: Math.min(
+        Math.max(dragState.bottom - deltaY, SCREEN_GUTTER),
+        Math.max(SCREEN_GUTTER, window.innerHeight - bounds.height - SCREEN_GUTTER),
+      ),
+      right: Math.min(
+        Math.max(dragState.right - deltaX, SCREEN_GUTTER),
+        Math.max(SCREEN_GUTTER, window.innerWidth - bounds.width - SCREEN_GUTTER),
+      ),
+    });
+  }
+
+  function handlePointerUp(event: PointerEvent<HTMLButtonElement>) {
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    dragStateRef.current = null;
+  }
+
+  function handlePetClick() {
+    if (didDragRef.current) {
+      didDragRef.current = false;
+      return;
+    }
+    openChat();
+  }
+
+  if (mode === "chat") {
     return (
       <ChatPanel
-        onClose={() => setIsOpen(false)}
-        onRestorePet={isPetHidden ? () => {
-          setIsPetHidden(false);
-          setIsOpen(false);
-        } : undefined}
+        expression={expression}
+        presence={presence}
+        onClose={() => setMode("bubble")}
+        onMessageSubmit={() => setExpression("thinking")}
+        onRestorePet={() => setMode("standing")}
       />
     );
   }
 
-  if (isPetHidden) {
+  const fixedPosition = { bottom: position.bottom, right: position.right };
+
+  if (mode === "bubble") {
     return (
-      <div className="fixed bottom-4 right-4 z-[60] sm:right-4 lg:right-6">
+      <div ref={petRef} style={fixedPosition} className="fixed z-[60]">
         <div className="absolute inset-0 rounded-full bg-orange-300/40 blur-md motion-safe:animate-[pulse_3s_ease-in-out_infinite]" />
         <button
           type="button"
-          onClick={() => setIsOpen(true)}
-          aria-label="打开大川 Agent 聊天面板"
-          className="relative flex size-[72px] items-center justify-center overflow-hidden rounded-full border-2 border-white bg-orange-50 shadow-[0_12px_28px_rgba(238,125,44,0.35)] transition-transform hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 focus-visible:ring-offset-2"
+          onClick={handlePetClick}
+          onPointerDown={handlePointerDown}
+          onPointerMove={handlePointerMove}
+          onPointerUp={handlePointerUp}
+          onPointerCancel={handlePointerUp}
+          onDragStart={(event) => event.preventDefault()}
+          aria-label="打开小川 Ai 助手聊天面板"
+          className={`relative flex size-[72px] touch-none select-none items-center justify-center overflow-hidden rounded-full border-2 border-white bg-orange-50 shadow-[0_12px_28px_rgba(238,125,44,0.35)] transition-transform hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 focus-visible:ring-offset-2 ${styles.draggablePet}`}
         >
-          <Image src={petAvatar} alt="大川 Agent 悬浮头像" className="h-full w-full object-contain" priority />
+          <AgentAvatar
+            expression={expression}
+            presence={presence}
+            alt="小川 Ai 助手悬浮头像"
+            className="size-full"
+            priority
+          />
+          {hasUnreadReply && (
+            <span
+              aria-label="有新的小川 Ai 助手回复"
+              className="absolute right-0.5 top-0.5 flex size-5 items-center justify-center rounded-full border-2 border-white bg-[#ee7d2c] text-[10px] font-semibold text-white shadow-sm"
+            >
+              1
+            </span>
+          )}
         </button>
       </div>
     );
   }
 
   return (
-    <div className={`group fixed bottom-2 right-3 z-[60] sm:right-4 lg:right-6 ${styles.petFloat}`}>
+    <div
+      ref={petRef}
+      style={fixedPosition}
+      className={`group fixed z-[60] ${styles.petFloat}`}
+    >
       <button
         type="button"
-        onClick={() => setIsOpen(true)}
+        onClick={handlePetClick}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onPointerCancel={handlePointerUp}
+        onDragStart={(event) => event.preventDefault()}
         onMouseEnter={() => setIsGreeting(true)}
         onMouseLeave={() => setIsGreeting(false)}
         onFocus={() => setIsGreeting(true)}
         onBlur={() => setIsGreeting(false)}
-        aria-label="打开大川 Agent 聊天面板"
-        className={`group relative block w-[152px] sm:w-[176px] ${styles.petCard} focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 focus-visible:ring-offset-2`}
+        aria-label="打开小川 Ai 助手聊天面板"
+        className={`group relative block w-[152px] touch-none select-none sm:w-[176px] ${styles.petCard} ${styles.draggablePet} focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 focus-visible:ring-offset-2`}
       >
         <Image
-          src={petMain}
-          alt="大川 Agent 桌宠"
-          className={`h-auto w-full mix-blend-multiply transition-opacity duration-200 ${isGreeting ? "opacity-0" : "opacity-100"}`}
+          src={petStanding}
+          alt="小川 Ai 助手桌宠"
+          draggable={false}
+          className={`h-auto w-full transition-opacity duration-300 ${isGreeting ? "opacity-0" : "opacity-100"}`}
           priority
         />
         <Image
-          src={petWave}
+          src={petWaveStart}
           alt=""
-          className={`absolute inset-0 h-full w-full mix-blend-multiply transition-opacity duration-200 ${isGreeting ? "opacity-100" : "opacity-0"}`}
+          draggable={false}
+          className={`pointer-events-none absolute inset-0 h-full w-full transition-opacity duration-200 ${isGreeting ? styles.waveStart : "opacity-0"}`}
+        />
+        <Image
+          src={petWaveRaised}
+          alt=""
+          draggable={false}
+          className={`pointer-events-none absolute inset-0 h-full w-full transition-opacity duration-200 ${isGreeting ? styles.waveRaised : "opacity-0"}`}
         />
       </button>
       <button
         type="button"
-        onClick={() => setIsPetHidden(true)}
+        onClick={() => setMode("bubble")}
         aria-label="隐藏桌宠，显示悬浮头像"
         className="absolute right-0 top-4 inline-flex size-7 items-center justify-center rounded-full border border-orange-100 bg-white/95 text-gray-500 opacity-0 shadow-sm transition-opacity hover:text-gray-900 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 group-hover:opacity-100"
       >
