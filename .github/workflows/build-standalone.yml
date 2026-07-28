@@ -16,6 +16,8 @@ jobs:
     env:
       # 构建期占位用（运行时仍以服务器上的真实 .env 为准；这里只是让 build 顺利通过）
       DATABASE_URL: ${{ format('mysql://build_user:{0}@127.0.0.1:3306/build_only', github.run_id) }}
+      # NEXT_PUBLIC_ 变量会在 Next 构建期内联到桌宠前端。
+      NEXT_PUBLIC_AGENT_APP_ID: ${{ vars.NEXT_PUBLIC_AGENT_APP_ID }}
 
     steps:
       - name: 拉取源码
