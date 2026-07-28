@@ -3,7 +3,7 @@
 import Image from "next/image";
 import { X } from "lucide-react";
 import { useSession } from "next-auth/react";
-import { PointerEvent, useRef, useState } from "react";
+import { CSSProperties, PointerEvent, useEffect, useRef, useState } from "react";
 import { AgentExpression, AgentPresence, AgentAvatar } from "./AgentAvatar";
 import { ChatPanel } from "./ChatPanel";
 import petGreetingHighResolution from "./assets/pet-greeting-hd.png";
@@ -26,6 +26,15 @@ type DragState = {
 
 const DRAG_THRESHOLD = 6;
 const SCREEN_GUTTER = 12;
+const BUBBLE_SAFE_MARGIN = 12;
+const BUBBLE_WIDTH = 214;
+const DESKTOP_SIDEBAR_WIDTH = 256;
+const PET_MOBILE_WIDTH = 136;
+const PET_DESKTOP_WIDTH = 152;
+const BUBBLE_LEFT_OVERHANG = 164;
+const BUBBLE_RIGHT_OVERHANG = 160;
+
+type BubblePlacement = "left" | "right" | "top";
 
 export function FloatingPet() {
   const { data: session, status } = useSession();
@@ -35,10 +44,21 @@ export function FloatingPet() {
   const [expression, setExpression] = useState<AgentExpression>("smile");
   const [presence] = useState<AgentPresence>("connecting");
   const [hasUnreadReply, setHasUnreadReply] = useState(false);
+  const [viewportWidth, setViewportWidth] = useState<number | null>(null);
   const dragStateRef = useRef<DragState | null>(null);
   const didDragRef = useRef(false);
   const petRef = useRef<HTMLDivElement>(null);
   const isSuperAdmin = session?.user.role === "SUPER_ADMIN";
+
+  useEffect(() => {
+    function updateViewportWidth() {
+      setViewportWidth(window.innerWidth);
+    }
+
+    updateViewportWidth();
+    window.addEventListener("resize", updateViewportWidth);
+    return () => window.removeEventListener("resize", updateViewportWidth);
+  }, []);
 
   if (status === "loading" || !isSuperAdmin) return null;
 
@@ -114,6 +134,46 @@ export function FloatingPet() {
   }
 
   const fixedPosition = { bottom: position.bottom, right: position.right };
+  const petWidth =
+    viewportWidth !== null && viewportWidth < 640
+      ? PET_MOBILE_WIDTH
+      : PET_DESKTOP_WIDTH;
+  const petLeft = viewportWidth
+    ? viewportWidth - position.right - petWidth
+    : null;
+  const protectedLeftEdge =
+    viewportWidth !== null && viewportWidth >= 1024
+      ? DESKTOP_SIDEBAR_WIDTH + BUBBLE_SAFE_MARGIN
+      : BUBBLE_SAFE_MARGIN;
+  const availableLeftSpace =
+    petLeft === null ? null : petLeft - protectedLeftEdge;
+  const isOnLeftHalf =
+    petLeft !== null && viewportWidth !== null && petLeft < viewportWidth / 2;
+  const availableRightSpace =
+    petLeft === null || viewportWidth === null
+      ? null
+      : viewportWidth - petLeft - petWidth;
+  const bubblePlacement: BubblePlacement =
+    !isOnLeftHalf &&
+    (availableLeftSpace === null || availableLeftSpace >= BUBBLE_LEFT_OVERHANG)
+      ? "left"
+      : availableRightSpace !== null && availableRightSpace >= BUBBLE_RIGHT_OVERHANG
+        ? "right"
+        : "top";
+  const topBubbleLeft =
+    bubblePlacement === "top" && petLeft !== null && viewportWidth !== null
+      ? Math.min(
+          Math.max(
+            petLeft + petWidth / 2 - BUBBLE_WIDTH / 2,
+            BUBBLE_SAFE_MARGIN,
+          ),
+          viewportWidth - BUBBLE_WIDTH - BUBBLE_SAFE_MARGIN,
+        )
+      : null;
+  const bubbleStyle =
+    topBubbleLeft !== null && petLeft !== null
+      ? ({ "--bubble-left": `${topBubbleLeft - petLeft}px` } as CSSProperties)
+      : undefined;
 
   if (mode === "bubble") {
     return (
@@ -159,7 +219,14 @@ export function FloatingPet() {
       <div className={styles.petShadow} aria-hidden="true" />
       <div
         aria-hidden="true"
-        className={`${styles.greetingBubble} ${isGreeting ? styles.greetingBubbleVisible : ""}`}
+        style={bubbleStyle}
+        className={`${styles.greetingBubble} ${
+          bubblePlacement === "right"
+            ? styles.greetingBubbleRight
+            : bubblePlacement === "top"
+              ? styles.greetingBubbleTop
+              : ""
+        } ${isGreeting ? styles.greetingBubbleVisible : ""}`}
       >
         你好，我是小川，<br />有什么问题都可以问我
       </div>
