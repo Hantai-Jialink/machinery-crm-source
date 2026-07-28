@@ -1,10 +1,41 @@
 import { NextResponse } from "next/server";
+import { jwtVerify } from "jose";
 import { createAgentGatewayHandler } from "@/lib/agent-auth/gateway";
 import { getAgentAuthRuntime } from "@/lib/agent-auth/runtime";
-import { getSessionUser } from "@/lib/permissions";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+const supportedRoles = new Set(["SUPER_ADMIN", "SALES", "FOREIGN_TRADE", "PURCHASE", "WAREHOUSE"]);
+
+async function loadLoggedInUser(request: Request) {
+  const authorization = request.headers.get("authorization");
+  const match = authorization?.match(/^Bearer\s+(.+)$/i);
+  const authSecret = process.env.AUTH_SECRET;
+  if (!match || !authSecret) return null;
+
+  try {
+    const { payload } = await jwtVerify(match[1], new TextEncoder().encode(authSecret), {
+      algorithms: ["HS256"],
+    });
+    const userId = payload.sub;
+    const role = payload.role;
+    if (
+      !userId
+      || typeof role !== "string"
+      || !supportedRoles.has(role)
+      || typeof payload.iat !== "number"
+      || typeof payload.exp !== "number"
+      || typeof payload.jti !== "string"
+      || !payload.jti
+    ) {
+      return null;
+    }
+    return { id: userId, role };
+  } catch {
+    return null;
+  }
+}
 
 export async function POST(request: Request) {
   try {
@@ -20,10 +51,7 @@ export async function POST(request: Request) {
       },
       tokenService: agentAuth.tokenService,
       rateLimiter: agentAuth.stateStore,
-      loadLoggedInUser: async () => {
-        const user = await getSessionUser();
-        return user ? { id: user.id, role: user.role } : null;
-      },
+      loadLoggedInUser,
     });
     return await handler(request);
   } catch {
