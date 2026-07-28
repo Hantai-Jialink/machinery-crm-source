@@ -43,5 +43,6 @@ export default defineConfig([
     "mysql57-phase4/**",
     ".mysql57/**",
     "**/data-phase4/**",
+    "deploy/identity-acceptance/.build/**",
   ]),
 ]);
