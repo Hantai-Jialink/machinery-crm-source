@@ -46,7 +46,10 @@ services:
         condition: service_completed_successfully
     networks: [fastgpt-canary-data, fastgpt-canary-ai-egress]
     healthcheck:
-      test: ["CMD", "node", "-e", "fetch('http://localhost:3000/health').then((res) => { if (!res.ok) throw new Error(String(res.status)); })"]
+      # FastGPT v4.15.2 does not expose a public /health route. The root page is
+      # used only as a liveness check; runtime-canary-accept.sh performs the
+      # authenticated login and controlled model-call readiness probe afterwards.
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3000/').then((res) => { if (!res.ok) throw new Error(String(res.status)); })"]
       interval: 15s
       timeout: 10s
       retries: 20

@@ -26,8 +26,8 @@ else
   "${compose[@]}" ps -a >&2 || true
   "${compose[@]}" logs --no-color fastgpt-canary-mongo-key-init fastgpt-canary-mongo fastgpt-canary-mongo-init fastgpt-canary-minio fastgpt-canary-minio-init fastgpt-canary-aiproxy fastgpt-canary-plugin fastgpt-canary-pg-init fastgpt-canary >&2 || true
   "${compose[@]}" logs --no-color --tail 100 fastgpt-canary >&2 || true
-  echo "--- fastgpt-canary /health 实际响应 (宿主机 127.0.0.1:3110) ---" >&2
-  curl -sS -o /tmp/hc-body.txt -w 'HTTP_STATUS=%{http_code}\n' 'http://127.0.0.1:3110/health' >&2 || echo "curl 连接失败: $?" >&2
+  echo "--- fastgpt-canary 实际存活响应 (${FASTGPT_CANARY_HEALTH_URL}) ---" >&2
+  curl -sS -o /tmp/hc-body.txt -w 'HTTP_STATUS=%{http_code}\n' "$FASTGPT_CANARY_HEALTH_URL" >&2 || echo "curl 连接失败: $?" >&2
   echo "--- body (前20行) ---" >&2
   head -20 /tmp/hc-body.txt 2>/dev/null >&2 || true
   echo "--- fastgpt-canary 端口监听检查 ---" >&2

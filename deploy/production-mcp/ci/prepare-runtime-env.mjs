@@ -42,7 +42,7 @@ if (mode === "canary") {
     CANARY_MODEL_UPSTREAM_ENDPOINT: "http://fastgpt-canary-model-mock:8080/v1",
     CANARY_MODEL_UPSTREAM_API_KEY: secret(),
     FASTGPT_CANARY_AGENT_ENGINE: "fastAgent",
-    FASTGPT_CANARY_HEALTH_URL: "http://127.0.0.1:3110/health",
+    FASTGPT_CANARY_HEALTH_URL: "http://127.0.0.1:3110",
     FASTGPT_CANARY_ADMIN_URL: "http://127.0.0.1:3110",
     CANARY_RUNTIME_CI_OVERLAY: "1",
   });
