@@ -1,4 +1,5 @@
 import type { McpApplicationConfig } from "@/lib/mcp/application";
+import { MCP_TOOL_NAMES } from "@/lib/mcp/tools";
 
 type McpEnvironment = Record<string, string | undefined>;
 
@@ -53,6 +54,34 @@ function parseQueryTimeout(value: string | undefined) {
   return parsed;
 }
 
+function parseBusinessToolAllowlist(value: string | undefined) {
+  const allowlist = splitCsv(value);
+  if (allowlist.length === 0) {
+    throw new Error("MCP_TOOL_ALLOWLIST is required in FULL_READ_ONLY mode");
+  }
+  if (new Set(allowlist).size !== allowlist.length) {
+    throw new Error("MCP_TOOL_ALLOWLIST must not contain duplicate tool names");
+  }
+  const unknown = allowlist.filter((toolName) => !MCP_TOOL_NAMES.includes(toolName as typeof MCP_TOOL_NAMES[number]));
+  if (unknown.length > 0) {
+    throw new Error(`MCP_TOOL_ALLOWLIST contains unknown tool names: ${unknown.join(", ")}`);
+  }
+  return allowlist;
+}
+
+const MCP_ROLES = ["SUPER_ADMIN", "SALES", "FOREIGN_TRADE", "PURCHASE", "WAREHOUSE"] as const;
+
+function parseBusinessToolRoleAllowlist(value: string | undefined) {
+  const allowlist = splitCsv(value);
+  if (allowlist.length === 0) {
+    throw new Error("MCP_ALLOWED_CALLER_ROLES is required in FULL_READ_ONLY mode");
+  }
+  if (new Set(allowlist).size !== allowlist.length || allowlist.some((role) => !MCP_ROLES.includes(role as typeof MCP_ROLES[number]))) {
+    throw new Error("MCP_ALLOWED_CALLER_ROLES must contain unique known ERP roles");
+  }
+  return allowlist as McpApplicationConfig["allowedBusinessToolRoles"];
+}
+
 export function loadMcpConfig(environment: McpEnvironment = process.env): McpApplicationConfig {
   const allowedHosts = splitCsv(environment.MCP_ALLOWED_HOSTS);
   if (allowedHosts.length === 0) throw new Error("MCP_ALLOWED_HOSTS is required");
@@ -68,6 +97,12 @@ export function loadMcpConfig(environment: McpEnvironment = process.env): McpApp
     throw new Error("MCP_TOOL_MODE must be IDENTITY_POC or FULL_READ_ONLY");
   }
   const apiKeys = parseApiKeys(environment.MCP_API_KEYS_JSON, toolMode === "FULL_READ_ONLY");
+  const allowedBusinessToolNames = toolMode === "FULL_READ_ONLY"
+    ? parseBusinessToolAllowlist(environment.MCP_TOOL_ALLOWLIST)
+    : undefined;
+  const allowedBusinessToolRoles = toolMode === "FULL_READ_ONLY"
+    ? parseBusinessToolRoleAllowlist(environment.MCP_ALLOWED_CALLER_ROLES)
+    : undefined;
   if (toolMode === "FULL_READ_ONLY" && legacyUserBindingEnabled) {
     throw new Error("FULL_READ_ONLY forbids API-key-bound user identity");
   }
@@ -82,6 +117,8 @@ export function loadMcpConfig(environment: McpEnvironment = process.env): McpApp
     allowedOrigins: splitCsv(environment.MCP_ALLOWED_ORIGINS),
     legacyUserBindingEnabled,
     toolMode: toolMode === "FULL_READ_ONLY" ? "full-read-only" : "identity-poc",
+    allowedBusinessToolNames,
+    allowedBusinessToolRoles,
     queryTimeoutMs: parseQueryTimeout(environment.MCP_QUERY_TIMEOUT_MS),
   };
 }

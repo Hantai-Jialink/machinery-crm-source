@@ -48,6 +48,17 @@ if (requestedToolMode) {
     throw new Error("IDENTITY_ACCEPTANCE_TOOL_MODE must be IDENTITY_POC or FULL_READ_ONLY");
   }
   content = content.replace(/^MCP_TOOL_MODE=IDENTITY_POC$/m, `MCP_TOOL_MODE=${requestedToolMode}`);
+  if (requestedToolMode === "FULL_READ_ONLY") {
+    const allBusinessTools = [
+      "crm_customers_list", "crm_customer_get", "crm_customer_follows_list", "crm_products_list", "crm_product_get",
+      "crm_contracts_list", "crm_contract_get", "crm_shipments_list", "crm_shipment_get", "erp_suppliers_list",
+      "erp_supplier_get", "erp_purchase_orders_list", "erp_purchase_order_get", "erp_inventory_list",
+      "erp_stock_documents_list", "erp_stock_movements_list", "erp_boms_list", "erp_bom_get",
+      "erp_production_orders_list", "erp_production_order_get", "erp_kit_check",
+    ].join(",");
+    content = content.replace(/^MCP_TOOL_ALLOWLIST=$/m, `MCP_TOOL_ALLOWLIST=${allBusinessTools}`);
+    content = content.replace(/^MCP_ALLOWED_CALLER_ROLES=$/m, "MCP_ALLOWED_CALLER_ROLES=SUPER_ADMIN,SALES,FOREIGN_TRADE,PURCHASE,WAREHOUSE");
+  }
 }
 writeFileSync(output, content, { encoding: "utf8", flag: "wx", mode: 0o600 });
 console.log(`Created isolated environment file: ${output}`);

@@ -27,6 +27,8 @@ function createDependencies(): McpApplicationDependencies {
       allowedOrigins: [],
       legacyUserBindingEnabled: false,
       toolMode: "full-read-only",
+      allowedBusinessToolNames: ["crm_customers_list", "erp_inventory_list"],
+      allowedBusinessToolRoles: ["SUPER_ADMIN"],
       queryTimeoutMs: 100,
     },
     identityVerifier: { verify: vi.fn().mockResolvedValue({ userId: user.id, jti: "jti-1" }) },
@@ -86,7 +88,7 @@ describe("DachuanPro MCP request handler", () => {
     }));
   });
 
-  it("publishes the complete read-only CRM and ERP tool catalog", async () => {
+  it("publishes only the configured business-tool allowlist plus identity", async () => {
     const dependencies = createDependencies();
     const handle = createMcpRequestHandler(dependencies);
 
@@ -102,33 +104,56 @@ describe("DachuanPro MCP request handler", () => {
     expect(payload.result.tools.map((tool: { name: string }) => tool.name)).toEqual([
       "dachuan_identity_who_am_i",
       "crm_customers_list",
-      "crm_customer_get",
-      "crm_customer_follows_list",
-      "crm_products_list",
-      "crm_product_get",
-      "crm_contracts_list",
-      "crm_contract_get",
-      "crm_shipments_list",
-      "crm_shipment_get",
-      "erp_suppliers_list",
-      "erp_supplier_get",
-      "erp_purchase_orders_list",
-      "erp_purchase_order_get",
       "erp_inventory_list",
-      "erp_stock_documents_list",
-      "erp_stock_movements_list",
-      "erp_boms_list",
-      "erp_bom_get",
-      "erp_production_orders_list",
-      "erp_production_order_get",
-      "erp_kit_check",
     ]);
     expect(payload.result.tools).toEqual(expect.arrayContaining([
       expect.objectContaining({
-        name: "erp_kit_check",
+        name: "erp_inventory_list",
         annotations: expect.objectContaining({ readOnlyHint: true, destructiveHint: false }),
       }),
     ]));
+    expect(dependencies.dataSource.execute).not.toHaveBeenCalled();
+  });
+
+  it("rejects a business tool that is not in the configured allowlist", async () => {
+    const dependencies = createDependencies();
+    const response = await createMcpRequestHandler(dependencies)(mcpRequest({
+      jsonrpc: "2.0",
+      id: 22,
+      method: "tools/call",
+      params: { name: "crm_contracts_list", arguments: {} },
+    }));
+
+    const payload = await response.json();
+    expect(response.status).toBe(403);
+    expect(payload).toMatchObject({
+      error: { code: -32003, message: "MCP tool is not enabled" },
+    });
+    expect(dependencies.dataSource.findUser).not.toHaveBeenCalled();
+    expect(dependencies.dataSource.execute).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["WAREHOUSE", "erp_inventory_list"],
+    ["SALES", "crm_customers_list"],
+  ] as const)("rejects %s from calling a permitted tool outside the configured caller allowlist", async (role, toolName) => {
+    const dependencies = createDependencies();
+    if (!dependencies.dataSource.findUser) throw new Error("test data source must provide findUser");
+    vi.mocked(dependencies.dataSource.findUser).mockResolvedValue({ ...user, role });
+    const response = await createMcpRequestHandler(dependencies)(mcpRequest({
+      jsonrpc: "2.0",
+      id: 23,
+      method: "tools/call",
+      params: { name: toolName, arguments: {} },
+    }));
+
+    const payload = await response.json();
+    expect(response.status).toBe(200);
+    expect(payload.result.structuredContent).toMatchObject({
+      ok: false,
+      meta: { tool: toolName },
+      error: { code: "FORBIDDEN" },
+    });
     expect(dependencies.dataSource.execute).not.toHaveBeenCalled();
   });
 
@@ -236,7 +261,11 @@ describe("DachuanPro MCP request handler", () => {
     const result = await client.callTool({ name: "crm_customers_list", arguments: { page: 1, pageSize: 20 } });
     await client.close();
 
-    expect(catalog.tools).toHaveLength(22);
+    expect(catalog.tools.map((tool) => tool.name)).toEqual([
+      "dachuan_identity_who_am_i",
+      "crm_customers_list",
+      "erp_inventory_list",
+    ]);
     expect(result.isError).not.toBe(true);
     expect(result.structuredContent).toMatchObject({ ok: true, meta: { tool: "crm_customers_list" } });
   });

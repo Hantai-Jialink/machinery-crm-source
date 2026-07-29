@@ -53,6 +53,28 @@ describe("MCP environment configuration", () => {
     })).toThrow(/must not contain business identity field userId/);
   });
 
+  it("requires a non-empty, known business-tool allowlist in FULL_READ_ONLY mode", () => {
+    const environment = {
+      NODE_ENV: "test",
+      MCP_API_KEYS_JSON: JSON.stringify([{ name: "readonly", keyHash: "d".repeat(64) }]),
+      MCP_AUDIT_USER_ID: "audit-user-1",
+      MCP_ALLOWED_HOSTS: "localhost:3000",
+      MCP_TOOL_MODE: "FULL_READ_ONLY",
+    };
+
+    expect(() => loadMcpConfig(environment)).toThrow(/MCP_TOOL_ALLOWLIST is required/);
+    expect(() => loadMcpConfig({ ...environment, MCP_TOOL_ALLOWLIST: "crm_customers_list,unknown_tool" })).toThrow(/unknown tool names/);
+    expect(() => loadMcpConfig({ ...environment, MCP_TOOL_ALLOWLIST: "crm_customers_list" })).toThrow(/MCP_ALLOWED_CALLER_ROLES is required/);
+    expect(loadMcpConfig({
+      ...environment,
+      MCP_TOOL_ALLOWLIST: "crm_customers_list,erp_inventory_list",
+      MCP_ALLOWED_CALLER_ROLES: "SUPER_ADMIN",
+    })).toMatchObject({
+      allowedBusinessToolNames: ["crm_customers_list", "erp_inventory_list"],
+      allowedBusinessToolRoles: ["SUPER_ADMIN"],
+    });
+  });
+
   it("refuses even an empty userId field on a FULL_READ_ONLY service key", () => {
     expect(() => loadMcpConfig({
       NODE_ENV: "test",

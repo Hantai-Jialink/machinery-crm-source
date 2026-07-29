@@ -267,6 +267,8 @@ export function registerMcpTools(
     dataSource: McpDataSource;
     now: () => Date;
     includeBusinessTools?: boolean;
+    allowedBusinessToolNames?: readonly string[];
+    allowedBusinessToolRoles?: readonly McpUser["role"][];
     queryTimeoutMs?: number;
   },
 ) {
@@ -310,7 +312,15 @@ export function registerMcpTools(
 
   if (context.includeBusinessTools === false) return;
 
+  const allowedBusinessToolNames = context.allowedBusinessToolNames
+    ? new Set(context.allowedBusinessToolNames)
+    : null;
+  const allowedBusinessToolRoles = context.allowedBusinessToolRoles
+    ? new Set(context.allowedBusinessToolRoles)
+    : null;
+
   for (const definition of toolDefinitions) {
+    if (allowedBusinessToolNames && !allowedBusinessToolNames.has(definition.name)) continue;
     server.registerTool(
       definition.name,
       {
@@ -335,6 +345,9 @@ export function registerMcpTools(
           );
         }
         try {
+          if (allowedBusinessToolRoles && !allowedBusinessToolRoles.has(context.user.role)) {
+            throw new McpToolError("FORBIDDEN", "当前角色不在本 MCP 联调范围内");
+          }
           if (!canCallMcpBusinessTool(definition.name, context.user.role)) {
             throw new McpToolError("FORBIDDEN", "当前角色无权调用此工具");
           }

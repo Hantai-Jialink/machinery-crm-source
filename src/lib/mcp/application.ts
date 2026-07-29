@@ -1,7 +1,7 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
-import { createMcpToolErrorResult, McpToolError, registerMcpTools } from "@/lib/mcp/tools";
+import { createMcpToolErrorResult, MCP_IDENTITY_TOOL_NAME, McpToolError, registerMcpTools } from "@/lib/mcp/tools";
 import { AgentAssertionError } from "@/lib/agent-auth/token";
 
 export type McpRole = "SUPER_ADMIN" | "SALES" | "FOREIGN_TRADE" | "PURCHASE" | "WAREHOUSE";
@@ -30,6 +30,8 @@ export type McpApplicationConfig = {
   allowedOrigins: string[];
   legacyUserBindingEnabled?: boolean;
   toolMode?: "identity-poc" | "full-read-only";
+  allowedBusinessToolNames?: string[];
+  allowedBusinessToolRoles?: McpRole[];
   queryTimeoutMs?: number;
 };
 
@@ -247,6 +249,16 @@ export function createMcpRequestHandler(dependencies: McpApplicationDependencies
       return rejectWithAudit(400, -32600, "Missing or invalid X-Dachuan-Request-Id", apiKey.name, "REQUEST_ID_INVALID");
     }
 
+    const requestedToolName = rpcRequest.method === "tools/call" ? rpcRequest.params?.name : undefined;
+    if (
+      requestedToolName
+      && requestedToolName !== MCP_IDENTITY_TOOL_NAME
+      && dependencies.config.allowedBusinessToolNames
+      && !dependencies.config.allowedBusinessToolNames.includes(requestedToolName)
+    ) {
+      return rejectWithAudit(403, -32003, "MCP tool is not enabled", apiKey.name, "TOOL_NOT_ALLOWED");
+    }
+
     if (useLegacyIdentity) {
       userId = apiKey.userId;
       if (!userId) {
@@ -296,6 +308,8 @@ export function createMcpRequestHandler(dependencies: McpApplicationDependencies
       dataSource: dependencies.dataSource,
       now,
       includeBusinessTools: dependencies.config.toolMode !== "identity-poc",
+      allowedBusinessToolNames: dependencies.config.allowedBusinessToolNames,
+      allowedBusinessToolRoles: dependencies.config.allowedBusinessToolRoles,
       queryTimeoutMs: dependencies.config.queryTimeoutMs ?? 5_000,
     });
 
