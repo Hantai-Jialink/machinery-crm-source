@@ -12,6 +12,7 @@ export default auth((req) => {
     pathname.startsWith("/login") ||
     pathname.startsWith("/api/auth") ||
     (pathname === "/api/mcp" || pathname.startsWith("/api/mcp/")) ||
+    pathname === "/api/agent-gateway/chat" ||
     cronApiRoutes.has(pathname) ||
     pathname.startsWith("/_next") ||
     pathname.startsWith("/favicon") ||
