@@ -20,7 +20,7 @@ const evidence = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
 if (evidence.overallStatus !== 'PASS') throw new Error('overallStatus is not PASS');
 if (evidence.sensitiveScanStatus !== 'PASS') throw new Error('runner sensitive scan is not PASS');
 if (evidence.finalSensitiveLogScanStatus !== 'PASS') throw new Error('final log sensitive scan is not PASS');
-if (evidence.checks?.length !== 15) throw new Error('acceptance check count is not 15');
+if (evidence.checks?.length !== 16) throw new Error('acceptance check count is not 16');
 if (evidence.requestIdSummary?.count !== evidence.requestIdSummary?.uniqueCount) throw new Error('requestId reuse detected');
 NODE
 
