@@ -40,7 +40,7 @@ services:
     env_file: .env.identity-acceptance
     environment:
       IDENTITY_ACCEPTANCE_DATABASE_NETWORK: identity-data
-    command: ["sh", "-c", "node scripts/assert-identity-acceptance-target.mjs && corepack pnpm exec prisma migrate deploy && corepack pnpm exec tsx scripts/seed-identity-acceptance.ts"]
+    command: ["sh", "-c", "node scripts/assert-identity-acceptance-target.mjs && corepack pnpm exec prisma migrate deploy && corepack pnpm exec tsx scripts/seed-identity-acceptance.ts && node scripts/provision-mcp-acceptance-accounts.mjs"]
     depends_on:
       mysql:
         condition: service_healthy

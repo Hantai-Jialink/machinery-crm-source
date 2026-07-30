@@ -82,6 +82,20 @@ function parseBusinessToolRoleAllowlist(value: string | undefined) {
   return allowlist as McpApplicationConfig["allowedBusinessToolRoles"];
 }
 
+function requiredDatabaseUrl(value: string | undefined, name: string) {
+  const databaseUrl = String(value || "").trim();
+  if (!databaseUrl) throw new Error(`${name} is required in FULL_READ_ONLY mode`);
+  try {
+    const parsed = new URL(databaseUrl);
+    if (parsed.protocol !== "mysql:" || !parsed.username || !parsed.hostname || !parsed.pathname || parsed.pathname === "/") {
+      throw new Error("invalid");
+    }
+  } catch {
+    throw new Error(`${name} must be a valid MySQL URL`);
+  }
+  return databaseUrl;
+}
+
 export function loadMcpConfig(environment: McpEnvironment = process.env): McpApplicationConfig {
   const allowedHosts = splitCsv(environment.MCP_ALLOWED_HOSTS);
   if (allowedHosts.length === 0) throw new Error("MCP_ALLOWED_HOSTS is required");
@@ -103,6 +117,19 @@ export function loadMcpConfig(environment: McpEnvironment = process.env): McpApp
   const allowedBusinessToolRoles = toolMode === "FULL_READ_ONLY"
     ? parseBusinessToolRoleAllowlist(environment.MCP_ALLOWED_CALLER_ROLES)
     : undefined;
+  const queryDatabaseUrl = toolMode === "FULL_READ_ONLY"
+    ? requiredDatabaseUrl(environment.MCP_QUERY_DATABASE_URL, "MCP_QUERY_DATABASE_URL")
+    : undefined;
+  const auditDatabaseUrl = toolMode === "FULL_READ_ONLY"
+    ? requiredDatabaseUrl(environment.MCP_AUDIT_DATABASE_URL, "MCP_AUDIT_DATABASE_URL")
+    : undefined;
+  if (
+    queryDatabaseUrl
+    && auditDatabaseUrl
+    && new URL(queryDatabaseUrl).username === new URL(auditDatabaseUrl).username
+  ) {
+    throw new Error("MCP_QUERY_DATABASE_URL and MCP_AUDIT_DATABASE_URL must use different database users");
+  }
   if (toolMode === "FULL_READ_ONLY" && legacyUserBindingEnabled) {
     throw new Error("FULL_READ_ONLY forbids API-key-bound user identity");
   }
@@ -113,6 +140,8 @@ export function loadMcpConfig(environment: McpEnvironment = process.env): McpApp
   return {
     apiKeys,
     rejectedAuditUserId,
+    queryDatabaseUrl,
+    auditDatabaseUrl,
     allowedHosts,
     allowedOrigins: splitCsv(environment.MCP_ALLOWED_ORIGINS),
     legacyUserBindingEnabled,

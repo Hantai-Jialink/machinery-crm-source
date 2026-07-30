@@ -64,7 +64,10 @@ try {
   if ($LASTEXITCODE -ne 0) { throw "Unable to start the isolated migration container." }
   $dbInitExitCode = (docker wait $dbInitContainer).Trim()
   if ($dbInitExitCode -ne "0") { throw "Isolated migration/seed failed with exit code $dbInitExitCode." }
+  $dbInitLogs = @(docker logs $dbInitContainer 2>&1)
+  if ($dbInitLogs -notcontains "MCP_ACCEPTANCE_DUAL_DATABASE_PRIVILEGES=PASS") { throw "Isolated MCP dual-database privilege gate failed." }
   Write-Output "IDENTITY_ACCEPTANCE_DB_INIT_EXIT_CODE=0"
+  Write-Output "MCP_ACCEPTANCE_DUAL_DATABASE_PRIVILEGES=PASS"
 
   docker compose -p dachuan-identity-acceptance --env-file $envFile up -d --no-build --wait --wait-timeout 900
   if ($LASTEXITCODE -ne 0) { throw "Isolated stack failed to become healthy." }

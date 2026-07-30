@@ -19,6 +19,8 @@ const keys = JSON.stringify([{
 const replacements = {
   GENERATE_MYSQL_PASSWORD: mysqlPassword,
   GENERATE_MYSQL_ROOT_PASSWORD: secret(24),
+  GENERATE_MCP_QUERY_DB_PASSWORD: secret(24),
+  GENERATE_MCP_AUDIT_DB_PASSWORD: secret(24),
   GENERATE_REDIS_PASSWORD: secret(24),
   GENERATE_AUTH_SECRET: secret(48),
   GENERATE_MCP_SERVICE_KEY_HASH: serviceHash,

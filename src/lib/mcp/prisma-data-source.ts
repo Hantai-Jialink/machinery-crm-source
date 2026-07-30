@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { Prisma, type PrismaClient } from "@prisma/client";
 import type { McpAuditInput, McpDataSource, McpUser } from "@/lib/mcp/application";
 import { canCallMcpBusinessTool, McpToolError } from "@/lib/mcp/tools";
@@ -1183,7 +1184,7 @@ async function queryProductionOrder(client: PrismaClient, args: QueryArgs, user:
   return toPlainJson({ ...order, warehouse, productionResponsible: responsible, latestKitCheckResult: order.kitCheckResults[0] || null });
 }
 
-export function createPrismaMcpDataSource(client: PrismaClient): McpDataSource {
+export function createPrismaMcpDataSource(client: PrismaClient, auditClient: PrismaClient = client): McpDataSource {
   return {
     async findUser(userId) {
       const user = await client.user.findUnique({
@@ -1269,25 +1270,21 @@ export function createPrismaMcpDataSource(client: PrismaClient): McpDataSource {
     },
 
     async writeAudit(input: McpAuditInput) {
-      await client.operationLog.create({
-        data: {
-          userId: input.userId,
-          action: "MCP_CALL",
-          entityType: "McpRequest",
-          entityId: input.requestId,
-          afterData: toPlainJson({
-            requestId: input.requestId,
-            apiKeyName: input.apiKeyName,
-            method: input.method,
-            toolName: input.toolName || null,
-            success: input.success,
-            statusCode: input.statusCode,
-            durationMs: input.durationMs,
-            rejectionReason: input.rejectionReason || null,
-            createdAt: input.createdAt,
-          }),
-        },
-      });
+      const afterData = JSON.stringify(toPlainJson({
+        requestId: input.requestId,
+        apiKeyName: input.apiKeyName,
+        method: input.method,
+        toolName: input.toolName || null,
+        success: input.success,
+        statusCode: input.statusCode,
+        durationMs: input.durationMs,
+        rejectionReason: input.rejectionReason || null,
+        createdAt: input.createdAt,
+      }));
+      await auditClient.$executeRaw`
+        INSERT INTO operation_logs (id, userId, action, entityType, entityId, afterData, createdAt)
+        VALUES (${randomUUID()}, ${input.userId}, ${"MCP_CALL"}, ${"McpRequest"}, ${input.requestId}, ${afterData}, ${input.createdAt})
+      `;
     },
   };
 }

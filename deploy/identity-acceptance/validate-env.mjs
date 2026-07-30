@@ -14,6 +14,8 @@ const settings = Object.fromEntries(
     }),
 );
 const databaseUrl = new URL(settings.DATABASE_URL || "");
+const queryDatabaseUrl = new URL(settings.MCP_QUERY_DATABASE_URL || "");
+const auditDatabaseUrl = new URL(settings.MCP_AUDIT_DATABASE_URL || "");
 const expectedDatabase = "dachuan_identity_acceptance";
 const allowedToolModes = new Set(["IDENTITY_POC", "FULL_READ_ONLY"]);
 if (
@@ -23,6 +25,17 @@ if (
   || databaseUrl.hostname !== "mysql"
   || databaseUrl.port !== "3306"
   || databaseUrl.pathname !== `/${expectedDatabase}`
+  || queryDatabaseUrl.hostname !== "mysql"
+  || queryDatabaseUrl.protocol !== "mysql:"
+  || !queryDatabaseUrl.username
+  || queryDatabaseUrl.port !== "3306"
+  || queryDatabaseUrl.pathname !== `/${expectedDatabase}`
+  || auditDatabaseUrl.hostname !== "mysql"
+  || auditDatabaseUrl.protocol !== "mysql:"
+  || !auditDatabaseUrl.username
+  || auditDatabaseUrl.port !== "3306"
+  || auditDatabaseUrl.pathname !== `/${expectedDatabase}`
+  || queryDatabaseUrl.username === auditDatabaseUrl.username
   || settings.MYSQL_DATABASE !== expectedDatabase
   || settings.FASTGPT_IMAGE !== "dachuan-fastgpt:v4.15.1-identity-acceptance.1"
   || settings.CRM_IMAGE !== "dachuanpro-crm-erp-mcp:1.2.0-identity-acceptance.1"

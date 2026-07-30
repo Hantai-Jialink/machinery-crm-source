@@ -26,6 +26,8 @@ export type McpApiKeyConfig = {
 export type McpApplicationConfig = {
   apiKeys: McpApiKeyConfig[];
   rejectedAuditUserId: string;
+  queryDatabaseUrl?: string;
+  auditDatabaseUrl?: string;
   allowedHosts: string[];
   allowedOrigins: string[];
   legacyUserBindingEnabled?: boolean;

@@ -97,7 +97,12 @@ echo "IDENTITY_ACCEPTANCE_DATABASE_NETWORK=VERIFIED"
 "${compose[@]}" start db-init
 db_init_exit_code="$(docker wait "$db_init_container")"
 [[ "$db_init_exit_code" == "0" ]] || { echo "Isolated migration/seed failed with exit code $db_init_exit_code." >&2; exit 1; }
+docker logs "$db_init_container" 2>&1 | grep -qx 'MCP_ACCEPTANCE_DUAL_DATABASE_PRIVILEGES=PASS' || {
+  echo "Isolated MCP dual-database privilege gate failed." >&2
+  exit 1
+}
 echo "IDENTITY_ACCEPTANCE_DB_INIT_EXIT_CODE=0"
+echo "MCP_ACCEPTANCE_DUAL_DATABASE_PRIVILEGES=PASS"
 
 "${compose[@]}" up -d --no-build --pull never --wait --wait-timeout 900
 "${compose[@]}" ps

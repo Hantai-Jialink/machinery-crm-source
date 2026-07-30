@@ -142,8 +142,12 @@ describe("Prisma MCP data source", () => {
   });
 
   it("records only the minimal audit identity and status fields", async () => {
-    const create = vi.fn().mockResolvedValue({ id: "log-1" });
-    const dataSource = createPrismaMcpDataSource({ operationLog: { create } } as never);
+    const executeRaw = vi.fn().mockResolvedValue(1);
+    const queryExecuteRaw = vi.fn();
+    const dataSource = createPrismaMcpDataSource(
+      { $executeRaw: queryExecuteRaw } as never,
+      { $executeRaw: executeRaw } as never,
+    );
 
     await dataSource.writeAudit({
       requestId: "request-1",
@@ -157,22 +161,13 @@ describe("Prisma MCP data source", () => {
       createdAt: new Date("2026-07-17T08:00:00.000Z"),
     });
 
-    expect(create).toHaveBeenCalledWith({ data: expect.objectContaining({
-      userId: "audit-user-1",
-      entityId: "request-1",
-      afterData: {
-        requestId: "request-1",
-        apiKeyName: "fastgpt",
-        method: "tools/call",
-        toolName: "crm_customers_list",
-        success: true,
-        statusCode: 200,
-        durationMs: 12,
-        rejectionReason: null,
-        createdAt: "2026-07-17T08:00:00.000Z",
-      },
-    }) });
-    expect(JSON.stringify(create.mock.calls)).not.toMatch(/argument|search|authorization|password/i);
+    expect(executeRaw).toHaveBeenCalledTimes(1);
+    const serializedCall = JSON.stringify(executeRaw.mock.calls);
+    expect(serializedCall).toContain("audit-user-1");
+    expect(serializedCall).toContain("request-1");
+    expect(serializedCall).toContain("crm_customers_list");
+    expect(serializedCall).not.toMatch(/argument|search|authorization|password/i);
+    expect(queryExecuteRaw).not.toHaveBeenCalled();
   });
 
   it("keeps the product list aligned with the existing active-product query", async () => {

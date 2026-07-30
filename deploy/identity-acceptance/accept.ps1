@@ -71,6 +71,8 @@ $secrets = @(
   $settings["MCP_SERVICE_KEY"],
   $settings["MYSQL_PASSWORD"],
   $settings["MYSQL_ROOT_PASSWORD"],
+  $settings["MCP_QUERY_DB_PASSWORD"],
+  $settings["MCP_AUDIT_DB_PASSWORD"],
   $settings["REDIS_PASSWORD"],
   $settings["AUTH_SECRET"],
   $settings["AGENT_GATEWAY_FASTGPT_API_KEY"],

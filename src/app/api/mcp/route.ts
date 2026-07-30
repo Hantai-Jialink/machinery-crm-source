@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/db";
-import { createMcpRequestHandler } from "@/lib/mcp/application";
+import { PrismaClient } from "@prisma/client";
+import { createMcpRequestHandler, type McpDataSource } from "@/lib/mcp/application";
 import { loadMcpConfig } from "@/lib/mcp/config";
 import { createPrismaMcpDataSource } from "@/lib/mcp/prisma-data-source";
 import { getAgentAuthRuntime } from "@/lib/agent-auth/runtime";
@@ -8,14 +8,27 @@ import { getAgentAuthRuntime } from "@/lib/agent-auth/runtime";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const dataSource = createPrismaMcpDataSource(prisma);
+let fullReadOnlyDataSource: McpDataSource | null = null;
+
+async function getDataSource(config: ReturnType<typeof loadMcpConfig>) {
+  if (config.toolMode !== "full-read-only") {
+    const { prisma } = await import("@/lib/db");
+    return createPrismaMcpDataSource(prisma);
+  }
+  fullReadOnlyDataSource ??= createPrismaMcpDataSource(
+    new PrismaClient({ datasources: { db: { url: config.queryDatabaseUrl } } }),
+    new PrismaClient({ datasources: { db: { url: config.auditDatabaseUrl } } }),
+  );
+  return fullReadOnlyDataSource;
+}
 
 async function handle(request: Request) {
   try {
     const agentAuth = await getAgentAuthRuntime();
+    const config = loadMcpConfig();
     const handler = createMcpRequestHandler({
-      config: loadMcpConfig(),
-      dataSource,
+      config,
+      dataSource: await getDataSource(config),
       identityVerifier: agentAuth.tokenService,
     });
     return await handler(request);

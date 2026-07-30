@@ -13,6 +13,7 @@ on:
       - scripts/**
       - src/lib/agent-auth/**
       - src/lib/mcp/**
+      - src/app/api/mcp/**
 
 permissions:
   contents: read
@@ -59,7 +60,7 @@ jobs:
           test -z "$(git status --short)"
           git merge-base --is-ancestor eb1c0fdd39001008006f8eb0dfdbe008b5d3a940 HEAD
           test -z "$(git diff eb1c0fdd39001008006f8eb0dfdbe008b5d3a940..HEAD --name-only -- package.json pnpm-lock.yaml prisma/schema.prisma prisma/migrations)"
-          disallowed_mcp_changes="$(git diff eb1c0fdd39001008006f8eb0dfdbe008b5d3a940..HEAD --name-only -- src/lib/mcp | grep -vE '^src/lib/mcp/(application|config|tools)(\.test)?\.ts$' || true)"
+          disallowed_mcp_changes="$(git diff eb1c0fdd39001008006f8eb0dfdbe008b5d3a940..HEAD --name-only -- src/lib/mcp | grep -vE '^src/lib/mcp/(application|config|tools|prisma-data-source)(\.test)?\.ts$' || true)"
           test -z "$disallowed_mcp_changes"
           test "$GITHUB_REF_NAME" = "codex/unified-readonly-mcp" || test "$GITHUB_REF_NAME" = "codex/mcp-canary-two-tools"
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"

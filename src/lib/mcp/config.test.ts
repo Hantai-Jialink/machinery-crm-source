@@ -65,13 +65,35 @@ describe("MCP environment configuration", () => {
     expect(() => loadMcpConfig(environment)).toThrow(/MCP_TOOL_ALLOWLIST is required/);
     expect(() => loadMcpConfig({ ...environment, MCP_TOOL_ALLOWLIST: "crm_customers_list,unknown_tool" })).toThrow(/unknown tool names/);
     expect(() => loadMcpConfig({ ...environment, MCP_TOOL_ALLOWLIST: "crm_customers_list" })).toThrow(/MCP_ALLOWED_CALLER_ROLES is required/);
-    expect(loadMcpConfig({
+    const twoToolEnvironment = {
       ...environment,
       MCP_TOOL_ALLOWLIST: "crm_customers_list,erp_inventory_list",
       MCP_ALLOWED_CALLER_ROLES: "SUPER_ADMIN",
+    };
+    expect(() => loadMcpConfig(twoToolEnvironment)).toThrow(/MCP_QUERY_DATABASE_URL is required/);
+    expect(() => loadMcpConfig({
+      ...twoToolEnvironment,
+      MCP_QUERY_DATABASE_URL: "mysql://query:query-password@mysql:3306/machinery_crm",
+    })).toThrow(/MCP_AUDIT_DATABASE_URL is required/);
+    expect(() => loadMcpConfig({
+      ...twoToolEnvironment,
+      MCP_QUERY_DATABASE_URL: "not-a-url",
+      MCP_AUDIT_DATABASE_URL: "mysql://audit:audit-password@mysql:3306/machinery_crm",
+    })).toThrow(/MCP_QUERY_DATABASE_URL must be a valid MySQL URL/);
+    expect(() => loadMcpConfig({
+      ...twoToolEnvironment,
+      MCP_QUERY_DATABASE_URL: "mysql://shared:query-password@mysql:3306/machinery_crm",
+      MCP_AUDIT_DATABASE_URL: "mysql://shared:audit-password@mysql:3306/machinery_crm",
+    })).toThrow(/must use different database users/);
+    expect(loadMcpConfig({
+      ...twoToolEnvironment,
+      MCP_QUERY_DATABASE_URL: "mysql://query:query-password@mysql:3306/machinery_crm",
+      MCP_AUDIT_DATABASE_URL: "mysql://audit:audit-password@mysql:3306/machinery_crm",
     })).toMatchObject({
       allowedBusinessToolNames: ["crm_customers_list", "erp_inventory_list"],
       allowedBusinessToolRoles: ["SUPER_ADMIN"],
+      queryDatabaseUrl: "mysql://query:query-password@mysql:3306/machinery_crm",
+      auditDatabaseUrl: "mysql://audit:audit-password@mysql:3306/machinery_crm",
     });
   });
 
