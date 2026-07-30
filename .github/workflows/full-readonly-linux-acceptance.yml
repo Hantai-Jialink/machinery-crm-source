@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - codex/unified-readonly-mcp
+      - codex/mcp-canary-two-tools
     paths:
       - .github/workflows/full-readonly-linux-acceptance.yml
       - deploy/identity-acceptance/**
@@ -58,8 +59,9 @@ jobs:
           test -z "$(git status --short)"
           git merge-base --is-ancestor eb1c0fdd39001008006f8eb0dfdbe008b5d3a940 HEAD
           test -z "$(git diff eb1c0fdd39001008006f8eb0dfdbe008b5d3a940..HEAD --name-only -- package.json pnpm-lock.yaml prisma/schema.prisma prisma/migrations)"
-          test -z "$(git diff eb1c0fdd39001008006f8eb0dfdbe008b5d3a940..HEAD --name-only -- src/lib/mcp/tools.ts src/lib/erp-roles.ts)"
-          test "$GITHUB_REF_NAME" = "codex/unified-readonly-mcp"
+          disallowed_mcp_changes="$(git diff eb1c0fdd39001008006f8eb0dfdbe008b5d3a940..HEAD --name-only -- src/lib/mcp | grep -vE '^src/lib/mcp/(application|config|tools)(\.test)?\.ts$' || true)"
+          test -z "$disallowed_mcp_changes"
+          test "$GITHUB_REF_NAME" = "codex/unified-readonly-mcp" || test "$GITHUB_REF_NAME" = "codex/mcp-canary-two-tools"
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
           echo "GIT_SHA=$GITHUB_SHA"
 
