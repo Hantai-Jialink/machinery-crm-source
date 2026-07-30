@@ -39,6 +39,9 @@ if (
   || settings.MYSQL_DATABASE !== expectedDatabase
   || settings.FASTGPT_IMAGE !== "dachuan-fastgpt:v4.15.1-identity-acceptance.1"
   || settings.CRM_IMAGE !== "dachuanpro-crm-erp-mcp:1.2.0-identity-acceptance.1"
+  || !settings.CRM_AGENT_ASSERTION_SECRET
+  || /^(GENERATE_|REPLACE_)/.test(settings.CRM_AGENT_ASSERTION_SECRET)
+  || settings.CRM_AGENT_ASSERTION_SECRET !== settings.AUTH_SECRET
   || settings.FASTGPT_AIPROXY_API_ENDPOINT !== "http://fastgpt-aiproxy:3000"
   || [
     "FASTGPT_PLUGIN_TOKEN",

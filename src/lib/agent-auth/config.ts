@@ -14,6 +14,7 @@ type AgentAuthKeyConfig = {
 };
 
 export type AgentAuthConfig = {
+  crmAssertionSecret: string;
   issuer: string;
   audience: string;
   ttlSeconds: number;
@@ -93,6 +94,7 @@ export function loadAgentAuthConfig(environment: Environment = process.env): Age
     throw new Error("AGENT_AUTH_ACTIVE_KID must reference a key with privateJwk");
   }
   return {
+    crmAssertionSecret: required(environment, "CRM_AGENT_ASSERTION_SECRET"),
     issuer: required(environment, "AGENT_AUTH_ISSUER"),
     audience: required(environment, "AGENT_AUTH_AUDIENCE"),
     ttlSeconds,

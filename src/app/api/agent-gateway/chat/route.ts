@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createAgentGatewayHandler } from "@/lib/agent-auth/gateway";
 import { getAgentAuthRuntime } from "@/lib/agent-auth/runtime";
-import { getSessionUser } from "@/lib/permissions";
+import { verifyCrmAgentAssertion } from "@/lib/agent-auth/crm-assertion";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -19,9 +19,12 @@ export async function POST(request: Request) {
       },
       tokenService: agentAuth.tokenService,
       rateLimiter: agentAuth.stateStore,
-      loadLoggedInUser: async () => {
-        const user = await getSessionUser();
-        return user ? { id: user.id } : null;
+      loadLoggedInUser: async (gatewayRequest) => {
+        const identity = await verifyCrmAgentAssertion(
+          gatewayRequest.headers.get("authorization"),
+          agentAuth.config.crmAssertionSecret,
+        );
+        return identity ? { id: identity.userId } : null;
       },
     });
     return await handler(request);

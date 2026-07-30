@@ -75,6 +75,7 @@ $secrets = @(
   $settings["MCP_AUDIT_DB_PASSWORD"],
   $settings["REDIS_PASSWORD"],
   $settings["AUTH_SECRET"],
+  $settings["CRM_AGENT_ASSERTION_SECRET"],
   $settings["AGENT_GATEWAY_FASTGPT_API_KEY"],
   $settings["ACCEPTANCE_USER_PASSWORD"],
   $settings["FASTGPT_ROOT_PASSWORD"],

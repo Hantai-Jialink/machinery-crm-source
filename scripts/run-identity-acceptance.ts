@@ -150,6 +150,17 @@ async function customToken(options: {
   return { token, jti };
 }
 
+async function crmGatewayAssertion(userId: string, role = "SUPER_ADMIN") {
+  const nowSeconds = Math.floor(Date.now() / 1000);
+  return new SignJWT({ role })
+    .setProtectedHeader({ alg: "HS256", typ: "JWT" })
+    .setSubject(userId)
+    .setIssuedAt(nowSeconds)
+    .setExpirationTime(nowSeconds + 600)
+    .setJti(`gateway-${randomUUID()}`)
+    .sign(new TextEncoder().encode(required("CRM_AGENT_ASSERTION_SECRET")));
+}
+
 async function fastGptAdminToken() {
   const preLogin = await trackedFetch(resourceTracker, `${fastGptUrl}/api/support/user/account/preLogin?username=root`);
   const preLoginBody = unwrap<{ code: string }>(JSON.parse(await readTrackedResponseText(resourceTracker, preLogin)));
@@ -176,9 +187,8 @@ try {
     users: acceptanceLoginUsers(process.env),
   });
   check(loginPreflight.diagnostics.length === 6, "CRM login preflight did not verify six users");
-  const sessionA = loginPreflight.sessionsByUserId.get("identity-acceptance-sales-a");
-  const sessionB = loginPreflight.sessionsByUserId.get("identity-acceptance-sales-b");
-  check(sessionA && sessionB, "CRM login preflight did not return both sales sessions");
+  const adminSession = loginPreflight.sessionsByUserId.get("identity-acceptance-admin");
+  check(adminSession, "CRM login preflight did not return the SUPER_ADMIN session");
   record("six isolated CRM users complete real login and session preflight");
 
   const initialize = await rpc("initialize", {
@@ -515,18 +525,36 @@ try {
   check(discovered.some((tool) => tool.name === "dachuan_identity_who_am_i"), "FastGPT did not discover who_am_i");
   record("FastGPT 4.15.1 admin endpoint completes initialize and tools/list without a user assertion");
 
+  const rejectedGatewayCalls = await Promise.all([
+    trackedFetch(resourceTracker, `${crmUrl}/api/agent-gateway/chat`, {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: "http://127.0.0.1:18080" },
+      body: JSON.stringify({ messages: [] }),
+    }),
+    trackedFetch(resourceTracker, `${crmUrl}/api/agent-gateway/chat`, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${await crmGatewayAssertion("identity-acceptance-sales-a", "SALES")}`,
+        "content-type": "application/json",
+        origin: "http://127.0.0.1:18080",
+      },
+      body: JSON.stringify({ messages: [] }),
+    }),
+  ]);
+  check(rejectedGatewayCalls.every((response) => response.status === 401), "Gateway accepted a missing or non-SUPER_ADMIN CRM bearer assertion");
+  record("Gateway rejects missing and non-SUPER_ADMIN CRM bearer assertions before FastGPT forwarding");
+
   const gatewayCases = Array.from({ length: 24 }, (_, index) => ({
-    cookie: index % 2 === 0 ? sessionA : sessionB,
-    userId: index % 2 === 0 ? "identity-acceptance-sales-a" : "identity-acceptance-sales-b",
-    marker: `user-${index % 2}-tab-${index % 6}-call-${index}`,
+    userId: "identity-acceptance-admin",
+    marker: `super-admin-tab-${index % 6}-call-${index}`,
     stream: index % 5 === 0,
   }));
-  const chatResponses = await Promise.all(gatewayCases.map((item) => trackedFetch(resourceTracker, `${crmUrl}/api/agent-gateway/chat`, {
+  const chatResponses = await Promise.all(gatewayCases.map(async (item) => trackedFetch(resourceTracker, `${crmUrl}/api/agent-gateway/chat`, {
     method: "POST",
     headers: {
       accept: item.stream ? "text/event-stream" : "application/json",
+      authorization: `Bearer ${await crmGatewayAssertion(item.userId)}`,
       "content-type": "application/json",
-      cookie: item.cookie,
       origin: "http://127.0.0.1:18080",
     },
     body: JSON.stringify({
