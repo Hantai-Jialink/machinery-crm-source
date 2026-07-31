@@ -18,6 +18,7 @@ jobs:
       DATABASE_URL: ${{ format('mysql://build_user:{0}@127.0.0.1:3306/build_only', github.run_id) }}
       # NEXT_PUBLIC_ 变量会在 Next 构建期内联到桌宠前端。
       NEXT_PUBLIC_AGENT_APP_ID: ${{ vars.NEXT_PUBLIC_AGENT_APP_ID }}
+      NEXT_PUBLIC_AGENT_GATEWAY_URL: ${{ vars.NEXT_PUBLIC_AGENT_GATEWAY_URL }}
 
     steps:
       - name: 拉取源码
