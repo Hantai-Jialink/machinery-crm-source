@@ -235,6 +235,8 @@ jobs:
           # 8. 校验关键文件
           test -f "$PKG_DIR/.next/standalone/server.js" || test -f "$PKG_DIR/server.js"
           test -d "$PKG_DIR/.next/static"
+          find "$PKG_DIR/.next/static" -type f -name '*.css' -print -quit | grep -q .
+          find "$PKG_DIR/.next/static" -type f -name '*.js' -print -quit | grep -q .
           test -f "$PKG_DIR/prisma/schema.prisma"
           test "$(tr -d '\r\n' < "$PKG_DIR/VERSION")" = "$VERSION"
           test -f "$PKG_DIR/BUILD_INFO"
@@ -323,6 +325,8 @@ jobs:
           test -f "$VERIFY_APP/DEPLOY.md"
           test -f "$VERIFY_APP/ROLLBACK.md"
           test -d "$VERIFY_APP/.next/static"
+          find "$VERIFY_APP/.next/static" -type f -name '*.css' -print -quit | grep -q .
+          find "$VERIFY_APP/.next/static" -type f -name '*.js' -print -quit | grep -q .
           test ! -d "$VERIFY_APP/prisma/migrations/migrations"
           test ! -e "$VERIFY_APP/.env"
           test ! -d "$VERIFY_APP/src/app/uploads"
@@ -439,6 +443,30 @@ jobs:
             sleep 1
           done
           test "$STATUS" = "200"
+          node <<'NODE'
+          const assert = require("node:assert/strict");
+
+          async function main() {
+            const origin = "http://127.0.0.1:3000";
+            const login = await fetch(`${origin}/login`);
+            assert.equal(login.status, 200, "Login page is unavailable");
+            const html = await login.text();
+            const assets = [...new Set(
+              [...html.matchAll(/(?:src|href)="(\/_next\/static\/[^"?]+)(?:\?[^\"]*)?"/g)]
+                .map((match) => match[1])
+            )];
+            assert(assets.length > 0, "Login HTML has no Next static assets");
+            for (const asset of assets) {
+              const response = await fetch(`${origin}${asset}`);
+              assert.equal(response.status, 200, `Login static asset is unavailable: ${asset}`);
+            }
+          }
+
+          main().catch((error) => {
+            console.error(error);
+            process.exit(1);
+          });
+          NODE
           test -f "$PERSISTENT_UPLOADS/restart-marker.txt"
           kill "$SERVER_PID" 2>/dev/null || true
           wait "$SERVER_PID" || true

@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 const buildWorkflow = readFileSync(resolve(process.cwd(), ".github/workflows/build-standalone.yml"), "utf8");
 const validationWorkflow = readFileSync(resolve(process.cwd(), ".github/workflows/validate-phase4-artifact.yml"), "utf8");
 const middleware = readFileSync(resolve(process.cwd(), "src/middleware.ts"), "utf8");
+const loginPage = readFileSync(resolve(process.cwd(), "src/app/login/page.tsx"), "utf8");
 const reminderCronRoute = readFileSync(resolve(process.cwd(), "src/app/api/erp/delivery-reminders/run/route.ts"), "utf8");
 const kitCronRoute = readFileSync(resolve(process.cwd(), "src/app/api/erp/kit-rechecks/process/route.ts"), "utf8");
 const rollback = readFileSync(resolve(process.cwd(), "prisma/migrations/20260715100000_erp_phase4_procurement_delivery/rollback.sql"), "utf8");
@@ -28,6 +29,17 @@ describe("phase 4 release audit guards", () => {
     expect(middleware).toContain('"/api/erp/kit-rechecks/process"');
     expect(reminderCronRoute).toContain("ERP_CRON_SECRET");
     expect(kitCronRoute).toContain("ERP_CRON_SECRET");
+  });
+
+  it("keeps ERP dashboard reachable for internal ERP roles and makes login fail closed", () => {
+    expect(middleware).toMatch(/const warehouseAllowed =\s+erpDashboard \|\|/);
+    expect(loginPage.match(/<form onSubmit=\{handleSubmit\} method="post" action="\/login"/g)).toHaveLength(2);
+  });
+
+  it("requires every login static asset to be validated from the extracted standalone package", () => {
+    expect(buildWorkflow).toContain("Login static asset is unavailable");
+    expect(validationWorkflow).toContain("for (const asset of staticAssets)");
+    expect(validationWorkflow).toContain("find \"$APP_DIR/.next/static\" -type f -name '*.css'");
   });
 
   it("keeps rollback explicit and forbids database-wide destructive statements", () => {

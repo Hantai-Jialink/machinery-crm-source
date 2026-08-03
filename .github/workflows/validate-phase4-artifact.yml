@@ -138,6 +138,8 @@ jobs:
           test -f "$APP_DIR/prisma/schema.prisma"
           test -d "$APP_DIR/prisma/migrations"
           test -d "$APP_DIR/.next/static"
+          find "$APP_DIR/.next/static" -type f -name '*.css' -print -quit | grep -q .
+          find "$APP_DIR/.next/static" -type f -name '*.js' -print -quit | grep -q .
           test -d "$APP_DIR/node_modules/.prisma/client"
           test -f "$APP_DIR/node_modules/prisma/build/index.js"
           find "$APP_DIR/node_modules/.prisma/client" -type f -name 'libquery_engine-*.so.node' -print -quit | grep -q .
@@ -603,9 +605,14 @@ jobs:
           }
 
           const loginPage = await expectRequest(null, "/login", {}, 200);
-          const staticMatch = loginPage.text.match(/\/_next\/static\/[^"' ]+/);
-          assert(staticMatch, "No static asset found in login HTML");
-          await expectRequest(null, staticMatch[0], {}, 200);
+          const staticAssets = [...new Set(
+            [...loginPage.text.matchAll(/(?:src|href)="(\/_next\/static\/[^"?]+)(?:\?[^\"]*)?"/g)]
+              .map((match) => match[1])
+          )];
+          assert(staticAssets.length > 0, "No static asset found in login HTML");
+          for (const asset of staticAssets) {
+            await expectRequest(null, asset, {}, 200);
+          }
 
           const superJar = await login(seed.accounts.superAdmin);
           const purchaseJar = await login(seed.accounts.purchase);

@@ -49,6 +49,7 @@ export default auth((req) => {
   // 其余页面弹回库存台账,其余接口一律 403,防止泄露客户/合同等机密数据。
   if (role === "WAREHOUSE" || role === "PURCHASE") {
     const warehouseAllowed =
+      erpDashboard ||
       pathname.startsWith("/api/erp") ||
       pathname === "/tasks" ||
       pathname.startsWith("/api/system/tasks") ||

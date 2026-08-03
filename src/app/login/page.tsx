@@ -318,7 +318,7 @@ export default function LoginPage() {
               />
             </div>
 
-            <form onSubmit={handleSubmit} className="space-y-4">
+            <form onSubmit={handleSubmit} method="post" action="/login" className="space-y-4">
               <div>
                 <label className="mb-1 block text-sm font-medium text-gray-700">账号</label>
                 <input
@@ -622,7 +622,7 @@ export default function LoginPage() {
               <p className="mt-2 text-sm text-[#5B5C60]">请输入账号和密码登录 CRM 系统</p>
             </div>
 
-            <form onSubmit={handleSubmit} className="space-y-5">
+            <form onSubmit={handleSubmit} method="post" action="/login" className="space-y-5">
               <div>
                 <label htmlFor="desktop-username" className="mb-2 block text-sm font-semibold text-[#1f2937]">
                   账号
