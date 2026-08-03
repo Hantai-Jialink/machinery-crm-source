@@ -6,6 +6,10 @@ export class StockInVoidRequestError extends Error {
   }
 }
 
+export function canRoleVoidStockIn(role: string): boolean {
+  return role === "SUPER_ADMIN" || role === "WAREHOUSE";
+}
+
 export function normalizeStockInVoidReason(value: unknown) {
   if (typeof value !== "string") throw new StockInVoidRequestError("作废原因为必填项", 400);
   const reason = value.trim();

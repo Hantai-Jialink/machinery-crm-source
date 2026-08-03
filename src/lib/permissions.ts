@@ -14,6 +14,7 @@ import {
   canViewERP,
   customerBusinessLineForRole,
 } from "@/lib/erp-roles";
+import { canRoleVoidStockIn } from "@/lib/stock-in-void";
 
 // 用户负责的省/市范围。cities 为空数组 = 整省;否则仅这些市。
 export type Territory = { province: string; cities: string[] };
@@ -201,7 +202,7 @@ export function canManageInventory(user: SessionUser): boolean {
 
 /** 入库作废是高风险库存更正；保持既有库存管理权限语义不变。 */
 export function canVoidStockIn(user: SessionUser): boolean {
-  return user.role === "SUPER_ADMIN" || user.role === "WAREHOUSE";
+  return canRoleVoidStockIn(user.role);
 }
 
 export function canManageMaterialMaster(user: SessionUser): boolean {

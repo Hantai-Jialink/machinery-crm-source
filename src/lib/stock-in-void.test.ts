@@ -1,20 +1,19 @@
 import { Prisma } from "@prisma/client";
 import { describe, expect, it } from "vitest";
-import { canVoidStockIn, type SessionUser } from "./permissions";
 import {
   assertStockInCanBeVoided,
+  canRoleVoidStockIn,
   calculateInventoryAfterStockInVoid,
   normalizeStockInVoidReason,
   StockInVoidRequestError,
 } from "./stock-in-void";
 
-const roles: SessionUser["role"][] = ["SUPER_ADMIN", "WAREHOUSE", "PURCHASE", "SALES", "FOREIGN_TRADE"];
-const userFor = (role: SessionUser["role"]): SessionUser => ({ id: role, role, region: "", territories: [], viewScope: "TERRITORY" });
+const roles = ["SUPER_ADMIN", "WAREHOUSE", "PURCHASE", "SALES", "FOREIGN_TRADE"];
 const confirmed = { status: "CONFIRMED" as const, confirmedAt: new Date("2026-08-03T00:00:00.000Z"), voidedAt: null, purchaseOrderId: null, productionOrderId: null, confirmedById: "another-user", actorId: "operator" };
 
 describe("StockIn 作废领域保护", () => {
   it("仅允许超级管理员和仓库角色发起作废", () => {
-    expect(Object.fromEntries(roles.map((role) => [role, canVoidStockIn(userFor(role))]))).toEqual({
+    expect(Object.fromEntries(roles.map((role) => [role, canRoleVoidStockIn(role)]))).toEqual({
       SUPER_ADMIN: true,
       WAREHOUSE: true,
       PURCHASE: false,
