@@ -22,6 +22,8 @@ export async function listInventory(user: SessionUser, searchParams: URLSearchPa
   const warehouseId = searchParams.get("warehouseId") || "";
   const categoryId = searchParams.get("categoryId") || "";
   const alertOnly = searchParams.get("alertOnly") === "1";
+  const zeroStock = searchParams.get("zeroStock") === "1";
+  const demandWithoutStock = searchParams.get("demandWithoutStock") === "1";
   const page = Math.max(1, parseInt(searchParams.get("page") || "1", 10));
   const pageSize = Math.min(100, Math.max(1, parseInt(searchParams.get("pageSize") || "20", 10)));
   const where: Record<string, unknown> = {};
@@ -29,6 +31,14 @@ export async function listInventory(user: SessionUser, searchParams: URLSearchPa
   if (categoryId) where.material = { categoryId };
   if (search) {
     where.material = { ...(where.material as object || {}), OR: [{ name: { contains: search } }, { code: { contains: search } }] };
+  }
+  if (zeroStock || demandWithoutStock) where.quantity = { equals: 0 };
+  if (demandWithoutStock) {
+    // 固定业务口径：未取消且 convertedQuantity < requestedQuantity；不使用 suggestedQuantity。
+    const demands = await prisma.purchaseDemand.findMany({ where: { status: { not: "CANCELLED" } }, select: { materialId: true, requestedQuantity: true, convertedQuantity: true } });
+    const materialIds = [...new Set(demands.filter((demand) => demand.convertedQuantity.lt(demand.requestedQuantity)).map((demand) => demand.materialId))];
+    if (!materialIds.length) return { items: [], pagination: { page: 1, pageSize, total: 0, totalPages: 0 } };
+    where.materialId = { in: materialIds };
   }
   if (alertOnly) {
     const inventories = await prisma.inventory.findMany({

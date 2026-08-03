@@ -1,9 +1,9 @@
-import { randomUUID } from "crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { getSessionUser, canManagePurchaseOrders } from "@/lib/permissions";
 import { writeOperationLog } from "@/lib/sales-items";
+import { autoDocumentPrefix, DOCUMENT_NUMBER_RULES_KEY, formatAutoDocumentNo, normalizeAutoDocumentRules } from "@/lib/document-number";
 
 export async function POST(request: NextRequest) {
   const user = await getSessionUser();
@@ -29,7 +29,8 @@ export async function POST(request: NextRequest) {
         if (!demand || !quantity.gt(0) || quantity.gt(new Prisma.Decimal(demand.suggestedQuantity).sub(demand.convertedQuantity))) throw new Error("分摊数量超过采购需求剩余数量");
         grouped.set(demand.materialId, [...(grouped.get(demand.materialId) || []), { demand, quantity }]);
       }
-      const order = await tx.purchaseOrder.create({ data: { orderNo: `PO${new Date().toISOString().slice(0, 10).replace(/-/g, "")}${randomUUID().slice(0, 6).toUpperCase()}`, supplierId: supplier.id, supplierNameSnapshot: supplier.name, orderDate: new Date(), status: "DRAFT", remark: String(body.remark || "多来源采购需求合并"), createdById: user.id } });
+      const numberRule=normalizeAutoDocumentRules((await tx.systemSetting.findUnique({where:{key:DOCUMENT_NUMBER_RULES_KEY}}))?.value).PURCHASE_ORDER; const orderNo=formatAutoDocumentNo(numberRule,await tx.purchaseOrder.count({where:{orderNo:{startsWith:autoDocumentPrefix(numberRule)}}}));
+      const order = await tx.purchaseOrder.create({ data: { orderNo, supplierId: supplier.id, supplierNameSnapshot: supplier.name, orderDate: new Date(), status: "DRAFT", remark: String(body.remark || "多来源采购需求合并"), createdById: user.id } });
       for (const [materialId, allocations] of grouped) {
         const material = allocations[0].demand.material;
         const quantity = allocations.reduce((sum, row) => sum.add(row.quantity), new Prisma.Decimal(0));

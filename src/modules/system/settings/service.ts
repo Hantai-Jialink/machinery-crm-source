@@ -2,8 +2,9 @@ import { prisma } from "@/lib/db";
 import type { SessionUser } from "@/lib/permissions";
 import { DomainError } from "@/modules/shared/domain-error";
 import { writeOperationLog } from "@/lib/sales-items";
+import { assertAutoDocumentRules, DOCUMENT_NUMBER_RULES_KEY } from "@/lib/document-number";
 
-export const SETTINGS_ALLOWLIST = ["reminders", "printInfo"] as const;
+export const SETTINGS_ALLOWLIST = ["reminders", "printInfo", DOCUMENT_NUMBER_RULES_KEY] as const;
 export type SettingKey = (typeof SETTINGS_ALLOWLIST)[number];
 
 function assertConfigAdmin(user: SessionUser) {
@@ -20,6 +21,9 @@ export async function saveSetting(user: SessionUser, key: string, value: unknown
   assertConfigAdmin(user);
   if (!SETTINGS_ALLOWLIST.includes(key as SettingKey)) throw new DomainError("该配置项不允许编辑", 400);
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new DomainError("配置值必须是对象", 400);
+  if (key === DOCUMENT_NUMBER_RULES_KEY) {
+    try { value = assertAutoDocumentRules(value); } catch (error) { throw new DomainError(error instanceof Error ? error.message : "编号规则无效", 400); }
+  }
   return prisma.$transaction(async (tx) => {
     const before = await tx.systemSetting.findUnique({ where: { key } });
     const row = await tx.systemSetting.upsert({ where: { key }, create: { key, value: value as object, updatedById: user.id }, update: { value: value as object, updatedById: user.id } });

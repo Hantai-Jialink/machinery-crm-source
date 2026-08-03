@@ -14,6 +14,8 @@ export default function InventoryPage() {
   const [search, setSearch] = useState("");
   const [warehouseId, setWarehouseId] = useState("");
   const [alertOnly, setAlertOnly] = useState(false);
+  const [zeroStock, setZeroStock] = useState(false);
+  const [demandWithoutStock, setDemandWithoutStock] = useState(false);
   const [page, setPage] = useState(1);
   const [shortageItems, setShortageItems] = useState<any[]>([]);
   const [showShortageModal, setShowShortageModal] = useState(false);
@@ -41,6 +43,8 @@ export default function InventoryPage() {
     if (search) params.set("search", search);
     if (warehouseId) params.set("warehouseId", warehouseId);
     if (alertOnly) params.set("alertOnly", "1");
+    if (zeroStock) params.set("zeroStock", "1");
+    if (demandWithoutStock) params.set("demandWithoutStock", "1");
     params.set("page", String(page));
     params.set("pageSize", "20");
     fetch(`/api/erp/inventory?${params.toString()}`)
@@ -50,7 +54,7 @@ export default function InventoryPage() {
         setPagination(data.pagination || { page: 1, pageSize: 20, total: 0, totalPages: 0 });
       })
       .finally(() => setLoading(false));
-  }, [search, warehouseId, alertOnly, page]);
+  }, [search, warehouseId, alertOnly, zeroStock, demandWithoutStock, page]);
 
   useEffect(() => {
     if (shortageAutoShown) return;
@@ -108,6 +112,8 @@ export default function InventoryPage() {
           <AlertTriangle className="w-4 h-4 text-amber-500" />
           仅显示预警
         </label>
+        <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer"><input type="checkbox" checked={zeroStock} onChange={(e) => { setZeroStock(e.target.checked); setPage(1); }} className="rounded border-gray-300" />零库存</label>
+        <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer"><input type="checkbox" checked={demandWithoutStock} onChange={(e) => { setDemandWithoutStock(e.target.checked); setPage(1); }} className="rounded border-gray-300" />有需求无库存</label>
       </div>
 
       {loading ? (
