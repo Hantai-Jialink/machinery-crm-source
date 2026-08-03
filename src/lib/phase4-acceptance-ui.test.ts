@@ -30,12 +30,10 @@ describe("ERP acceptance UI guards", () => {
     expect(page).toContain("计划完成日期");
   });
 
-  it("keeps the requested ERP navigation order", () => {
+  it("keeps the stage-1 business-scenario navigation", () => {
     const sidebar = source("src/components/layout/sidebar.tsx");
     const labels = [
-      "生产工单", "齐套检查结果", "入库", "出库", "库存台账", "物料管理", "整机用料清单",
-      "采购订单", "采购需求", "供应商交期跟踪", "供应商管理", "月度生产计划", "仓库管理",
-      "库存调拨", "盘点", "工单变更审批",
+      "经营驾驶舱", "客户与销售", "采购与供应", "库存与物料", "生产执行", "平台管理",
     ];
     let previous = -1;
     for (const label of labels) {

@@ -1,5 +1,6 @@
 import { auth } from "@/lib/auth";
 import { NextResponse } from "next/server";
+import { canAccessCrmDashboard, canAccessErpDashboard, dashboardHomeForRole } from "@/lib/dashboard-access";
 
 export default auth((req) => {
   const { pathname } = req.nextUrl;
@@ -27,6 +28,16 @@ export default auth((req) => {
   }
 
   const role = (req.auth.user as any)?.role;
+  const home = dashboardHomeForRole(role);
+  const crmDashboard = pathname === "/dashboard" || pathname.startsWith("/dashboard/crm");
+  const erpDashboard = pathname.startsWith("/dashboard/erp");
+  const crmDashboardApi = pathname === "/api/dashboard" || pathname.startsWith("/api/crm/dashboard");
+  const erpDashboardApi = pathname.startsWith("/api/erp/dashboard");
+
+  if (crmDashboardApi && !canAccessCrmDashboard(role)) return NextResponse.json({ error: "无权限访问 CRM 驾驶舱" }, { status: 403 });
+  if (erpDashboardApi && !canAccessErpDashboard(role)) return NextResponse.json({ error: "无权限访问 ERP 驾驶舱" }, { status: 403 });
+  if (crmDashboard && !canAccessCrmDashboard(role)) return NextResponse.redirect(new URL(home || "/login", req.url));
+  if (erpDashboard && !canAccessErpDashboard(role)) return NextResponse.redirect(new URL(home || "/login", req.url));
 
   const matchesPage = (prefix: string) => pathname === prefix || pathname.startsWith(`${prefix}/`);
   const rolePages: Record<string, string[]> = {
@@ -46,13 +57,13 @@ export default auth((req) => {
       if (pathname.startsWith("/api/")) {
         return NextResponse.json({ error: "无权限访问" }, { status: 403 });
       }
-      return NextResponse.redirect(new URL(role === "PURCHASE" ? "/erp/purchase-orders" : "/erp/inventory", req.url));
+      return NextResponse.redirect(new URL("/dashboard/erp", req.url));
     }
   }
 
   if ((role === "SALES" || role === "FOREIGN_TRADE") && (pathname.startsWith("/erp") || pathname.startsWith("/api/erp"))) {
     if (pathname.startsWith("/api/")) return NextResponse.json({ error: "无权限访问 ERP" }, { status: 403 });
-    return NextResponse.redirect(new URL("/dashboard", req.url));
+    return NextResponse.redirect(new URL("/dashboard/crm", req.url));
   }
 
   // 用户管理仅超级管理员

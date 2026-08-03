@@ -83,9 +83,9 @@ export default function DashboardPage() {
   }, [preset, customStart, customEnd, province, salesUserId, customerStatus, contractStatus, shipmentStatus]);
 
   useEffect(() => {
-    fetch("/api/users/active")
+    fetch("/api/crm/dashboard")
       .then((res) => res.json())
-      .then((payload) => setActiveUsers(Array.isArray(payload) ? payload : []))
+      .then((payload) => setActiveUsers(Array.isArray(payload.salesUsers) ? payload.salesUsers : []))
       .catch(() => setActiveUsers([]));
   }, []);
 
@@ -95,7 +95,7 @@ export default function DashboardPage() {
       setLoading(true);
       setError("");
       try {
-        const response = await fetch(`/api/dashboard?${query}`, { cache: "no-store" });
+        const response = await fetch(`/api/crm/dashboard?${query}`, { cache: "no-store" });
         const payload = await readJson(response);
         if (!response.ok) throw new Error(payload.error || `工作台数据加载失败（${response.status}）`);
         if (active) setData(payload);

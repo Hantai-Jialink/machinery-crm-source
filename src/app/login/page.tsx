@@ -3,7 +3,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Eye, EyeOff } from "lucide-react";
 import { signIn } from "next-auth/react";
-import { useRouter } from "next/navigation";
 
 const REMEMBER_KEY = "crm_remember_account";
 
@@ -156,7 +155,6 @@ const EyeBall = ({
 // ---------------------------------------------------------------------------
 
 export default function LoginPage() {
-  const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [remember, setRemember] = useState(true);
@@ -297,8 +295,7 @@ export default function LoginPage() {
         } catch {
           // 登录已成功，忽略存储失败
         }
-        router.push("/dashboard");
-        router.refresh();
+        window.location.assign("/");
       }
     } catch {
       setError("登录失败，请重试");

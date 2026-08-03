@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { signOut, useSession } from "next-auth/react";
@@ -41,10 +41,22 @@ type NavItem = NavChild & {
 };
 
 const navItems: NavItem[] = [
-  { href: "/dashboard", label: "工作台", icon: LayoutDashboard },
-  { href: "/customers", label: "客户管理", icon: Users },
-  { href: "/contracts", label: "合同管理", icon: FileText },
-  { href: "/shipments", label: "发货管理", icon: Truck },
+  { href: "/dashboard/crm", label: "经营驾驶舱", icon: LayoutDashboard, children: [
+    { href: "/dashboard/crm", label: "CRM 驾驶舱", roles: ["SUPER_ADMIN", "SALES", "FOREIGN_TRADE"] },
+    { href: "/dashboard/erp", label: "ERP 驾驶舱", roles: ["SUPER_ADMIN", "PURCHASE", "WAREHOUSE"] },
+  ] },
+  { href: "/customers", label: "客户与销售", icon: Users, roles: ["SUPER_ADMIN", "SALES", "FOREIGN_TRADE"], children: [
+    { href: "/customers", label: "客户管理" }, { href: "/reminders", label: "跟进提醒" }, { href: "/contracts", label: "合同管理" }, { href: "/shipments", label: "发货管理" }, { href: "/products", label: "产品库" },
+  ] },
+  { href: "/erp/purchase-demands", label: "采购与供应", icon: FileText, erpOnly: true, children: [
+    { href: "/erp/purchase-demands", label: "采购需求", roles: ["SUPER_ADMIN", "PURCHASE"] }, { href: "/erp/purchase-orders", label: "采购订单", roles: ["SUPER_ADMIN", "PURCHASE", "WAREHOUSE"] }, { href: "/erp/suppliers", label: "供应商管理", roles: ["SUPER_ADMIN", "PURCHASE"] }, { href: "/erp/supplier-deliveries", label: "供应商交期跟踪", roles: ["SUPER_ADMIN", "PURCHASE", "WAREHOUSE"] },
+  ] },
+  { href: "/erp/inventory", label: "库存与物料", icon: Boxes, erpOnly: true, children: [
+    { href: "/erp/inventory", label: "库存台账", roles: ["SUPER_ADMIN", "PURCHASE", "WAREHOUSE"] }, { href: "/erp/stock-in", label: "入库", roles: ["SUPER_ADMIN", "WAREHOUSE"] }, { href: "/erp/stock-out", label: "出库", roles: ["SUPER_ADMIN", "WAREHOUSE"] }, { href: "/erp/stock-transfers", label: "库存调拨", roles: ["SUPER_ADMIN", "WAREHOUSE"] }, { href: "/erp/stock-check", label: "盘点", roles: ["SUPER_ADMIN", "WAREHOUSE"] }, { href: "/erp/materials", label: "物料管理", roles: ["SUPER_ADMIN", "PURCHASE", "WAREHOUSE"] }, { href: "/erp/bom", label: "整机用料清单", roles: ["SUPER_ADMIN"] }, { href: "/erp/warehouse", label: "仓库管理", roles: ["SUPER_ADMIN", "WAREHOUSE"] },
+  ] },
+  { href: "/erp/production-orders", label: "生产执行", icon: ClipboardCheck, erpOnly: true, children: [
+    { href: "/erp/production-orders", label: "生产工单", roles: ["SUPER_ADMIN", "PURCHASE", "WAREHOUSE"] }, { href: "/erp/kit-check-results", label: "齐套检查", roles: ["SUPER_ADMIN", "PURCHASE", "WAREHOUSE"] }, { href: "/erp/monthly-production-plans", label: "月度生产计划", roles: ["SUPER_ADMIN", "PURCHASE", "WAREHOUSE"] },
+  ] },
   {
     href: "/products",
     label: "产品库",
@@ -55,59 +67,45 @@ const navItems: NavItem[] = [
       { href: "/products/new-optional", label: "新增选配产品", adminOnly: true },
     ],
   },
-  { href: "/reminders", label: "跟进提醒", icon: Bell },
-  { href: "/contract-unlock-requests", label: "合同修改审批", icon: ClipboardCheck, adminOnly: true },
-  { href: "/contract-delete-requests", label: "合同删除审批", icon: Trash2, adminOnly: true },
-  {
-    href: "/erp/inventory",
-    label: "库存管理(ERP)",
-    icon: Boxes,
-    erpOnly: true,
-    children: [
-      { href: "/erp/production-orders", label: "生产工单", roles: ["SUPER_ADMIN", "PURCHASE", "WAREHOUSE"] },
-      { href: "/erp/kit-check-results", label: "齐套检查结果", roles: ["SUPER_ADMIN", "PURCHASE", "WAREHOUSE"] },
-      { href: "/erp/stock-in", label: "入库", roles: ["SUPER_ADMIN", "WAREHOUSE"] },
-      { href: "/erp/stock-out", label: "出库", roles: ["SUPER_ADMIN", "WAREHOUSE"] },
-      { href: "/erp/inventory", label: "库存台账", roles: ["SUPER_ADMIN", "PURCHASE", "WAREHOUSE"] },
-      { href: "/erp/materials", label: "物料管理", roles: ["SUPER_ADMIN", "PURCHASE", "WAREHOUSE"] },
-      { href: "/erp/bom", label: "整机用料清单", roles: ["SUPER_ADMIN"] },
-      { href: "/erp/purchase-orders", label: "采购订单", roles: ["SUPER_ADMIN", "PURCHASE", "WAREHOUSE"] },
-      { href: "/erp/purchase-demands", label: "采购需求", roles: ["SUPER_ADMIN", "PURCHASE"] },
-      { href: "/erp/supplier-deliveries", label: "供应商交期跟踪", roles: ["SUPER_ADMIN", "PURCHASE", "WAREHOUSE"] },
-      { href: "/erp/suppliers", label: "供应商管理", roles: ["SUPER_ADMIN", "PURCHASE"] },
-      { href: "/erp/monthly-production-plans", label: "月度生产计划", roles: ["SUPER_ADMIN", "PURCHASE", "WAREHOUSE"], children: [
-        { href: "/erp/monthly-production-plans", label: "月度生产计划", roles: ["SUPER_ADMIN", "PURCHASE", "WAREHOUSE"] },
-        { href: "/erp/monthly-production-plans/spare-parts-forecast", label: "月度生产计划备件预测", roles: ["SUPER_ADMIN", "PURCHASE"] },
-      ] },
-      { href: "/erp/warehouse", label: "仓库管理", roles: ["SUPER_ADMIN", "WAREHOUSE"] },
-      { href: "/erp/stock-transfers", label: "库存调拨", roles: ["SUPER_ADMIN", "WAREHOUSE"] },
-      { href: "/erp/stock-check", label: "盘点", roles: ["SUPER_ADMIN", "WAREHOUSE"] },
-      { href: "/erp/production-order-change-requests", label: "工单变更审批", adminOnly: true },
-    ],
-  },
+  { href: "/contract-unlock-requests", label: "平台管理", icon: Settings, adminOnly: true, children: [
+    { href: "/contract-unlock-requests", label: "合同修改审批" }, { href: "/contract-delete-requests", label: "合同删除审批" }, { href: "/erp/production-order-change-requests", label: "工单变更审批" }, { href: "/users", label: "用户与权限" }, { href: "/operation-logs", label: "操作日志" }, { href: "/settings", label: "系统设置" },
+  ] },
   { href: "/operation-logs", label: "操作日志", icon: History, adminOnly: true },
-  { href: "/users", label: "用户管理", icon: UserCircle, adminOnly: true },
-  { href: "/settings", label: "系统设置", icon: Settings },
 ];
 
 export function Sidebar() {
   const pathname = usePathname();
   const { data: session } = useSession();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const navRef = useRef<HTMLElement | null>(null);
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({
-    "/products": pathname.startsWith("/products"),
-    "/erp/inventory": pathname.startsWith("/erp"),
+    "/dashboard/crm": pathname.startsWith("/dashboard"),
+    "/customers": pathname.startsWith("/customers") || pathname.startsWith("/contracts") || pathname.startsWith("/shipments") || pathname.startsWith("/reminders") || pathname.startsWith("/products"),
+    "/erp/purchase-demands": pathname.startsWith("/erp/purchase") || pathname.startsWith("/erp/supplier"),
+    "/erp/inventory": pathname.startsWith("/erp/inventory") || pathname.startsWith("/erp/stock") || pathname.startsWith("/erp/material") || pathname.startsWith("/erp/bom") || pathname.startsWith("/erp/warehouse"),
+    "/erp/production-orders": pathname.startsWith("/erp/production") || pathname.startsWith("/erp/kit") || pathname.startsWith("/erp/monthly"),
   });
 
   const userRole = (session?.user as any)?.role;
   const userViewScope = (session?.user as any)?.viewScope;
   const canViewErpModule = canViewERP(userRole || "");
   const filteredNavItems = navItems.filter((item) => {
-    if (userRole === "WAREHOUSE" || userRole === "PURCHASE") return item.erpOnly === true || item.href === "/settings";
+    if (item.roles && !item.roles.includes(userRole)) return false;
+    if (userRole === "WAREHOUSE" || userRole === "PURCHASE") return item.erpOnly === true || item.href === "/dashboard/crm";
     if (item.adminOnly && userRole !== "SUPER_ADMIN") return false;
     if (item.erpOnly && !canViewErpModule) return false;
     return true;
   });
+
+  useEffect(() => {
+    const nav = navRef.current; if (!nav) return;
+    const saved = sessionStorage.getItem("dachuan.sidebar.scroll");
+    if (saved) nav.scrollTop = Number(saved) || 0;
+  }, [pathname]);
+
+  const rememberScroll = () => {
+    if (navRef.current) sessionStorage.setItem("dachuan.sidebar.scroll", String(navRef.current.scrollTop));
+  };
 
   const NavContent = () => (
     <>
@@ -115,7 +113,7 @@ export function Sidebar() {
         <img src="/logo.png" alt="大川机械" className="w-40 h-auto object-contain" />
       </div>
 
-      <nav className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-3 space-y-1">
+      <nav ref={navRef} onScroll={rememberScroll} className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-3 space-y-1">
         {filteredNavItems.map((item) => {
           const isActive = pathname === item.href || pathname.startsWith(item.href + "/");
           const Icon = item.icon;
