@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db";
 import { canAccessERP, type SessionUser } from "@/lib/permissions";
+import { isInventoryBelowWarningThreshold } from "@/lib/inventory-alert";
 import { DomainError } from "@/modules/shared/domain-error";
 
 const materialSelect = {
@@ -13,12 +14,6 @@ const materialSelect = {
   supplier: true,
   category: { select: { id: true, name: true, warningThreshold: true } },
 } as const;
-
-function effectiveThreshold(material: { safetyStock?: unknown; category?: { warningThreshold?: unknown } | null }) {
-  if (material.safetyStock !== null && material.safetyStock !== undefined) return Number(material.safetyStock);
-  if (material.category?.warningThreshold !== null && material.category?.warningThreshold !== undefined) return Number(material.category.warningThreshold);
-  return null;
-}
 
 /** ERP 库存查询服务；权限在查询前判定，保留原 URL 和响应结构。 */
 export async function listInventory(user: SessionUser, searchParams: URLSearchParams) {
@@ -42,8 +37,7 @@ export async function listInventory(user: SessionUser, searchParams: URLSearchPa
       orderBy: { materialId: "asc" },
     });
     const items = inventories.filter((inventory) => {
-      const threshold = effectiveThreshold(inventory.material);
-      return threshold !== null && Number(inventory.quantity) <= threshold;
+      return isInventoryBelowWarningThreshold(inventory.quantity, inventory.material);
     });
     return { items, pagination: { page: 1, pageSize: items.length, total: items.length, totalPages: 1 } };
   }

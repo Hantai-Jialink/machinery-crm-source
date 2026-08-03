@@ -37,6 +37,12 @@
 - `/api/agent/assertion` 已抽为 `modules/agent/assertion.ts`，但 URL、HS256、600 秒 TTL 和超管限制不变。
 - 静态 API 注册表位于 `modules/agent/api-registry.ts`；它不接受数据库编辑，也不会生成对外动态 Route。
 
+## 阶段 3 系统领域增量
+
+- `/api/system/tasks` 聚合既有审批/需求来源，并只保存用户视图状态，不复制或替代业务审批状态。
+- `/api/system/settings`、`/api/system/permissions`、`/api/system/health` 均在 Route 和服务层限制为超级管理员；设置键采用白名单。
+- `/api/system/audit/search` 是新的分页脱敏查询；`/api/operation-logs` 与 `/api/system/audit` 保持原有数组响应兼容。
+
 ## 当前权限盘点
 
 - `SUPER_ADMIN`：当前可进入 CRM、ERP、用户、日志和设置；2.0 仍是全权限基线。

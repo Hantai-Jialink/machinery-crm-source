@@ -1,14 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
-import { getSessionUser, canManagePurchaseOrders, isSuperAdmin } from "@/lib/permissions";
+import { getSessionUser, canManagePurchaseDemands, isSuperAdmin } from "@/lib/permissions";
 import { writeOperationLog } from "@/lib/sales-items";
 import { upsertPurchaseDemandForSource } from "@/lib/procurement-planning";
 
 export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const user = await getSessionUser();
   if (!user) return NextResponse.json({ error: "未登录" }, { status: 401 });
-  if (!canManagePurchaseOrders(user)) return NextResponse.json({ error: "无权限" }, { status: 403 });
+  if (!canManagePurchaseDemands(user)) return NextResponse.json({ error: "无权限" }, { status: 403 });
   const { id } = await params;
   const body = await request.json();
   const current = await prisma.purchaseDemand.findUnique({ where: { id } });

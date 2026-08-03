@@ -29,7 +29,7 @@ export async function GET(request: NextRequest) {
     ...(search ? { OR: [{ orderNo: { contains: search } }, { contractNoSnapshot: { contains: search } }, { productModelSnapshot: { contains: search } }, { productNameSnapshot: { contains: search } }] } : {}),
   };
   const [items, total] = await Promise.all([
-    prisma.productionOrder.findMany({ where, orderBy: { createdAt: "desc" }, skip: (page - 1) * pageSize, take: pageSize, include: { kitCheckResults: { orderBy: { createdAt: "desc" }, take: 1 } } }),
+    prisma.productionOrder.findMany({ where, orderBy: { createdAt: "desc" }, skip: (page - 1) * pageSize, take: pageSize, include: { kitCheckResults: { where: { deletedAt: null }, orderBy: { createdAt: "desc" }, take: 1 } } }),
     prisma.productionOrder.count({ where }),
   ]);
   return NextResponse.json({ items: items.map(({ kitCheckResults, ...item }) => user.role === "PURCHASE" ? ({ id: item.id, orderNo: item.orderNo, productModelSnapshot: item.productModelSnapshot, productNameSnapshot: item.productNameSnapshot, quantity: item.quantity, plannedDate: item.plannedDate, status: item.status, latestKitCheckResult: kitCheckResults[0] || null }) : ({ ...item, latestKitCheckResult: kitCheckResults[0] || null })), pagination: { page, pageSize, total, totalPages: Math.ceil(total / pageSize) } });
