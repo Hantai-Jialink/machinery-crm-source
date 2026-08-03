@@ -131,6 +131,7 @@ export default function StockOutPage() {
     <div className="space-y-4">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <h1 className="text-xl font-semibold text-gray-900">出库单</h1>
+        <button type="button" onClick={() => window.print()} className="print-hidden rounded border px-3 py-2 text-sm">打印当前筛选结果</button>
         {canEdit && (
           <button
             onClick={() => setTab("form")}
@@ -311,6 +312,7 @@ export default function StockOutPage() {
           </div>
         </div>
       )}
+      <style jsx global>{`@media print { aside, button, input, select, textarea, .print-hidden, [role="dialog"] { display: none !important; } main { margin: 0 !important; } }`}</style>
     </div>
   );
 }

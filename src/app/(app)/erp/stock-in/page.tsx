@@ -197,6 +197,7 @@ function StockInContent() {
     <div className="space-y-4">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <h1 className="text-xl font-semibold text-gray-900">入库单</h1>
+        <button type="button" onClick={() => window.print()} className="print-hidden rounded border px-3 py-2 text-sm">打印当前筛选结果</button>
         {canEdit && (
           <button
             onClick={() => {
@@ -403,6 +404,7 @@ function StockInContent() {
           </div>
         </div>
       )}
+      <style jsx global>{`@media print { aside, button, input, select, textarea, .print-hidden, [role="dialog"] { display: none !important; } main { margin: 0 !important; } }`}</style>
 
       {correctionTarget && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setCorrectionTarget(null)}>

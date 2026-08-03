@@ -79,6 +79,7 @@ export default function InventoryPage() {
     <div className="space-y-4">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <h1 className="text-xl font-semibold text-gray-900">库存总览</h1>
+        <button type="button" onClick={() => window.print()} className="print-hidden rounded border px-3 py-2 text-sm">打印当前筛选结果</button>
       </div>
 
       <div className="bg-white rounded-xl border border-gray-200 p-4 flex flex-wrap gap-3 items-center">
@@ -228,6 +229,7 @@ export default function InventoryPage() {
           </div>
         </div>
       )}
+      <style jsx global>{`@media print { aside, button, input, select, textarea, .print-hidden, [role="dialog"] { display: none !important; } main { margin: 0 !important; } }`}</style>
     </div>
   );
 }
