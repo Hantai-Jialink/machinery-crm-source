@@ -199,6 +199,11 @@ export function canManageInventory(user: SessionUser): boolean {
   return roleCanManageInventory(user.role);
 }
 
+/** 入库作废是高风险库存更正；保持既有库存管理权限语义不变。 */
+export function canVoidStockIn(user: SessionUser): boolean {
+  return user.role === "SUPER_ADMIN" || user.role === "WAREHOUSE";
+}
+
 export function canManageMaterialMaster(user: SessionUser): boolean {
   return roleCanManageMaterialMaster(user.role);
 }
