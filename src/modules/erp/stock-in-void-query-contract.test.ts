@@ -10,6 +10,8 @@ describe("StockIn 作废查询与流水展示契约", () => {
     expect(listRoute).toContain('status === "CONFIRMED" || status === "VOIDED"');
     expect(listRoute).toContain('where.status = status');
     expect(listRoute).toContain('status: "CONFIRMED"');
+    expect(listRoute).toContain("voidRecord: { select: { id: true, createdAt: true } }");
+    expect(listRoute).toContain("select: { id: true, name: true }");
   });
 
   it("详情保留作废审计、原入库和反向冲减流水及操作日志", () => {

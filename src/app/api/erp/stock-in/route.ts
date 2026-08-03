@@ -117,6 +117,7 @@ export async function GET(request: NextRequest) {
           },
           orderBy: { sortOrder: "asc" },
         },
+        voidRecord: { select: { id: true, createdAt: true } },
       },
       orderBy: { createdAt: "desc" },
       skip,
@@ -125,18 +126,24 @@ export async function GET(request: NextRequest) {
     prisma.stockIn.count({ where }),
   ]);
   const purchaseOrderIds = Array.from(new Set(stockIns.map((stockIn) => stockIn.purchaseOrderId).filter(Boolean))) as string[];
+  const voidedByIds = Array.from(new Set(stockIns.map((stockIn) => stockIn.voidedById).filter(Boolean))) as string[];
   const purchaseOrders = purchaseOrderIds.length > 0
     ? await prisma.purchaseOrder.findMany({
       where: { id: { in: purchaseOrderIds }, deletedAt: null },
       select: { id: true, orderNo: true, status: true },
     })
     : [];
+  const voidedByUsers = voidedByIds.length > 0
+    ? await prisma.user.findMany({ where: { id: { in: voidedByIds } }, select: { id: true, name: true } })
+    : [];
   const purchaseOrderById = new Map(purchaseOrders.map((order) => [order.id, order]));
+  const voidedByUserById = new Map(voidedByUsers.map((user) => [user.id, user]));
 
   return NextResponse.json({
     items: stockIns.map((stockIn) => ({
       ...stockIn,
       purchaseOrder: stockIn.purchaseOrderId ? purchaseOrderById.get(stockIn.purchaseOrderId) || null : null,
+      voidedBy: stockIn.voidedById ? voidedByUserById.get(stockIn.voidedById) || null : null,
     })),
     pagination: { page, pageSize, total, totalPages: Math.ceil(total / pageSize) },
   });
