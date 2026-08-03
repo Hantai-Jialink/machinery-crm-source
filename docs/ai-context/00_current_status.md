@@ -5,6 +5,13 @@
 - 当前开发必须保护已有 CRM 功能、权限和正式数据。
 - 每次重要补丁完成后，需要更新本文件。
 
+## 2026-08-03｜DachuanPro v2.0.0-rc1 阶段 0 审计与设计（已提交，未合并、未构建、未部署）
+
+- 分支：`codex/v2-audit-design`，基线：`origin/codex/agent-canary-integration` 的 `adfc3bd`。
+- 仅新增阶段 0 设计文档：实施计划、API 领域/兼容盘点、MCP 候选、数据库计划和选配项齐套审计；没有修改业务代码、schema、migration、CI、上传文件或服务器配置。
+- 审计确认当前 CRM 工作台、ERP Phase 4、DB 刷新的权限模型和 Agent assertion 必须作为 2.0 兼容基线；入库作废、统一待办、权限矩阵和配置中心尚未实施。
+- 未运行依赖安装、Prisma 生成、TypeScript、测试或构建：本阶段无代码/schema 变更，且未收到构建指令。
+
 ## 2026-07-13｜ERP 第四期：生产工单受控闭环（待数据库迁移与部署）
 
 - 已在 `codex/erp-phase4-production-kit-check` 完成工单草稿、下达、BOM 物料快照、独立齐套检查历史、领料/退料和缺料采购草稿来源关联。
