@@ -17,7 +17,7 @@
 | 3 | `system_settings`（白名单键） | 提醒、打印企业信息等非密钥配置；不得存连接串、密码、Cookie、Token、API Key、私钥或 Shell 配置 |
 | 3 | `KitCheckResult.deletedAt`、`deletedById`（可空外键）、`deleteReason` | 软删除齐套结果；默认查询过滤；不反向库存、不级联删除采购需求 |
 | 3 | 采购删除申请表（建议 `erp_purchase_order_delete_requests`） | 记录订单、申请人、原因、审批人、状态和时间；不把审批状态塞入订单主状态 |
-| 4 | `system_number_rules`（仅确有配置需求时） | 白名单 `prefix/dateFormat/sequenceLength/separator/resetCycle`；现有唯一约束继续兜底，自动编号冲突有限重试 |
+| 4 | `system_number_rules` 与 `system_number_counters` | 规则仅允许白名单字段；计数器以 `documentType + dateKey` 唯一，事务/行锁分配每日顺序号，数据库唯一约束和有限重试兜底 |
 | 5 | `StockIn.status`、`voidedAt`、`voidReason`、`voidedById`、`voidMovementId` | 默认历史数据 `ACTIVE`；只允许超级管理员作废，字段均为追加 |
 | 5 | `StockMovement.reverseOfId`（可空）及唯一/索引 | 反向流水不可替代原流水；应能防止同一正向流水重复反冲 |
 | 5 | 必要索引 | 对作废预览、引用检查与 `reverseOfId` 访问增加短名称索引；所有名称少于 64 字符 |
@@ -31,7 +31,7 @@
 ## 4. 编号策略
 
 - 手动：生产工单、入库、出库。后端 `trim`、必填、全局唯一；状态/引用后禁止任意改号并写审计。
-- 自动：采购订单、盘点、调拨。优先保留当前成熟代码规则；若不足，再在受限规则表和数据库唯一约束上实现日期+流水+有限重试。
+- 自动：采购订单 `PO-yyyyMMdd-NNN`、盘点 `SC-yyyyMMdd-NNN`、调拨 `TR-yyyyMMdd-NNN`。每日 `001` 起、超过 999 自然扩展；阶段 4 用 `system_number_rules` 与 `system_number_counters(documentType,dateKey)` 的唯一键、事务/行锁、唯一约束和有限重试实现，禁止无锁查询最大值加一。
 - 合同、发货及其余编号不在 2.0 改动范围。
 
 ## 5. SQL 与交付规则

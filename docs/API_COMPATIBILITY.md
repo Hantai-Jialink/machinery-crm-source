@@ -21,6 +21,19 @@
 - 新增 `/admin/master-data`、`/admin/config`、`/admin/health`、`/admin/cockpit`；只对 `SUPER_ADMIN` 注册菜单和后端访问。
 - 现有 `/settings` 不可直接重定义为配置中心：它目前显示版本与变更记录且可被采购/仓库 middleware 放行。2.0 配置中心只能新增 `/admin/config`。
 
+## 驾驶舱访问矩阵
+
+| 角色 | `/dashboard` 与 `/dashboard/crm` | `/dashboard/erp` | `/api/dashboard` 与 `/api/crm/dashboard` | `/api/erp/dashboard` |
+| --- | --- | --- | --- | --- |
+| 未登录 | 跳 `/login` | 跳 `/login` | 401 | 401 |
+| `SUPER_ADMIN` | 允许，全局 CRM | 允许，全局 ERP | 200，全局范围 | 200，完整角色视图 |
+| `SALES` | 允许，国内销售权限范围 | 安全跳回 CRM | 200，CRM 范围 | 403 |
+| `FOREIGN_TRADE` | 允许，外贸权限范围 | 安全跳回 CRM | 200，CRM 范围 | 403 |
+| `PURCHASE` | 安全跳回 ERP | 允许，采购视图 | 403 | 200，采购裁剪结构 |
+| `WAREHOUSE` | 安全跳回 ERP | 允许，仓库视图 | 403 | 200，仓库裁剪结构 |
+
+页面跳转不是 API 授权替代。CRM 的所有 KPI、地图、路径、下拉选项和列表必须来自同一受限 service；ERP service 必须在查询前选择角色数据集，禁止先查全局 CRM 机密数据再前端隐藏。
+
 ## API 契约要求
 
 1. 旧 URL 和推荐新 URL 共享服务和 schema；禁止复制两份业务规则。

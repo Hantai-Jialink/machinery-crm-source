@@ -46,7 +46,7 @@
 
 每一阶段必须：从集成分支派生、只包含本阶段变更、提交并推送、列出数据库/API/风险/未完成项后停止等待审查。禁止自行合并、构建、打包或部署。
 
-阶段验证的优先顺序：静态文档/路由盘点 → `pnpm install --frozen-lockfile` → `pnpm exec prisma generate` → `npx tsc --noEmit` → `pnpm test`。`pnpm build` 仅在收到明确构建指令后从集成分支运行；不能以阶段 0 为由触发构建。
+阶段 1 及其后任何代码变更的本地验证固定为：`pnpm install --frozen-lockfile` → `pnpm exec prisma generate` → `npx tsc --noEmit` → `pnpm test` → `pnpm build` → `git diff --check`。这是本地自查，不等于生成 standalone 成品包或触发 GitHub Actions。阶段 0 纯文档不运行构建；最终集成审查通过且收到明确指令后，才允许 GitHub Actions 打包。
 
 阶段 0 已执行：远端 fetch/分支基线确认、Git 变更范围检查、`git diff --cached --check`、路由/API/页面计数与源码静态盘点、两轴文档审查。阶段 0 未执行：依赖安装、Prisma 生成、TypeScript、测试、构建；原因是本阶段无代码或 schema 变更，且任务明确要求未获指令不得自行构建或打包。
 
@@ -62,3 +62,19 @@
 ## 6. Agent 集成风险
 
 现有桌宠前端依赖构建期内联的 `NEXT_PUBLIC_AGENT_GATEWAY_URL` 与 `NEXT_PUBLIC_AGENT_APP_ID`，并通过 `/api/agent/assertion` 获取用户 assertion。任何将旧 API 直接改名、将 Agent 改为数据库访问、或把 API 注册表变成数据库可编辑路由都会破坏现有安全边界。阶段 2 必须先保留旧 URL，再让旧/新 Route 调用同一服务；阶段 1 的路由迁移不得改变 assertion、Bearer 和 Gateway 合约。
+
+## 7. 驾驶舱固定角色矩阵（阶段 0 审查收敛）
+
+| 角色 | CRM 驾驶舱 | ERP 驾驶舱 | 数据范围 |
+| --- | --- | --- | --- |
+| `SUPER_ADMIN` | 允许 | 允许 | 全公司 |
+| `SALES` | 允许 | 禁止 | 国内销售业务线 + 省市 + 负责人 + `viewScope` |
+| `FOREIGN_TRADE` | 允许 | 禁止 | 外贸业务线 + 省市/区域 + 负责人 + `viewScope` |
+| `PURCHASE` | 禁止 | 允许 | 采购职责和已授权 ERP 数据 |
+| `WAREHOUSE` | 禁止 | 允许 | 仓库职责和已授权 ERP 数据 |
+
+阶段 1 必须在页面、API、领域服务和查询四层同时执行该矩阵。用户筛选只能收窄权限：`最终查询 = 用户权限范围 ∩ 合法筛选`，不能把浏览器传入的 `salesUserId`、province、businessLine 或 `viewScope` 当作授权来源。`/dashboard` 是 CRM 兼容入口；禁用角色访问对方驾驶舱页面应安全跳转，API 返回 403。
+
+## 8. 编号设计收敛
+
+手动编号固定为生产工单、入库、出库：后端 `trim`、必填、唯一、冲突 409、受引用后限制修改并写日志。自动编号固定为采购订单 `PO-yyyyMMdd-NNN`、盘点 `SC-yyyyMMdd-NNN`、调拨 `TR-yyyyMMdd-NNN`，每日从 `001` 递增并自然扩展。阶段 4 才落库 `system_number_rules` 与 `system_number_counters`；计数器以 `documentType + dateKey` 唯一并用事务/行锁、唯一约束和有限重试保证并发安全，不能采用无锁“max + 1”。

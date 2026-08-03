@@ -38,6 +38,13 @@
 
 这些是迁移前安全兜底，不代表已完成 2.0 的 `VIEW/CREATE/UPDATE/DELETE/REQUEST_DELETE/APPROVE/PRINT/EXPORT/CONFIGURE/VIEW_AUDIT` 矩阵。
 
+## 阶段 1 驾驶舱服务归属
+
+| API | Route 只负责 | 服务负责 | 权限与查询 |
+| --- | --- | --- | --- |
+| `/api/dashboard`、`/api/crm/dashboard` | 新鲜 `SessionUser`、参数解析、HTTP response | `modules/crm/dashboard/service.ts` | 仅 CRM 三角色；固定权限 where 与筛选 where 相交；地图、KPI、下拉与列表共享 scope |
+| `/api/erp/dashboard` | 新鲜 `SessionUser`、参数解析、HTTP response | `modules/erp/dashboard/service.ts` | 仅超管/采购/仓库；`permissions.ts` 在每段查询前裁剪，`types.ts` 不暴露 CRM 敏感字段 |
+
 ## 附录：当前 API path/method 清单（归档级）
 
 | 领域 | 方法 | Path |
