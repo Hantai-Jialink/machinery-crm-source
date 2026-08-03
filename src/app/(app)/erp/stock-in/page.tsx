@@ -27,6 +27,9 @@ function StockInContent() {
   const [filterDateFrom, setFilterDateFrom] = useState("");
   const [filterDateTo, setFilterDateTo] = useState("");
   const [filterSearch, setFilterSearch] = useState("");
+  const [filterCreatorId, setFilterCreatorId] = useState("");
+  const [filterStatus, setFilterStatus] = useState("");
+  const [creators, setCreators] = useState<any[]>([]);
   const [detailId, setDetailId] = useState<string | null>(null);
   const [detail, setDetail] = useState<any>(null);
   const [correctionTarget, setCorrectionTarget] = useState<any>(null);
@@ -46,6 +49,7 @@ function StockInContent() {
   useEffect(() => {
     fetch("/api/erp/warehouses?onlyActive=1").then((r) => r.json()).then((d) => setWarehouses(Array.isArray(d) ? d : []));
     fetch("/api/erp/materials").then((r) => r.json()).then((d) => setMaterials(Array.isArray(d) ? d : []));
+    fetch("/api/erp/document-creators").then((r) => r.json()).then((d) => setCreators(Array.isArray(d) ? d : []));
   }, []);
 
   useEffect(() => {
@@ -57,6 +61,8 @@ function StockInContent() {
     if (filterDateFrom) params.set("dateFrom", filterDateFrom);
     if (filterDateTo) params.set("dateTo", filterDateTo);
     if (filterSearch.trim()) params.set("search", filterSearch.trim());
+    if (filterCreatorId) params.set("createdById", filterCreatorId);
+    if (filterStatus) params.set("status", filterStatus);
     params.set("page", String(page));
     params.set("pageSize", "20");
     fetch(`/api/erp/stock-in?${params.toString()}`)
@@ -66,7 +72,7 @@ function StockInContent() {
         setPagination(data.pagination || { page: 1, pageSize: 20, total: 0, totalPages: 0 });
       })
       .finally(() => setLoading(false));
-  }, [tab, filterWarehouse, filterType, filterDateFrom, filterDateTo, filterSearch, page, refreshKey]);
+  }, [tab, filterWarehouse, filterType, filterDateFrom, filterDateTo, filterSearch, filterCreatorId, filterStatus, page, refreshKey]);
 
   useEffect(() => {
     if (!purchaseOrderId) {
@@ -295,7 +301,9 @@ function StockInContent() {
               <input type="date" aria-label="开始日期" value={filterDateFrom} onChange={(e) => { setFilterDateFrom(e.target.value); setPage(1); }} className="px-3 py-2 border border-gray-300 rounded-lg text-sm" />
               <input type="date" aria-label="结束日期" value={filterDateTo} onChange={(e) => { setFilterDateTo(e.target.value); setPage(1); }} className="px-3 py-2 border border-gray-300 rounded-lg text-sm" />
               <input value={filterSearch} onChange={(e) => { setFilterSearch(e.target.value); setPage(1); }} placeholder="物料名称、编码或入库单号" className="px-3 py-2 border border-gray-300 rounded-lg text-sm" />
-              <button type="button" onClick={() => { setFilterWarehouse(""); setFilterType(""); setFilterDateFrom(""); setFilterDateTo(""); setFilterSearch(""); setPage(1); }} className="rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-600 hover:bg-gray-50">清空</button>
+              <select value={filterCreatorId} onChange={(e) => { setFilterCreatorId(e.target.value); setPage(1); }} className="px-3 py-2 border border-gray-300 rounded-lg text-sm"><option value="">全部创建人</option>{creators.map((creator) => <option key={creator.id} value={creator.id}>{creator.name || "未命名用户"}</option>)}</select>
+              <select value={filterStatus} onChange={(e) => { setFilterStatus(e.target.value); setPage(1); }} className="px-3 py-2 border border-gray-300 rounded-lg text-sm"><option value="">全部状态</option><option value="CONFIRMED">已确认</option></select>
+              <button type="button" onClick={() => { setFilterWarehouse(""); setFilterType(""); setFilterDateFrom(""); setFilterDateTo(""); setFilterSearch(""); setFilterCreatorId(""); setFilterStatus(""); setPage(1); }} className="rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-600 hover:bg-gray-50">清空</button>
             </div>
           </div>
 

@@ -31,6 +31,8 @@ export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const warehouseId = searchParams.get("warehouseId") || "";
   const type = searchParams.get("type") || "";
+  const createdById = searchParams.get("createdById") || "";
+  const status = searchParams.get("status") || "";
   const search = searchParams.get("search")?.trim() || "";
   const dateFromRaw = searchParams.get("dateFrom") || "";
   const dateToRaw = searchParams.get("dateTo") || "";
@@ -45,6 +47,9 @@ export async function GET(request: NextRequest) {
   const where: any = {};
   if (warehouseId) where.warehouseId = warehouseId;
   if (type) where.type = type;
+  if (createdById) where.createdById = createdById;
+  if (status === "CONFIRMED") where.confirmedAt = { not: null };
+  if (status && status !== "CONFIRMED") return NextResponse.json({ error: "出库状态筛选参数无效" }, { status: 400 });
   if (dateFrom || dateTo) where.createdAt = { ...(dateFrom ? { gte: dateFrom } : {}), ...(dateTo ? { lte: dateTo } : {}) };
   if (search) {
     where.OR = [
