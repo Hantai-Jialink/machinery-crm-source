@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
 import { Search, AlertTriangle, Package } from "lucide-react";
+import { collectPrintResults } from "@/lib/print-results";
 
 function flattenCategories(categories: any[], level = 0): Array<{ id: string; name: string; level: number }> {
   return categories.flatMap((category) => [
@@ -29,6 +30,8 @@ export default function InventoryPage() {
   const [shortageItems, setShortageItems] = useState<any[]>([]);
   const [showShortageModal, setShowShortageModal] = useState(false);
   const [shortageAutoShown, setShortageAutoShown] = useState(false);
+  const [printItems, setPrintItems] = useState<any[] | null>(null);
+  const [printing, setPrinting] = useState(false);
 
   const effectiveThreshold = (material: any) => {
     if (material?.safetyStock !== null && material?.safetyStock !== undefined) {
@@ -38,6 +41,17 @@ export default function InventoryPage() {
       return Number(material.category.warningThreshold);
     }
     return null;
+  };
+
+  const buildInventoryParams = () => {
+    const params = new URLSearchParams();
+    if (search) params.set("search", search);
+    if (warehouseId) params.set("warehouseId", warehouseId);
+    if (categoryId) params.set("categoryId", categoryId);
+    if (alertOnly) params.set("alertOnly", "1");
+    if (zeroStock) params.set("zeroStock", "1");
+    if (demandWithoutStock) params.set("demandWithoutStock", "1");
+    return params;
   };
 
   useEffect(() => {
@@ -51,13 +65,7 @@ export default function InventoryPage() {
 
   useEffect(() => {
     setLoading(true);
-    const params = new URLSearchParams();
-    if (search) params.set("search", search);
-    if (warehouseId) params.set("warehouseId", warehouseId);
-    if (categoryId) params.set("categoryId", categoryId);
-    if (alertOnly) params.set("alertOnly", "1");
-    if (zeroStock) params.set("zeroStock", "1");
-    if (demandWithoutStock) params.set("demandWithoutStock", "1");
+    const params = buildInventoryParams();
     params.set("page", String(page));
     params.set("pageSize", "20");
     fetch(`/api/erp/inventory?${params.toString()}`)
@@ -89,11 +97,40 @@ export default function InventoryPage() {
       });
   }, [search, warehouseId, categoryId, shortageAutoShown]);
 
+  const handlePrint = async () => {
+    setPrinting(true);
+    try {
+      const filters = buildInventoryParams();
+      const result = await collectPrintResults(async (printPage, printPageSize) => {
+        const params = new URLSearchParams(filters);
+        params.set("page", String(printPage));
+        params.set("pageSize", String(printPageSize));
+        const response = await fetch(`/api/erp/inventory?${params.toString()}`);
+        if (!response.ok) throw new Error("加载库存台账打印数据失败");
+        const data = await response.json();
+        return { items: data.items || [], total: data.pagination?.total || 0 };
+      });
+      setPrintItems(result.items);
+      if (result.truncated) alert("结果超过1000条，仅打印前1000条，请收窄筛选条件");
+      const restore = () => {
+        setPrintItems(null);
+        setPrinting(false);
+      };
+      window.addEventListener("afterprint", restore, { once: true });
+      window.requestAnimationFrame(() => window.requestAnimationFrame(() => window.print()));
+    } catch (error) {
+      setPrinting(false);
+      alert(error instanceof Error ? error.message : "加载库存台账打印数据失败");
+    }
+  };
+
+  const visibleInventories = printItems ?? inventories;
+
   return (
     <div className="space-y-4">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <h1 className="text-xl font-semibold text-gray-900">库存总览</h1>
-        <button type="button" onClick={() => window.print()} className="print-hidden rounded border px-3 py-2 text-sm">打印当前筛选结果</button>
+        <button type="button" onClick={handlePrint} disabled={printing} className="print-hidden rounded border px-3 py-2 text-sm disabled:opacity-50">{printing ? "准备打印..." : "打印当前筛选结果"}</button>
       </div>
 
       <div className="bg-white rounded-xl border border-gray-200 p-4 flex flex-wrap gap-3 items-center">
@@ -143,7 +180,7 @@ export default function InventoryPage() {
 
       {loading ? (
         <p className="text-center py-8 text-sm text-gray-500">加载中...</p>
-      ) : inventories.length === 0 ? (
+      ) : visibleInventories.length === 0 ? (
         <p className="text-center py-8 text-sm text-gray-500">暂无库存数据</p>
       ) : (
         <>
@@ -162,7 +199,7 @@ export default function InventoryPage() {
                 </tr>
               </thead>
               <tbody>
-                {inventories.map((inv) => {
+                {visibleInventories.map((inv) => {
                   const qty = Number(inv.quantity);
                   const threshold = effectiveThreshold(inv.material);
                   const isAlert = threshold !== null && qty <= threshold;

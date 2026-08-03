@@ -5,6 +5,7 @@ import { useSession } from "next-auth/react";
 import { Plus, Search, Trash2, Eye, ArrowUpFromLine } from "lucide-react";
 import { MaterialCombobox } from "@/components/erp/material-combobox";
 import { ErpAttachments, PendingErpAttachments, uploadErpAttachments } from "@/components/erp/erp-attachments";
+import { collectPrintResults } from "@/lib/print-results";
 
 export default function StockOutPage() {
   const { data: session } = useSession();
@@ -29,6 +30,8 @@ export default function StockOutPage() {
   const [creators, setCreators] = useState<any[]>([]);
   const [detailId, setDetailId] = useState<string | null>(null);
   const [detail, setDetail] = useState<any>(null);
+  const [printItems, setPrintItems] = useState<any[] | null>(null);
+  const [printing, setPrinting] = useState(false);
 
   // Form state
   const [warehouseId, setWarehouseId] = useState("");
@@ -45,6 +48,18 @@ export default function StockOutPage() {
     fetch("/api/erp/document-creators").then((r) => r.json()).then((d) => setCreators(Array.isArray(d) ? d : []));
   }, []);
 
+  const buildHistoryParams = () => {
+    const params = new URLSearchParams();
+    if (filterWarehouse) params.set("warehouseId", filterWarehouse);
+    if (filterType) params.set("type", filterType);
+    if (filterDateFrom) params.set("dateFrom", filterDateFrom);
+    if (filterDateTo) params.set("dateTo", filterDateTo);
+    if (filterSearch.trim()) params.set("search", filterSearch.trim());
+    if (filterCreatorId) params.set("createdById", filterCreatorId);
+    if (filterStatus) params.set("status", filterStatus);
+    return params;
+  };
+
   useEffect(() => {
     if (warehouseId) {
       fetch(`/api/erp/inventory?warehouseId=${warehouseId}&pageSize=100`)
@@ -56,14 +71,7 @@ export default function StockOutPage() {
   useEffect(() => {
     if (tab !== "history") return;
     setLoading(true);
-    const params = new URLSearchParams();
-    if (filterWarehouse) params.set("warehouseId", filterWarehouse);
-    if (filterType) params.set("type", filterType);
-    if (filterDateFrom) params.set("dateFrom", filterDateFrom);
-    if (filterDateTo) params.set("dateTo", filterDateTo);
-    if (filterSearch.trim()) params.set("search", filterSearch.trim());
-    if (filterCreatorId) params.set("createdById", filterCreatorId);
-    if (filterStatus) params.set("status", filterStatus);
+    const params = buildHistoryParams();
     params.set("page", String(page));
     params.set("pageSize", "20");
     fetch(`/api/erp/stock-out?${params.toString()}`)
@@ -133,11 +141,41 @@ export default function StockOutPage() {
     setTab("history");
   };
 
+  const handlePrint = async () => {
+    setPrinting(true);
+    try {
+      const filters = buildHistoryParams();
+      const result = await collectPrintResults(async (printPage, printPageSize) => {
+        const params = new URLSearchParams(filters);
+        params.set("page", String(printPage));
+        params.set("pageSize", String(printPageSize));
+        const response = await fetch(`/api/erp/stock-out?${params.toString()}`);
+        if (!response.ok) throw new Error("加载出库打印数据失败");
+        const data = await response.json();
+        return { items: data.items || [], total: data.pagination?.total || 0 };
+      });
+      setPrintItems(result.items);
+      setTab("history");
+      if (result.truncated) alert("结果超过1000条，仅打印前1000条，请收窄筛选条件");
+      const restore = () => {
+        setPrintItems(null);
+        setPrinting(false);
+      };
+      window.addEventListener("afterprint", restore, { once: true });
+      window.requestAnimationFrame(() => window.requestAnimationFrame(() => window.print()));
+    } catch (error) {
+      setPrinting(false);
+      alert(error instanceof Error ? error.message : "加载出库打印数据失败");
+    }
+  };
+
+  const visibleStockOuts = printItems ?? stockOuts;
+
   return (
     <div className="space-y-4">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <h1 className="text-xl font-semibold text-gray-900">出库单</h1>
-        <button type="button" onClick={() => window.print()} className="print-hidden rounded border px-3 py-2 text-sm">打印当前筛选结果</button>
+        <button type="button" onClick={handlePrint} disabled={printing} className="print-hidden rounded border px-3 py-2 text-sm disabled:opacity-50">{printing ? "准备打印..." : "打印当前筛选结果"}</button>
         {canEdit && (
           <button
             onClick={() => setTab("form")}
@@ -239,7 +277,7 @@ export default function StockOutPage() {
 
           {loading ? (
             <p className="text-center py-8 text-sm text-gray-500">加载中...</p>
-          ) : stockOuts.length === 0 ? (
+          ) : visibleStockOuts.length === 0 ? (
             <p className="text-center py-8 text-sm text-gray-500">暂无出库记录</p>
           ) : (
             <div className="bg-white rounded-xl border border-gray-200 overflow-x-auto">
@@ -255,7 +293,7 @@ export default function StockOutPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {stockOuts.map((so) => (
+                  {visibleStockOuts.map((so) => (
                     <tr key={so.id} className="border-b border-gray-100 hover:bg-gray-50">
                       <td className="px-4 py-3 font-mono text-xs">{so.batchNo}</td>
                       <td className="px-4 py-3 text-gray-500">{so.warehouse?.name}</td>

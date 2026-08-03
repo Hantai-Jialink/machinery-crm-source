@@ -6,6 +6,7 @@ import { useSession } from "next-auth/react";
 import { AlertTriangle, Eye, Link2Off, Plus, Trash2 } from "lucide-react";
 import { MaterialCombobox } from "@/components/erp/material-combobox";
 import { ErpAttachments, PendingErpAttachments, uploadErpAttachments } from "@/components/erp/erp-attachments";
+import { collectPrintResults } from "@/lib/print-results";
 
 function StockInContent() {
   const router = useRouter();
@@ -36,6 +37,8 @@ function StockInContent() {
   const [purchaseSource, setPurchaseSource] = useState<any>(null);
   const [formError, setFormError] = useState("");
   const [refreshKey, setRefreshKey] = useState(0);
+  const [printItems, setPrintItems] = useState<any[] | null>(null);
+  const [printing, setPrinting] = useState(false);
 
   // Form state
   const [warehouseId, setWarehouseId] = useState("");
@@ -52,9 +55,7 @@ function StockInContent() {
     fetch("/api/erp/document-creators").then((r) => r.json()).then((d) => setCreators(Array.isArray(d) ? d : []));
   }, []);
 
-  useEffect(() => {
-    if (tab !== "history") return;
-    setLoading(true);
+  const buildHistoryParams = () => {
     const params = new URLSearchParams();
     if (filterWarehouse) params.set("warehouseId", filterWarehouse);
     if (filterType) params.set("type", filterType);
@@ -63,6 +64,13 @@ function StockInContent() {
     if (filterSearch.trim()) params.set("search", filterSearch.trim());
     if (filterCreatorId) params.set("createdById", filterCreatorId);
     if (filterStatus) params.set("status", filterStatus);
+    return params;
+  };
+
+  useEffect(() => {
+    if (tab !== "history") return;
+    setLoading(true);
+    const params = buildHistoryParams();
     params.set("page", String(page));
     params.set("pageSize", "20");
     fetch(`/api/erp/stock-in?${params.toString()}`)
@@ -197,13 +205,42 @@ function StockInContent() {
     if (detailId === stockIn.id) setDetail(null);
   };
 
+  const handlePrint = async () => {
+    setPrinting(true);
+    try {
+      const filters = buildHistoryParams();
+      const result = await collectPrintResults(async (printPage, printPageSize) => {
+        const params = new URLSearchParams(filters);
+        params.set("page", String(printPage));
+        params.set("pageSize", String(printPageSize));
+        const response = await fetch(`/api/erp/stock-in?${params.toString()}`);
+        if (!response.ok) throw new Error("加载入库打印数据失败");
+        const data = await response.json();
+        return { items: data.items || [], total: data.pagination?.total || 0 };
+      });
+      setPrintItems(result.items);
+      setTab("history");
+      if (result.truncated) alert("结果超过1000条，仅打印前1000条，请收窄筛选条件");
+      const restore = () => {
+        setPrintItems(null);
+        setPrinting(false);
+      };
+      window.addEventListener("afterprint", restore, { once: true });
+      window.requestAnimationFrame(() => window.requestAnimationFrame(() => window.print()));
+    } catch (error) {
+      setPrinting(false);
+      alert(error instanceof Error ? error.message : "加载入库打印数据失败");
+    }
+  };
+
   const totalAmount = items.reduce((sum, i) => sum + (parseFloat(i.quantity || "0") * parseFloat(i.unitPrice || "0")), 0);
+  const visibleStockIns = printItems ?? stockIns;
 
   return (
     <div className="space-y-4">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <h1 className="text-xl font-semibold text-gray-900">入库单</h1>
-        <button type="button" onClick={() => window.print()} className="print-hidden rounded border px-3 py-2 text-sm">打印当前筛选结果</button>
+        <button type="button" onClick={handlePrint} disabled={printing} className="print-hidden rounded border px-3 py-2 text-sm disabled:opacity-50">{printing ? "准备打印..." : "打印当前筛选结果"}</button>
         {canEdit && (
           <button
             onClick={() => {
@@ -309,7 +346,7 @@ function StockInContent() {
 
           {loading ? (
             <p className="text-center py-8 text-sm text-gray-500">加载中...</p>
-          ) : stockIns.length === 0 ? (
+          ) : visibleStockIns.length === 0 ? (
             <p className="text-center py-8 text-sm text-gray-500">暂无入库记录</p>
           ) : (
             <div className="bg-white rounded-xl border border-gray-200 overflow-x-auto">
@@ -326,7 +363,7 @@ function StockInContent() {
                   </tr>
                 </thead>
                 <tbody>
-                  {stockIns.map((si) => (
+                  {visibleStockIns.map((si) => (
                     <tr key={si.id} className="border-b border-gray-100 hover:bg-gray-50">
                       <td className="px-4 py-3 font-mono text-xs">{si.batchNo}</td>
                       <td className="px-4 py-3 text-gray-500">{si.warehouse?.name}</td>
