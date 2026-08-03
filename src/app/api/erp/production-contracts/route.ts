@@ -20,11 +20,16 @@ export async function GET(request: NextRequest) {
       deletedAt: null,
       contractStatus: "SIGNED",
       ...(contractId ? { id: contractId } : {}),
-      ...(search ? { contractNo: { contains: search } } : {}),
+      ...(search ? { OR: [
+        { contractNo: { contains: search } },
+        { customer: { companyName: { contains: search } } },
+        { items: { some: { itemType: "MAIN", OR: [{ productNameSnapshot: { contains: search } }, { productModelSnapshot: { contains: search } }] } } },
+      ] } : {}),
     },
     select: {
       id: true,
       contractNo: true,
+      customer: { select: { companyName: true } },
       estimatedShipmentDate: true,
       salesUser: { select: { id: true, name: true, email: true } },
       items: {
@@ -41,7 +46,7 @@ export async function GET(request: NextRequest) {
       },
     },
     orderBy: { createdAt: "desc" },
-    take: contractId ? 1 : 100,
+    take: contractId ? 1 : 50,
   });
 
   const itemIds = contracts.flatMap((contract) => contract.items.map((item) => item.id));

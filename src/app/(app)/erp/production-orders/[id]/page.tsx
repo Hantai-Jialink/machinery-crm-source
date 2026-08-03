@@ -43,7 +43,7 @@ export default function ProductionOrderDetailPage() {
   const loadReferences = async () => {
     const requestedContractId = isNew ? new URLSearchParams(window.location.search).get("contractId") || "" : "";
     const contractSourceUrl = isNew ? "/api/erp/production-contracts" : `/api/erp/production-contracts?excludeOrderId=${encodeURIComponent(id)}`;
-    const [p, b, w, c, u, requestedContracts] = await Promise.all([json("/api/erp/products?productType=MAIN"), json("/api/erp/boms?pageSize=200"), json("/api/erp/warehouses?pageSize=200"), json(contractSourceUrl), json("/api/erp/production-users"), requestedContractId ? json(`/api/erp/production-contracts?contractId=${encodeURIComponent(requestedContractId)}`) : Promise.resolve([])]);
+    const [p, b, w, c, u, requestedContracts] = await Promise.all([json("/api/erp/products?productType=MAIN&pageSize=50"), json("/api/erp/boms?pageSize=200"), json("/api/erp/warehouses?pageSize=200"), json(contractSourceUrl), json("/api/erp/production-users"), requestedContractId ? json(`/api/erp/production-contracts?contractId=${encodeURIComponent(requestedContractId)}`) : Promise.resolve([])]);
     const recentContracts = Array.isArray(c) ? c : c.items || c.data || [];
     const selectedContracts = Array.isArray(requestedContracts) ? requestedContracts : requestedContracts.items || requestedContracts.data || [];
     const contractList = [...new Map([...selectedContracts, ...recentContracts].map((contract: any) => [contract.id, contract])).values()];
@@ -115,7 +115,7 @@ export default function ProductionOrderDetailPage() {
     } catch (error) { alert(error instanceof Error ? error.message : "生成采购需求失败"); }
   };
 
-  const activeBoms = boms.filter((bom) => !form.productId || bom.productId === form.productId).filter((bom) => bom.isActive !== false);
+  const activeBoms = form.productId ? boms.filter((bom) => bom.productId === form.productId && bom.isActive !== false) : [];
   const batchCreate = async (lines: any[], requestKey: string) => {
     try {
       setSaving(true);
@@ -152,14 +152,36 @@ export default function ProductionOrderDetailPage() {
 
 function DraftForm({ form, setForm, products, boms, warehouses, contracts, users, saving, isNew, onSave, onPublish, onBatchCreate, onDelete }: any) {
   const [batchRequestKey] = useState(() => crypto.randomUUID());
+  const [contractQuery, setContractQuery] = useState("");
+  const [contractOptions, setContractOptions] = useState<any[]>(contracts);
+  const [productQuery, setProductQuery] = useState("");
+  const [productOptions, setProductOptions] = useState<any[]>(products);
   const [selectedLines, setSelectedLines] = useState<Record<string, { quantity: string; bomId: string }>>(() =>
     form.contractItemId ? { [form.contractItemId]: { quantity: form.quantity, bomId: form.bomId } } : {}
   );
-  const selectedContract = contracts.find((contract: any) => contract.id === form.contractId);
+  useEffect(() => { setContractOptions(contracts); }, [contracts]);
+  useEffect(() => { setProductOptions(products); }, [products]);
+  useEffect(() => {
+    const timer = window.setTimeout(async () => {
+      const response = await fetch(`/api/erp/production-contracts?search=${encodeURIComponent(contractQuery.trim())}`);
+      const data = await response.json();
+      if (response.ok) setContractOptions(Array.isArray(data) ? data : data.items || []);
+    }, 180);
+    return () => window.clearTimeout(timer);
+  }, [contractQuery]);
+  useEffect(() => {
+    const timer = window.setTimeout(async () => {
+      const response = await fetch(`/api/erp/products?productType=MAIN&pageSize=50&search=${encodeURIComponent(productQuery.trim())}`);
+      const data = await response.json();
+      if (response.ok) setProductOptions(Array.isArray(data) ? data : data.items || []);
+    }, 180);
+    return () => window.clearTimeout(timer);
+  }, [productQuery]);
+  const selectedContract = [...contracts, ...contractOptions].find((contract: any) => contract.id === form.contractId);
   const contractItems = selectedContract?.items || [];
   const field = (key: keyof Form, value: string) => setForm((current: Form) => ({ ...current, [key]: value }));
   const chooseContract = (contractId: string) => {
-    const contract = contracts.find((item: any) => item.id === contractId);
+    const contract = [...contracts, ...contractOptions].find((item: any) => item.id === contractId);
     setSelectedLines({});
     setForm((current: Form) => ({
       ...current,
@@ -203,8 +225,9 @@ function DraftForm({ form, setForm, products, boms, warehouses, contracts, users
       <p className="mt-1 text-sm text-gray-500">合同明细只带入生产信息，不显示任何客户资料。未选仓库时优先使用启用的 Dachuan 仓库。</p>
       <div className="mt-5 grid gap-4 sm:grid-cols-2">
         <label className="text-sm">关联合同
+          <input value={contractQuery} onChange={(event) => setContractQuery(event.target.value)} placeholder="按合同编号、客户或产品搜索" className="mt-1 w-full rounded border p-2" />
           <select value={form.contractId} onChange={(event) => chooseContract(event.target.value)} className="mt-1 w-full rounded border p-2">
-            <option value="">备货生产</option>{contracts.map((item: any) => <option key={item.id} value={item.id}>{item.contractNo}</option>)}
+            <option value="">备货生产</option>{contractOptions.map((item: any) => <option key={item.id} value={item.id}>{item.contractNo}{item.customer?.companyName ? ` · ${item.customer.companyName}` : ""}</option>)}
           </select>
         </label>
         {selectedContract && <label className="text-sm">合同负责人（只读）<input readOnly value={selectedContract.salesUser?.name || selectedContract.salesUser?.email || "—"} className="mt-1 w-full rounded border bg-gray-50 p-2" /></label>}
@@ -225,9 +248,9 @@ function DraftForm({ form, setForm, products, boms, warehouses, contracts, users
       </div>}
 
       {!selectedContract && <div className="mt-5 grid gap-4 sm:grid-cols-2">
-        <label className="text-sm">设备型号<select value={form.productId} onChange={(event) => field("productId", event.target.value)} className="mt-1 w-full rounded border p-2"><option value="">请选择</option>{products.map((item: any) => <option key={item.id} value={item.id}>{item.model}</option>)}</select></label>
+        <label className="text-sm">设备型号<input value={productQuery} onChange={(event) => setProductQuery(event.target.value)} placeholder="按型号或名称搜索" className="mt-1 w-full rounded border p-2" /><select value={form.productId} onChange={(event) => { field("productId", event.target.value); field("bomId", ""); }} className="mt-1 w-full rounded border p-2"><option value="">请选择</option>{productOptions.map((item: any) => <option key={item.id} value={item.id}>{item.model}{item.translations?.[0]?.name ? ` · ${item.translations[0].name}` : ""}</option>)}</select></label>
         <label className="text-sm">生产数量<input type="number" min="0.01" step="0.01" value={form.quantity} onChange={(event) => field("quantity", event.target.value)} className="mt-1 w-full rounded border p-2" /></label>
-        <label className="text-sm">整机用料清单<select value={form.bomId} onChange={(event) => field("bomId", event.target.value)} className="mt-1 w-full rounded border p-2"><option value="">请选择</option>{boms.map((item: any) => <option key={item.id} value={item.id}>{item.version}</option>)}</select></label>
+        <label className="text-sm">整机用料清单<select value={form.bomId} disabled={!form.productId} onChange={(event) => field("bomId", event.target.value)} className="mt-1 w-full rounded border p-2 disabled:bg-gray-50"><option value="">{form.productId ? "请选择" : "请先选择设备型号"}</option>{boms.map((item: any) => <option key={item.id} value={item.id}>{item.version}</option>)}</select></label>
       </div>}
 
       <div className="mt-5 grid gap-4 sm:grid-cols-2">
