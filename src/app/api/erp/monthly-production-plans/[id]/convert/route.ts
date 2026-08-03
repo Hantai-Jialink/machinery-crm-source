@@ -12,6 +12,8 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   if (!isSuperAdmin(user)) return NextResponse.json({ error: "仅管理员可转换生产工单" }, { status: 403 });
   const { id } = await params;
   const body = await request.json();
+  const orderNo = String(body.orderNo || "").trim();
+  if (!orderNo) return NextResponse.json({ error: "工单编号为必填项" }, { status: 400 });
   let quantity: Prisma.Decimal;
   try { quantity = new Prisma.Decimal(String(body.quantity)); } catch { return NextResponse.json({ error: "转换数量无效" }, { status: 400 }); }
   if (!quantity.gt(0)) return NextResponse.json({ error: "转换数量必须大于 0" }, { status: 400 });
@@ -27,7 +29,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       const remaining = new Prisma.Decimal(item.plannedQuantity).sub(item.convertedQuantity);
       if (quantity.gt(remaining)) throw new Error(`转换数量超过剩余数量 ${remaining.toString()}`);
       const data = await buildDraftData(tx, {
-        contractId: null, contractItemId: null, productId: item.productId, quantity, bomId: item.bomId,
+        orderNo, contractId: null, contractItemId: null, productId: item.productId, quantity, bomId: item.bomId,
         configuration: { monthlyPlanId: id, monthlyPlanItemId: item.id }, warehouseId: String(body.warehouseId || "") || null,
         plannedDate: item.plannedCompletionDate, responsibleId: String(body.responsibleId || "") || null, remark: String(body.remark || `来源月度计划 ${item.plan.planNo}`),
       });

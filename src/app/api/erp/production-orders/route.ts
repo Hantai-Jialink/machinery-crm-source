@@ -66,6 +66,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(result.order, { status: result.replayed ? 200 : 201 });
     } catch (error: any) {
       if ((error?.code === "P2002" || error?.code === "P2034") && attempt < 2) continue;
+      if (error?.code === "P2002") return NextResponse.json({ error: "工单编号已存在，请更换后重试" }, { status: 409 });
       return errorResponse(error);
     }
   }

@@ -3,6 +3,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { canPublishProductionOrder, getSessionUser } from "@/lib/permissions";
 import { calculateRemainingContractQuantity } from "@/lib/production-orders";
+import { findProductionContractIds } from "@/lib/production-contract-search";
 
 // This selector deliberately returns production fields only. Customer, contact,
 // address, invoicing, amount and payment data must never cross this interface.
@@ -15,21 +16,17 @@ export async function GET(request: NextRequest) {
   const search = searchParams.get("search")?.trim() || "";
   const contractId = searchParams.get("contractId")?.trim() || "";
   const excludeOrderId = searchParams.get("excludeOrderId")?.trim() || "";
+  const matchingIds = await findProductionContractIds(search);
   const contracts = await prisma.contract.findMany({
     where: {
       deletedAt: null,
       contractStatus: "SIGNED",
       ...(contractId ? { id: contractId } : {}),
-      ...(search ? { OR: [
-        { contractNo: { contains: search } },
-        { customer: { companyName: { contains: search } } },
-        { items: { some: { itemType: "MAIN", OR: [{ productNameSnapshot: { contains: search } }, { productModelSnapshot: { contains: search } }] } } },
-      ] } : {}),
+      ...(matchingIds ? { id: { in: matchingIds } } : {}),
     },
     select: {
       id: true,
       contractNo: true,
-      customer: { select: { companyName: true } },
       estimatedShipmentDate: true,
       salesUser: { select: { id: true, name: true, email: true } },
       items: {

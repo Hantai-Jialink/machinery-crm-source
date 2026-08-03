@@ -37,8 +37,7 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
       if (!existing) throw new ProductionOrderRequestError("生产工单不存在", 404);
       if (existing.status !== "DRAFT") throw new ProductionOrderRequestError("仅草稿生产工单可以编辑", 409);
       const draft = await buildDraftData(tx, input, id);
-      const { orderNo: _orderNo, ...updateData } = draft;
-      const changed = await tx.productionOrder.updateMany({ where: { id, status: "DRAFT", deletedAt: null }, data: updateData });
+      const changed = await tx.productionOrder.updateMany({ where: { id, status: "DRAFT", deletedAt: null }, data: draft });
       if (changed.count !== 1) throw new ProductionOrderRequestError("生产工单已被其他操作更新，请刷新后重试", 409);
       const after = await tx.productionOrder.findUniqueOrThrow({ where: { id } });
       await writeOperationLog(tx, { userId: user.id, action: "UPDATE_PRODUCTION_ORDER", entityType: "ProductionOrder", entityId: id, beforeData: existing, afterData: after });

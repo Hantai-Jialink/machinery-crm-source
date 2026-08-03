@@ -36,6 +36,7 @@ function StockInContent() {
 
   // Form state
   const [warehouseId, setWarehouseId] = useState("");
+  const [batchNo, setBatchNo] = useState("");
   const [stockInType, setStockInType] = useState("PURCHASE");
   const [remark, setRemark] = useState("");
   const [items, setItems] = useState<any[]>([{ materialId: "", quantity: "", unitPrice: "" }]);
@@ -122,7 +123,7 @@ function StockInContent() {
   };
 
   const handleSubmit = async () => {
-    if (!warehouseId || items.length === 0) return;
+    if (!batchNo.trim() || !warehouseId || items.length === 0) return;
     const validItems = items.filter((i) => i.materialId && i.quantity && i.unitPrice && (!purchaseSource || i.purchaseOrderItemId));
     if (validItems.length === 0) return;
     if (purchaseSource && validItems.some((item) => Number(item.quantity) > Number(item.maxQuantity))) {
@@ -134,7 +135,7 @@ function StockInContent() {
     const res = await fetch("/api/erp/stock-in", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ warehouseId, type: stockInType, remark, purchaseOrderId: purchaseSource?.id, items: validItems }),
+      body: JSON.stringify({ batchNo, warehouseId, type: stockInType, remark, purchaseOrderId: purchaseSource?.id, items: validItems }),
     });
     const data = await res.json();
     if (!res.ok) {
@@ -154,6 +155,7 @@ function StockInContent() {
       router.replace(`/erp/purchase-orders/${purchaseSource.id}`);
       return;
     }
+    setBatchNo("");
     setWarehouseId("");
     setRemark("");
     setItems([{ materialId: "", quantity: "", unitPrice: "" }]);
@@ -163,6 +165,7 @@ function StockInContent() {
 
   const cancelForm = () => {
     setFormError("");
+    setBatchNo("");
     setWarehouseId("");
     setRemark("");
     setItems([{ materialId: "", quantity: "", unitPrice: "" }]);
@@ -219,6 +222,7 @@ function StockInContent() {
         <div className="bg-white rounded-xl border border-gray-200 p-6 space-y-4">
           {purchaseSource && <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-900">来源采购订单：<span className="font-medium">{purchaseSource.orderNo}</span>。物料明细已锁定，可按实际到货数量调整。</div>}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div><label className="block text-xs font-medium text-gray-600 mb-1">入库单号 *</label><input value={batchNo} onChange={(e) => setBatchNo(e.target.value)} placeholder="请输入入库单号" className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" /></div>
             <div>
               <label className="block text-xs font-medium text-gray-600 mb-1">仓库 *</label>
               <select value={warehouseId} onChange={(e) => setWarehouseId(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm">
@@ -272,7 +276,7 @@ function StockInContent() {
 
           <div className="flex justify-end gap-2">
             <button onClick={cancelForm} className="px-4 py-2 text-sm text-gray-600 border border-gray-300 rounded-lg">取消</button>
-            <button onClick={handleSubmit} disabled={saving || !warehouseId || items.filter(i => i.materialId && i.quantity && i.unitPrice && (!purchaseSource || i.purchaseOrderItemId)).length === 0}
+            <button onClick={handleSubmit} disabled={saving || !batchNo.trim() || !warehouseId || items.filter(i => i.materialId && i.quantity && i.unitPrice && (!purchaseSource || i.purchaseOrderItemId)).length === 0}
               className="px-4 py-2 text-sm bg-gray-900 text-white rounded-lg hover:bg-gray-800 disabled:opacity-50">
               {saving ? "保存中..." : "确认入库"}
             </button>

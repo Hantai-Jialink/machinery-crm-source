@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db";
 import { getSessionUser, canAccessERP, canManageInventory, isSuperAdmin } from "@/lib/permissions";
 import { writeOperationLog } from "@/lib/sales-items";
 import { enqueueKitRechecks } from "@/lib/kit-recheck";
+import { normalizeManualDocumentNo } from "@/lib/production-orders";
 
 function generateBatchNo(type: string): string {
   const now = new Date();
@@ -113,7 +114,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "关联生产工单的出库类型必须为生产领料" }, { status: 400 });
   }
 
-  const batchNo = generateBatchNo("OUT");
+  let batchNo: string;
+  try { batchNo = normalizeManualDocumentNo(body.batchNo, "出库单号"); } catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "出库单号为必填项" }, { status: 400 }); }
 
   try {
     const stockOut = await prisma.$transaction(
@@ -281,6 +283,7 @@ export async function POST(request: NextRequest) {
             afterData: { stockOutId: header.id, items: header.items, confirmOverIssue, overIssueReason: confirmOverIssue ? overIssueReason : null },
           });
         }
+        await writeOperationLog(tx, { userId: user.id, action: "CREATE_STOCK_OUT", entityType: "StockOut", entityId: header.id, afterData: { batchNo: header.batchNo, warehouseId: header.warehouseId, type: header.type, items: header.items } });
         await enqueueKitRechecks(tx, { warehouseId: body.warehouseId, materialIds: snapshotItems.map((item: any) => item.materialId), reason: `出库单 ${header.batchNo} 变更库存`, requestedById: user.id });
 
         return header;
@@ -290,6 +293,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json(stockOut, { status: 201 });
   } catch (e: any) {
+    if (e?.code === "P2002") return NextResponse.json({ error: "出库单号已存在，请更换后重试" }, { status: 409 });
     if (e?.code === "P2034" || /deadlock|serialization/i.test(String(e?.message))) {
       return NextResponse.json({ error: "操作太频繁，请重试" }, { status: 409 });
     }

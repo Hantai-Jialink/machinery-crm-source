@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { canPublishProductionOrder, getSessionUser } from "@/lib/permissions";
-import { createKitCheckResult, expandBomSnapshot, issuedOrderNo, nextSequenceInContract, nextStockOrderNo, ProductionOrderRequestError, validateProductionOrderForIssue } from "@/lib/production-orders";
+import { createKitCheckResult, expandBomSnapshot, nextSequenceInContract, ProductionOrderRequestError, validateProductionOrderForIssue } from "@/lib/production-orders";
 import { writeOperationLog } from "@/lib/sales-items";
 
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -26,8 +26,8 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         await validateProductionOrderForIssue(tx, existing);
         const snapshot = await expandBomSnapshot(tx, { bomId: existing.bomId, productId: existing.productId, quantity: new Prisma.Decimal(existing.quantity) });
         const sequence = existing.contractId ? await nextSequenceInContract(tx, existing.contractId) : null;
-        const orderNo = issuedOrderNo(existing.contractNoSnapshot, sequence, await nextStockOrderNo(tx));
-        const updated = await tx.productionOrder.updateMany({ where: { id, status: "DRAFT", deletedAt: null }, data: { orderNo, sequenceInContract: sequence, bomVersionSnapshot: snapshot.bomVersion, status: "ISSUED" } });
+        // 手工编号在创建草稿时已唯一校验；下达只冻结快照和状态，绝不覆盖用户输入。
+        const updated = await tx.productionOrder.updateMany({ where: { id, status: "DRAFT", deletedAt: null }, data: { sequenceInContract: sequence, bomVersionSnapshot: snapshot.bomVersion, status: "ISSUED" } });
         if (updated.count !== 1) throw new ProductionOrderRequestError("生产工单已被其他操作更新，请刷新后重试", 409);
         await tx.productionOrderMaterial.createMany({ data: snapshot.materials.map((item) => ({ ...item, productionOrderId: id })) });
         await createKitCheckResult(tx, { productionOrderId: id, checkedById: user.id, triggerKey: `ISSUE:${id}`, triggerType: "ORDER_ISSUE" });

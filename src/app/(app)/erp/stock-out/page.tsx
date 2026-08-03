@@ -29,6 +29,7 @@ export default function StockOutPage() {
 
   // Form state
   const [warehouseId, setWarehouseId] = useState("");
+  const [batchNo, setBatchNo] = useState("");
   const [stockOutType, setStockOutType] = useState("PRODUCTION");
   const [remark, setRemark] = useState("");
   const [items, setItems] = useState<any[]>([{ materialId: "", quantity: "" }]);
@@ -89,7 +90,7 @@ export default function StockOutPage() {
   };
 
   const handleSubmit = async () => {
-    if (!warehouseId || items.length === 0) return;
+    if (!batchNo.trim() || !warehouseId || items.length === 0) return;
     const validItems = items.filter((i) => i.materialId && i.quantity);
     if (validItems.length === 0) return;
 
@@ -107,7 +108,7 @@ export default function StockOutPage() {
     const res = await fetch("/api/erp/stock-out", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ warehouseId, type: stockOutType, remark, items: validItems }),
+      body: JSON.stringify({ batchNo, warehouseId, type: stockOutType, remark, items: validItems }),
     });
     const data = await res.json();
     if (!res.ok) {
@@ -118,6 +119,7 @@ export default function StockOutPage() {
     const failedAttachments = await uploadErpAttachments("STOCK_OUT", data.id, pendingAttachments);
     setSaving(false);
     if (failedAttachments.length) alert(`出库单已创建，但以下附件上传失败，可在出库详情中重试：${failedAttachments.join("、")}`);
+    setBatchNo("");
     setWarehouseId("");
     setRemark("");
     setItems([{ materialId: "", quantity: "" }]);
@@ -147,6 +149,7 @@ export default function StockOutPage() {
       {tab === "form" && canEdit && (
         <div className="bg-white rounded-xl border border-gray-200 p-6 space-y-4">
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div><label className="block text-xs font-medium text-gray-600 mb-1">出库单号 *</label><input value={batchNo} onChange={(e) => setBatchNo(e.target.value)} placeholder="请输入出库单号" className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" /></div>
             <div>
               <label className="block text-xs font-medium text-gray-600 mb-1">仓库 *</label>
               <select value={warehouseId} onChange={(e) => { setWarehouseId(e.target.value); setItems([{ materialId: "", quantity: "" }]); }}
@@ -203,7 +206,7 @@ export default function StockOutPage() {
 
           <div className="flex justify-end gap-2">
             <button onClick={() => { setPendingAttachments([]); setTab("history"); }} className="px-4 py-2 text-sm text-gray-600 border border-gray-300 rounded-lg">取消</button>
-            <button onClick={handleSubmit} disabled={saving || !warehouseId || items.filter(i => i.materialId && i.quantity).length === 0}
+            <button onClick={handleSubmit} disabled={saving || !batchNo.trim() || !warehouseId || items.filter(i => i.materialId && i.quantity).length === 0}
               className="px-4 py-2 text-sm bg-gray-900 text-white rounded-lg hover:bg-gray-800 disabled:opacity-50">
               {saving ? "保存中..." : "确认出库"}
             </button>
