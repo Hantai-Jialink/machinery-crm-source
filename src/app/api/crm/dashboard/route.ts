@@ -11,6 +11,6 @@ export async function GET(request: NextRequest) {
   } catch (error) {
     if (error instanceof CrmDashboardAccessError) return NextResponse.json({ error: error.message }, { status: 403 });
     console.error("[crm.dashboard.GET]", error);
-    return NextResponse.json({ error: "CRM 驾驶舱数据加载失败" }, { status: 500 });
+    return NextResponse.json({ error: "CRM工作台数据加载失败" }, { status: 500 });
   }
 }

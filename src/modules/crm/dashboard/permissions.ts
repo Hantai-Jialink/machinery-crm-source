@@ -4,7 +4,7 @@ import { canSeeAllData, customerIsolationWhere, matchesTerritory, type SessionUs
 export class CrmDashboardAccessError extends Error {}
 
 export function assertCrmDashboardAccess(user: SessionUser) {
-  if (!canAccessCrmDashboard(user.role)) throw new CrmDashboardAccessError("无权限访问 CRM 驾驶舱");
+  if (!canAccessCrmDashboard(user.role)) throw new CrmDashboardAccessError("无权限访问 CRM工作台");
 }
 
 export function crmDashboardScope(user: SessionUser, requested: { province?: string; salesUserId?: string }) {

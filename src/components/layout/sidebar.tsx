@@ -39,9 +39,9 @@ type NavItem = NavChild & {
 };
 
 const navItems: NavItem[] = [
-  { href: "/dashboard/crm", label: "经营驾驶舱", icon: LayoutDashboard, children: [
-    { href: "/dashboard/crm", label: "CRM 驾驶舱", roles: ["SUPER_ADMIN", "SALES", "FOREIGN_TRADE"] },
-    { href: "/dashboard/erp", label: "ERP 驾驶舱", roles: ["SUPER_ADMIN", "PURCHASE", "WAREHOUSE"] },
+  { href: "/dashboard/crm", label: "工作台", icon: LayoutDashboard, children: [
+    { href: "/dashboard/crm", label: "CRM工作台", roles: ["SUPER_ADMIN", "SALES", "FOREIGN_TRADE"] },
+    { href: "/dashboard/erp", label: "ERP工作台", roles: ["SUPER_ADMIN", "PURCHASE", "WAREHOUSE"] },
   ] },
   { href: "/tasks", label: "我的工作", icon: Bell },
   { href: "/customers", label: "客户与销售", icon: Users, roles: ["SUPER_ADMIN", "SALES", "FOREIGN_TRADE"], children: [
@@ -57,7 +57,7 @@ const navItems: NavItem[] = [
     { href: "/erp/production-orders", label: "生产工单", roles: ["SUPER_ADMIN", "PURCHASE", "WAREHOUSE"] }, { href: "/erp/kit-check-results", label: "齐套检查", roles: ["SUPER_ADMIN", "PURCHASE", "WAREHOUSE"] }, { href: "/erp/monthly-production-plans", label: "月度生产计划", roles: ["SUPER_ADMIN", "PURCHASE", "WAREHOUSE"] },
   ] },
   { href: "/admin/cockpit", label: "平台管理", icon: Settings, adminOnly: true, children: [
-    { href: "/admin/cockpit", label: "管理员驾驶舱" }, { href: "/admin/master-data", label: "基础资料中心" }, { href: "/users", label: "用户与权限" }, { href: "/admin/config", label: "配置中心" }, { href: "/operation-logs", label: "操作日志" }, { href: "/admin/health", label: "系统健康" },
+    { href: "/admin/cockpit", label: "管理员工作台" }, { href: "/admin/master-data", label: "基础资料中心" }, { href: "/users", label: "用户与权限" }, { href: "/admin/config", label: "配置中心" }, { href: "/operation-logs", label: "操作日志" }, { href: "/admin/health", label: "系统健康" },
   ] },
 ];
 

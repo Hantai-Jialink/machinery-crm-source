@@ -23,6 +23,10 @@ function StockInContent() {
   const [page, setPage] = useState(1);
   const [pagination, setPagination] = useState({ page: 1, pageSize: 20, total: 0, totalPages: 0 });
   const [filterWarehouse, setFilterWarehouse] = useState("");
+  const [filterType, setFilterType] = useState("");
+  const [filterDateFrom, setFilterDateFrom] = useState("");
+  const [filterDateTo, setFilterDateTo] = useState("");
+  const [filterSearch, setFilterSearch] = useState("");
   const [detailId, setDetailId] = useState<string | null>(null);
   const [detail, setDetail] = useState<any>(null);
   const [correctionTarget, setCorrectionTarget] = useState<any>(null);
@@ -48,6 +52,10 @@ function StockInContent() {
     setLoading(true);
     const params = new URLSearchParams();
     if (filterWarehouse) params.set("warehouseId", filterWarehouse);
+    if (filterType) params.set("type", filterType);
+    if (filterDateFrom) params.set("dateFrom", filterDateFrom);
+    if (filterDateTo) params.set("dateTo", filterDateTo);
+    if (filterSearch.trim()) params.set("search", filterSearch.trim());
     params.set("page", String(page));
     params.set("pageSize", "20");
     fetch(`/api/erp/stock-in?${params.toString()}`)
@@ -57,7 +65,7 @@ function StockInContent() {
         setPagination(data.pagination || { page: 1, pageSize: 20, total: 0, totalPages: 0 });
       })
       .finally(() => setLoading(false));
-  }, [tab, filterWarehouse, page, refreshKey]);
+  }, [tab, filterWarehouse, filterType, filterDateFrom, filterDateTo, filterSearch, page, refreshKey]);
 
   useEffect(() => {
     if (!purchaseOrderId) {
@@ -274,12 +282,16 @@ function StockInContent() {
 
       {tab === "history" && (
         <>
-          <div className="bg-white rounded-xl border border-gray-200 p-4 flex gap-3">
-            <select value={filterWarehouse} onChange={(e) => { setFilterWarehouse(e.target.value); setPage(1); }}
-              className="px-3 py-2 border border-gray-300 rounded-lg text-sm">
-              <option value="">全部仓库</option>
-              {warehouses.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
-            </select>
+          <div className="rounded-xl border border-gray-200 bg-white p-4">
+            <div className="mb-3 text-sm font-medium text-gray-700">筛选入库记录</div>
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-[minmax(180px,1fr)_150px_150px_150px_minmax(220px,1.4fr)_auto]">
+              <select value={filterWarehouse} onChange={(e) => { setFilterWarehouse(e.target.value); setPage(1); }} className="px-3 py-2 border border-gray-300 rounded-lg text-sm"><option value="">全部仓库</option>{warehouses.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}</select>
+              <select value={filterType} onChange={(e) => { setFilterType(e.target.value); setPage(1); }} className="px-3 py-2 border border-gray-300 rounded-lg text-sm"><option value="">全部类型</option><option value="PURCHASE">采购入库</option><option value="RETURN">退货入库</option><option value="INITIAL">期初入库</option><option value="CHECK_IN">盘盈入库</option><option value="OTHER">其他</option></select>
+              <input type="date" aria-label="开始日期" value={filterDateFrom} onChange={(e) => { setFilterDateFrom(e.target.value); setPage(1); }} className="px-3 py-2 border border-gray-300 rounded-lg text-sm" />
+              <input type="date" aria-label="结束日期" value={filterDateTo} onChange={(e) => { setFilterDateTo(e.target.value); setPage(1); }} className="px-3 py-2 border border-gray-300 rounded-lg text-sm" />
+              <input value={filterSearch} onChange={(e) => { setFilterSearch(e.target.value); setPage(1); }} placeholder="物料名称、编码或入库单号" className="px-3 py-2 border border-gray-300 rounded-lg text-sm" />
+              <button type="button" onClick={() => { setFilterWarehouse(""); setFilterType(""); setFilterDateFrom(""); setFilterDateTo(""); setFilterSearch(""); setPage(1); }} className="rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-600 hover:bg-gray-50">清空</button>
+            </div>
           </div>
 
           {loading ? (

@@ -80,7 +80,7 @@ function orderTreeItems<T>(items: T[], idOf: (item: T) => string, parentOf: (ite
 export default function BomPage() {
   const { data: session } = useSession();
   const userRole = (session?.user as any)?.role;
-  const canEdit = userRole === "SUPER_ADMIN";
+  const canEdit = userRole === "SUPER_ADMIN" || userRole === "WAREHOUSE";
 
   const [boms, setBoms] = useState<any[]>([]);
   const [products, setProducts] = useState<any[]>([]);

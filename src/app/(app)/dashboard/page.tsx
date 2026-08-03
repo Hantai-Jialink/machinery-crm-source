@@ -135,7 +135,7 @@ export default function DashboardPage() {
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-        <h1 className="text-xl font-semibold text-gray-900">工作台</h1>
+        <h1 className="text-xl font-semibold text-gray-900">CRM工作台</h1>
         <button onClick={() => setShowFilters((value) => !value)} className="inline-flex items-center gap-1.5 px-3 py-2 bg-white border border-gray-200 text-sm rounded-lg hover:bg-gray-50">
           <Filter className="w-4 h-4" />
           筛选

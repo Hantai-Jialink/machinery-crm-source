@@ -12,6 +12,12 @@ function generateBatchNo(type: string): string {
   return `${type}${date}${random}`;
 }
 
+function parseFilterDate(value: string, endOfDay: boolean): Date | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+  const date = new Date(`${value}T${endOfDay ? "23:59:59.999" : "00:00:00.000"}+08:00`);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
 export async function GET(request: NextRequest) {
   const user = await getSessionUser();
   if (!user) {
@@ -24,12 +30,27 @@ export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const warehouseId = searchParams.get("warehouseId") || "";
   const type = searchParams.get("type") || "";
+  const search = searchParams.get("search")?.trim() || "";
+  const dateFromRaw = searchParams.get("dateFrom") || "";
+  const dateToRaw = searchParams.get("dateTo") || "";
+  const dateFrom = dateFromRaw ? parseFilterDate(dateFromRaw, false) : null;
+  const dateTo = dateToRaw ? parseFilterDate(dateToRaw, true) : null;
+  if ((dateFromRaw && !dateFrom) || (dateToRaw && !dateTo) || (dateFrom && dateTo && dateFrom > dateTo)) {
+    return NextResponse.json({ error: "日期筛选条件无效" }, { status: 400 });
+  }
   const page = Math.max(1, parseInt(searchParams.get("page") || "1", 10));
   const pageSize = Math.min(100, Math.max(1, parseInt(searchParams.get("pageSize") || "20", 10)));
 
   const where: any = {};
   if (warehouseId) where.warehouseId = warehouseId;
   if (type) where.type = type;
+  if (dateFrom || dateTo) where.createdAt = { ...(dateFrom ? { gte: dateFrom } : {}), ...(dateTo ? { lte: dateTo } : {}) };
+  if (search) {
+    where.OR = [
+      { batchNo: { contains: search } },
+      { items: { some: { OR: [{ materialCodeSnapshot: { contains: search } }, { materialNameSnapshot: { contains: search } }] } } },
+    ];
+  }
 
   const skip = (page - 1) * pageSize;
 

@@ -34,15 +34,15 @@ export default auth((req) => {
   const crmDashboardApi = pathname === "/api/dashboard" || pathname.startsWith("/api/crm/dashboard");
   const erpDashboardApi = pathname.startsWith("/api/erp/dashboard");
 
-  if (crmDashboardApi && !canAccessCrmDashboard(role)) return NextResponse.json({ error: "无权限访问 CRM 驾驶舱" }, { status: 403 });
-  if (erpDashboardApi && !canAccessErpDashboard(role)) return NextResponse.json({ error: "无权限访问 ERP 驾驶舱" }, { status: 403 });
+  if (crmDashboardApi && !canAccessCrmDashboard(role)) return NextResponse.json({ error: "无权限访问 CRM工作台" }, { status: 403 });
+  if (erpDashboardApi && !canAccessErpDashboard(role)) return NextResponse.json({ error: "无权限访问 ERP工作台" }, { status: 403 });
   if (crmDashboard && !canAccessCrmDashboard(role)) return NextResponse.redirect(new URL(home || "/login", req.url));
   if (erpDashboard && !canAccessErpDashboard(role)) return NextResponse.redirect(new URL(home || "/login", req.url));
 
   const matchesPage = (prefix: string) => pathname === prefix || pathname.startsWith(`${prefix}/`);
   const rolePages: Record<string, string[]> = {
     PURCHASE: ["/erp/inventory", "/erp/materials", "/erp/bom", "/erp/suppliers", "/erp/purchase-orders", "/erp/production-orders", "/erp/kit-check-results"],
-    WAREHOUSE: ["/erp/inventory", "/erp/materials", "/erp/bom", "/erp/purchase-demands", "/erp/purchase-orders", "/erp/production-orders", "/erp/kit-check-results", "/erp/warehouse", "/erp/stock-in", "/erp/stock-out", "/erp/stock-check"],
+    WAREHOUSE: ["/erp/inventory", "/erp/materials", "/erp/bom", "/erp/purchase-demands", "/erp/purchase-orders", "/erp/production-orders", "/erp/kit-check-results", "/erp/warehouse", "/erp/stock-in", "/erp/stock-out", "/erp/stock-transfers", "/erp/stock-check"],
   };
 
   // 内部 ERP 岗位硬隔离：只允许 ERP + 系统设置；具体写权限由 API 再校验。

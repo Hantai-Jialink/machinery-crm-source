@@ -39,7 +39,7 @@ export default function MaterialsPage() {
   const [saving, setSaving] = useState(false);
   const [savingThresholds, setSavingThresholds] = useState(false);
 
-  const canEdit = userRole === "SUPER_ADMIN";
+  const canEdit = userRole === "SUPER_ADMIN" || userRole === "WAREHOUSE";
   const supplierById = new Map(suppliers.map((supplier) => [supplier.id, supplier]));
 
   const loadCategories = async () => {

@@ -5,7 +5,7 @@ export class ErpDashboardAccessError extends Error {}
 
 export function resolveErpDashboardView(user: SessionUser) {
   const roleView = erpDashboardRoleView(user.role);
-  if (!roleView) throw new ErpDashboardAccessError("无权限访问 ERP 驾驶舱");
+  if (!roleView) throw new ErpDashboardAccessError("无权限访问 ERP工作台");
   return roleView;
 }
 

@@ -33,7 +33,7 @@ describe("ERP acceptance UI guards", () => {
   it("keeps the stage-1 business-scenario navigation", () => {
     const sidebar = source("src/components/layout/sidebar.tsx");
     const labels = [
-      "经营驾驶舱", "客户与销售", "采购与供应", "库存与物料", "生产执行", "平台管理",
+      "工作台", "客户与销售", "采购与供应", "库存与物料", "生产执行", "平台管理",
     ];
     let previous = -1;
     for (const label of labels) {
@@ -41,6 +41,32 @@ describe("ERP acceptance UI guards", () => {
       expect(index, `${label} should appear after the previous ERP item`).toBeGreaterThan(previous);
       previous = index;
     }
+  });
+
+  it("keeps warehouse write controls aligned with the approved ERP role matrix", () => {
+    const middleware = source("src/middleware.ts");
+    const materials = source("src/app/(app)/erp/materials/page.tsx");
+    const bom = source("src/app/(app)/erp/bom/page.tsx");
+    expect(middleware).toContain('"/erp/stock-transfers"');
+    expect(materials).toContain('userRole === "SUPER_ADMIN" || userRole === "WAREHOUSE"');
+    expect(bom).toContain('userRole === "SUPER_ADMIN" || userRole === "WAREHOUSE"');
+  });
+
+  it("keeps the requested stock document filters and workbench labels", () => {
+    const stockIn = source("src/app/(app)/erp/stock-in/page.tsx");
+    const stockOut = source("src/app/(app)/erp/stock-out/page.tsx");
+    const stockInApi = source("src/app/api/erp/stock-in/route.ts");
+    const stockOutApi = source("src/app/api/erp/stock-out/route.ts");
+    const sidebar = source("src/components/layout/sidebar.tsx");
+    expect(stockIn).toContain("筛选入库记录");
+    expect(stockOut).toContain("筛选出库记录");
+    expect(stockIn).toContain("物料名称、编码或入库单号");
+    expect(stockOut).toContain("物料名称、编码或出库单号");
+    expect(stockInApi).toContain('searchParams.get("dateFrom")');
+    expect(stockOutApi).toContain('searchParams.get("dateTo")');
+    expect(sidebar).toContain('label: "CRM工作台"');
+    expect(sidebar).toContain('label: "ERP工作台"');
+    expect(sidebar).toContain('label: "管理员工作台"');
   });
 
   it("explains BOM hierarchy and lets each selected child start with its own quantity", () => {
