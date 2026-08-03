@@ -4,15 +4,24 @@ import { useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
 import { Search, AlertTriangle, Package } from "lucide-react";
 
+function flattenCategories(categories: any[], level = 0): Array<{ id: string; name: string; level: number }> {
+  return categories.flatMap((category) => [
+    { id: category.id, name: category.name, level },
+    ...flattenCategories(Array.isArray(category.children) ? category.children : [], level + 1),
+  ]);
+}
+
 export default function InventoryPage() {
   const { data: session } = useSession();
 
   const [inventories, setInventories] = useState<any[]>([]);
   const [warehouses, setWarehouses] = useState<any[]>([]);
+  const [categories, setCategories] = useState<any[]>([]);
   const [pagination, setPagination] = useState({ page: 1, pageSize: 20, total: 0, totalPages: 0 });
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [warehouseId, setWarehouseId] = useState("");
+  const [categoryId, setCategoryId] = useState("");
   const [alertOnly, setAlertOnly] = useState(false);
   const [zeroStock, setZeroStock] = useState(false);
   const [demandWithoutStock, setDemandWithoutStock] = useState(false);
@@ -35,6 +44,9 @@ export default function InventoryPage() {
     fetch("/api/erp/warehouses?onlyActive=1")
       .then((r) => r.json())
       .then((data) => setWarehouses(Array.isArray(data) ? data : []));
+    fetch("/api/erp/material-categories")
+      .then((r) => r.json())
+      .then((data) => setCategories(Array.isArray(data) ? data : []));
   }, []);
 
   useEffect(() => {
@@ -42,6 +54,7 @@ export default function InventoryPage() {
     const params = new URLSearchParams();
     if (search) params.set("search", search);
     if (warehouseId) params.set("warehouseId", warehouseId);
+    if (categoryId) params.set("categoryId", categoryId);
     if (alertOnly) params.set("alertOnly", "1");
     if (zeroStock) params.set("zeroStock", "1");
     if (demandWithoutStock) params.set("demandWithoutStock", "1");
@@ -54,13 +67,14 @@ export default function InventoryPage() {
         setPagination(data.pagination || { page: 1, pageSize: 20, total: 0, totalPages: 0 });
       })
       .finally(() => setLoading(false));
-  }, [search, warehouseId, alertOnly, zeroStock, demandWithoutStock, page]);
+  }, [search, warehouseId, categoryId, alertOnly, zeroStock, demandWithoutStock, page]);
 
   useEffect(() => {
     if (shortageAutoShown) return;
     const params = new URLSearchParams();
     if (search) params.set("search", search);
     if (warehouseId) params.set("warehouseId", warehouseId);
+    if (categoryId) params.set("categoryId", categoryId);
     params.set("alertOnly", "1");
     params.set("pageSize", "100");
     fetch(`/api/erp/inventory?${params.toString()}`)
@@ -73,7 +87,7 @@ export default function InventoryPage() {
           setShortageAutoShown(true);
         }
       });
-  }, [search, warehouseId, shortageAutoShown]);
+  }, [search, warehouseId, categoryId, shortageAutoShown]);
 
   return (
     <div className="space-y-4">
@@ -101,6 +115,16 @@ export default function InventoryPage() {
           <option value="">全部仓库</option>
           {warehouses.map((w) => (
             <option key={w.id} value={w.id}>{w.name}</option>
+          ))}
+        </select>
+        <select
+          value={categoryId}
+          onChange={(e) => { setCategoryId(e.target.value); setPage(1); }}
+          className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
+        >
+          <option value="">全部物料分类</option>
+          {flattenCategories(categories).map((category) => (
+            <option key={category.id} value={category.id}>{"　".repeat(category.level)}{category.name}</option>
           ))}
         </select>
         <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer">
