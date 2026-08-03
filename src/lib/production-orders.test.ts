@@ -6,11 +6,16 @@ import {
   isProductionOrderConcurrencyConflict,
   issuedOrderNo,
   normalizeProductionRequestKey,
+  normalizeManualDocumentNo,
   resolveDeliveryDateSnapshot,
   shortageDemandItems,
 } from "./production-orders";
 
 describe("production order numbering", () => {
+  it("trims a manual document number and rejects an empty value", () => {
+    expect(normalizeManualDocumentNo("  MO-001  ", "工单编号")).toBe("MO-001");
+    expect(() => normalizeManualDocumentNo("  ", "工单编号")).toThrow("工单编号为必填项");
+  });
   it("uses contract number with a two-digit increasing sequence", () => {
     expect(issuedOrderNo("HT20260713", 1, "MO20260713-001")).toBe("HT20260713-01");
     expect(issuedOrderNo("HT20260713", 2, "MO20260713-001")).toBe("HT20260713-02");

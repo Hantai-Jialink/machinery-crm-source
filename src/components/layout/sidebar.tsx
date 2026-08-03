@@ -143,7 +143,7 @@ export function Sidebar() {
                         <Link
                           key={child.href}
                           href={child.href}
-                          onClick={() => setMobileOpen(false)}
+                          onClick={() => { rememberScroll(); setMobileOpen(false); }}
                           className={cn(
                             "block px-3 py-2 rounded-lg text-xs font-medium transition-colors",
                             childActive ? "bg-gray-100 text-gray-900" : "text-gray-500 hover:bg-gray-100 hover:text-gray-900"
@@ -163,7 +163,7 @@ export function Sidebar() {
             <Link
               key={item.href}
               href={item.href}
-              onClick={() => setMobileOpen(false)}
+              onClick={() => { rememberScroll(); setMobileOpen(false); }}
               className={cn(
                 "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors",
                 isActive ? "bg-gray-900 text-white" : "text-gray-600 hover:bg-gray-100 hover:text-gray-900"

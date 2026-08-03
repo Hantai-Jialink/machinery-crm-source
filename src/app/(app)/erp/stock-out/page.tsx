@@ -5,6 +5,7 @@ import { useSession } from "next-auth/react";
 import { Plus, Search, Trash2, Eye, ArrowUpFromLine } from "lucide-react";
 import { MaterialCombobox } from "@/components/erp/material-combobox";
 import { ErpAttachments, PendingErpAttachments, uploadErpAttachments } from "@/components/erp/erp-attachments";
+import { collectPrintResults } from "@/lib/print-results";
 
 export default function StockOutPage() {
   const { data: session } = useSession();
@@ -24,11 +25,17 @@ export default function StockOutPage() {
   const [filterDateFrom, setFilterDateFrom] = useState("");
   const [filterDateTo, setFilterDateTo] = useState("");
   const [filterSearch, setFilterSearch] = useState("");
+  const [filterCreatorId, setFilterCreatorId] = useState("");
+  const [filterStatus, setFilterStatus] = useState("");
+  const [creators, setCreators] = useState<any[]>([]);
   const [detailId, setDetailId] = useState<string | null>(null);
   const [detail, setDetail] = useState<any>(null);
+  const [printItems, setPrintItems] = useState<any[] | null>(null);
+  const [printing, setPrinting] = useState(false);
 
   // Form state
   const [warehouseId, setWarehouseId] = useState("");
+  const [batchNo, setBatchNo] = useState("");
   const [stockOutType, setStockOutType] = useState("PRODUCTION");
   const [remark, setRemark] = useState("");
   const [items, setItems] = useState<any[]>([{ materialId: "", quantity: "" }]);
@@ -38,7 +45,20 @@ export default function StockOutPage() {
   useEffect(() => {
     fetch("/api/erp/warehouses?onlyActive=1").then((r) => r.json()).then((d) => setWarehouses(Array.isArray(d) ? d : []));
     fetch("/api/erp/materials").then((r) => r.json()).then((d) => setMaterials(Array.isArray(d) ? d : []));
+    fetch("/api/erp/document-creators").then((r) => r.json()).then((d) => setCreators(Array.isArray(d) ? d : []));
   }, []);
+
+  const buildHistoryParams = () => {
+    const params = new URLSearchParams();
+    if (filterWarehouse) params.set("warehouseId", filterWarehouse);
+    if (filterType) params.set("type", filterType);
+    if (filterDateFrom) params.set("dateFrom", filterDateFrom);
+    if (filterDateTo) params.set("dateTo", filterDateTo);
+    if (filterSearch.trim()) params.set("search", filterSearch.trim());
+    if (filterCreatorId) params.set("createdById", filterCreatorId);
+    if (filterStatus) params.set("status", filterStatus);
+    return params;
+  };
 
   useEffect(() => {
     if (warehouseId) {
@@ -51,12 +71,7 @@ export default function StockOutPage() {
   useEffect(() => {
     if (tab !== "history") return;
     setLoading(true);
-    const params = new URLSearchParams();
-    if (filterWarehouse) params.set("warehouseId", filterWarehouse);
-    if (filterType) params.set("type", filterType);
-    if (filterDateFrom) params.set("dateFrom", filterDateFrom);
-    if (filterDateTo) params.set("dateTo", filterDateTo);
-    if (filterSearch.trim()) params.set("search", filterSearch.trim());
+    const params = buildHistoryParams();
     params.set("page", String(page));
     params.set("pageSize", "20");
     fetch(`/api/erp/stock-out?${params.toString()}`)
@@ -66,7 +81,7 @@ export default function StockOutPage() {
         setPagination(data.pagination || { page: 1, pageSize: 20, total: 0, totalPages: 0 });
       })
       .finally(() => setLoading(false));
-  }, [tab, filterWarehouse, filterType, filterDateFrom, filterDateTo, filterSearch, page]);
+  }, [tab, filterWarehouse, filterType, filterDateFrom, filterDateTo, filterSearch, filterCreatorId, filterStatus, page]);
 
   const viewDetail = async (id: string) => {
     const res = await fetch(`/api/erp/stock-out/${id}`);
@@ -89,7 +104,7 @@ export default function StockOutPage() {
   };
 
   const handleSubmit = async () => {
-    if (!warehouseId || items.length === 0) return;
+    if (!batchNo.trim() || !warehouseId || items.length === 0) return;
     const validItems = items.filter((i) => i.materialId && i.quantity);
     if (validItems.length === 0) return;
 
@@ -107,7 +122,7 @@ export default function StockOutPage() {
     const res = await fetch("/api/erp/stock-out", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ warehouseId, type: stockOutType, remark, items: validItems }),
+      body: JSON.stringify({ batchNo, warehouseId, type: stockOutType, remark, items: validItems }),
     });
     const data = await res.json();
     if (!res.ok) {
@@ -118,6 +133,7 @@ export default function StockOutPage() {
     const failedAttachments = await uploadErpAttachments("STOCK_OUT", data.id, pendingAttachments);
     setSaving(false);
     if (failedAttachments.length) alert(`出库单已创建，但以下附件上传失败，可在出库详情中重试：${failedAttachments.join("、")}`);
+    setBatchNo("");
     setWarehouseId("");
     setRemark("");
     setItems([{ materialId: "", quantity: "" }]);
@@ -125,10 +141,41 @@ export default function StockOutPage() {
     setTab("history");
   };
 
+  const handlePrint = async () => {
+    setPrinting(true);
+    try {
+      const filters = buildHistoryParams();
+      const result = await collectPrintResults(async (printPage, printPageSize) => {
+        const params = new URLSearchParams(filters);
+        params.set("page", String(printPage));
+        params.set("pageSize", String(printPageSize));
+        const response = await fetch(`/api/erp/stock-out?${params.toString()}`);
+        if (!response.ok) throw new Error("加载出库打印数据失败");
+        const data = await response.json();
+        return { items: data.items || [], total: data.pagination?.total || 0 };
+      });
+      setPrintItems(result.items);
+      setTab("history");
+      if (result.truncated) alert("结果超过1000条，仅打印前1000条，请收窄筛选条件");
+      const restore = () => {
+        setPrintItems(null);
+        setPrinting(false);
+      };
+      window.addEventListener("afterprint", restore, { once: true });
+      window.requestAnimationFrame(() => window.requestAnimationFrame(() => window.print()));
+    } catch (error) {
+      setPrinting(false);
+      alert(error instanceof Error ? error.message : "加载出库打印数据失败");
+    }
+  };
+
+  const visibleStockOuts = printItems ?? stockOuts;
+
   return (
     <div className="space-y-4">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <h1 className="text-xl font-semibold text-gray-900">出库单</h1>
+        <button type="button" onClick={handlePrint} disabled={printing} className="print-hidden rounded border px-3 py-2 text-sm disabled:opacity-50">{printing ? "准备打印..." : "打印当前筛选结果"}</button>
         {canEdit && (
           <button
             onClick={() => setTab("form")}
@@ -147,6 +194,7 @@ export default function StockOutPage() {
       {tab === "form" && canEdit && (
         <div className="bg-white rounded-xl border border-gray-200 p-6 space-y-4">
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div><label className="block text-xs font-medium text-gray-600 mb-1">出库单号 *</label><input value={batchNo} onChange={(e) => setBatchNo(e.target.value)} placeholder="请输入出库单号" className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" /></div>
             <div>
               <label className="block text-xs font-medium text-gray-600 mb-1">仓库 *</label>
               <select value={warehouseId} onChange={(e) => { setWarehouseId(e.target.value); setItems([{ materialId: "", quantity: "" }]); }}
@@ -203,7 +251,7 @@ export default function StockOutPage() {
 
           <div className="flex justify-end gap-2">
             <button onClick={() => { setPendingAttachments([]); setTab("history"); }} className="px-4 py-2 text-sm text-gray-600 border border-gray-300 rounded-lg">取消</button>
-            <button onClick={handleSubmit} disabled={saving || !warehouseId || items.filter(i => i.materialId && i.quantity).length === 0}
+            <button onClick={handleSubmit} disabled={saving || !batchNo.trim() || !warehouseId || items.filter(i => i.materialId && i.quantity).length === 0}
               className="px-4 py-2 text-sm bg-gray-900 text-white rounded-lg hover:bg-gray-800 disabled:opacity-50">
               {saving ? "保存中..." : "确认出库"}
             </button>
@@ -221,13 +269,15 @@ export default function StockOutPage() {
               <input type="date" aria-label="开始日期" value={filterDateFrom} onChange={(e) => { setFilterDateFrom(e.target.value); setPage(1); }} className="px-3 py-2 border border-gray-300 rounded-lg text-sm" />
               <input type="date" aria-label="结束日期" value={filterDateTo} onChange={(e) => { setFilterDateTo(e.target.value); setPage(1); }} className="px-3 py-2 border border-gray-300 rounded-lg text-sm" />
               <input value={filterSearch} onChange={(e) => { setFilterSearch(e.target.value); setPage(1); }} placeholder="物料名称、编码或出库单号" className="px-3 py-2 border border-gray-300 rounded-lg text-sm" />
-              <button type="button" onClick={() => { setFilterWarehouse(""); setFilterType(""); setFilterDateFrom(""); setFilterDateTo(""); setFilterSearch(""); setPage(1); }} className="rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-600 hover:bg-gray-50">清空</button>
+              <select value={filterCreatorId} onChange={(e) => { setFilterCreatorId(e.target.value); setPage(1); }} className="px-3 py-2 border border-gray-300 rounded-lg text-sm"><option value="">全部创建人</option>{creators.map((creator) => <option key={creator.id} value={creator.id}>{creator.name || "未命名用户"}</option>)}</select>
+              <select value={filterStatus} onChange={(e) => { setFilterStatus(e.target.value); setPage(1); }} className="px-3 py-2 border border-gray-300 rounded-lg text-sm"><option value="">全部状态</option><option value="CONFIRMED">已确认</option></select>
+              <button type="button" onClick={() => { setFilterWarehouse(""); setFilterType(""); setFilterDateFrom(""); setFilterDateTo(""); setFilterSearch(""); setFilterCreatorId(""); setFilterStatus(""); setPage(1); }} className="rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-600 hover:bg-gray-50">清空</button>
             </div>
           </div>
 
           {loading ? (
             <p className="text-center py-8 text-sm text-gray-500">加载中...</p>
-          ) : stockOuts.length === 0 ? (
+          ) : visibleStockOuts.length === 0 ? (
             <p className="text-center py-8 text-sm text-gray-500">暂无出库记录</p>
           ) : (
             <div className="bg-white rounded-xl border border-gray-200 overflow-x-auto">
@@ -243,7 +293,7 @@ export default function StockOutPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {stockOuts.map((so) => (
+                  {visibleStockOuts.map((so) => (
                     <tr key={so.id} className="border-b border-gray-100 hover:bg-gray-50">
                       <td className="px-4 py-3 font-mono text-xs">{so.batchNo}</td>
                       <td className="px-4 py-3 text-gray-500">{so.warehouse?.name}</td>
@@ -308,6 +358,7 @@ export default function StockOutPage() {
           </div>
         </div>
       )}
+      <style jsx global>{`@media print { aside, button, input, select, textarea, .print-hidden, [role="dialog"] { display: none !important; } main { margin: 0 !important; } }`}</style>
     </div>
   );
 }

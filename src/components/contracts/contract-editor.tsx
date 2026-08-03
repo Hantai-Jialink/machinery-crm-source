@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Plus, Trash2 } from "lucide-react";
+import { CustomerSearchCombobox } from "@/components/customers/customer-search-combobox";
 
 function formatMoney(value: any) {
   if (!value && value !== 0) return "-";
@@ -47,7 +48,7 @@ type Props = {
 
 export function ContractEditor({ mode, contractId, quoteId, initialCustomerId }: Props) {
   const router = useRouter();
-  const [customers, setCustomers] = useState<any[]>([]);
+  const [selectedCustomer, setSelectedCustomer] = useState<any>(null);
   const [products, setProducts] = useState<any[]>([]);
   const [form, setForm] = useState({
     contractNo: "",
@@ -71,7 +72,6 @@ export function ContractEditor({ mode, contractId, quoteId, initialCustomerId }:
 
   const mainProducts = useMemo(() => products.filter((product) => product.productType !== "OPTIONAL"), [products]);
   const optionalProducts = useMemo(() => products.filter((product) => product.productType === "OPTIONAL"), [products]);
-  const selectedCustomer = customers.find((customer) => customer.id === form.customerId);
 
   const itemTotal = useMemo(() => {
     const main = mainLines.reduce((sum, line) => sum + Number(line.contractPrice || 0) * Math.max(1, Number(line.quantity || 1)), 0);
@@ -85,13 +85,8 @@ export function ContractEditor({ mode, contractId, quoteId, initialCustomerId }:
 
   useEffect(() => {
     const loadBase = async () => {
-      const [customerRes, productRes] = await Promise.all([
-        fetch("/api/customers?pageSize=500"),
-        fetch("/api/products"),
-      ]);
-      const customerData = await readJson(customerRes);
+      const productRes = await fetch("/api/products");
       const productData = await readJson(productRes);
-      setCustomers(customerData.customers || []);
       setProducts(Array.isArray(productData) ? productData : []);
     };
 
@@ -145,6 +140,7 @@ export function ContractEditor({ mode, contractId, quoteId, initialCustomerId }:
         remark: data.remark || "",
         attachmentUrl: data.attachmentUrl || "",
       });
+      setSelectedCustomer(data.customer || null);
       const contractMainItems = items.filter((item: any) => item.itemType === "MAIN");
       setMainLines((contractMainItems.length ? contractMainItems : [{ id: "main", productId: data.productId, contractPrice: data.amount, quantity: 1 }]).map((item: any, index: number) => ({
         key: item.id || `main_${index}`,
@@ -301,11 +297,7 @@ export function ContractEditor({ mode, contractId, quoteId, initialCustomerId }:
           </div>
           <div className="sm:col-span-2">
             <label className="block text-xs font-medium text-gray-600 mb-1">客户 *</label>
-            <select value={form.customerId} disabled={!!lockedMessage} onChange={(event) => setForm({ ...form, customerId: event.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 disabled:bg-gray-50">
-              <option value="">请选择客户</option>
-              {customers.map((customer) => (<option key={customer.id} value={customer.id}>{customer.companyName} ({customer.contactName})</option>))}
-            </select>
+            <CustomerSearchCombobox value={form.customerId} disabled={!!lockedMessage} selected={selectedCustomer} onChange={(customer) => { setSelectedCustomer(customer); setForm((current) => ({ ...current, customerId: customer?.id || "" })); }} />
             {selectedCustomer && <p className="text-xs text-gray-400 mt-1">{selectedCustomer.contactName} · {selectedCustomer.phone || "无电话"} · {[selectedCustomer.province, selectedCustomer.city].filter(Boolean).join(" ") || selectedCustomer.businessLine}</p>}
           </div>
         </div>

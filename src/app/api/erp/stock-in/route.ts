@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db";
 import { getSessionUser, canAccessERP, canManageInventory } from "@/lib/permissions";
 import { writeOperationLog } from "@/lib/sales-items";
 import { enqueueKitRechecks } from "@/lib/kit-recheck";
+import { normalizeManualDocumentNo } from "@/lib/production-orders";
 import { allocatePurchaseReceiptToBatches } from "@/lib/purchase-delivery-receipts";
 import {
   lockAndValidatePurchaseReceipt,
@@ -76,6 +77,8 @@ export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const warehouseId = searchParams.get("warehouseId") || "";
   const type = searchParams.get("type") || "";
+  const createdById = searchParams.get("createdById") || "";
+  const status = searchParams.get("status") || "";
   const search = searchParams.get("search")?.trim() || "";
   const dateFromRaw = searchParams.get("dateFrom") || "";
   const dateToRaw = searchParams.get("dateTo") || "";
@@ -90,6 +93,9 @@ export async function GET(request: NextRequest) {
   const where: any = {};
   if (warehouseId) where.warehouseId = warehouseId;
   if (type) where.type = type;
+  if (createdById) where.createdById = createdById;
+  if (status === "CONFIRMED") where.confirmedAt = { not: null };
+  if (status && status !== "CONFIRMED") return NextResponse.json({ error: "入库状态筛选参数无效" }, { status: 400 });
   if (dateFrom || dateTo) where.createdAt = { ...(dateFrom ? { gte: dateFrom } : {}), ...(dateTo ? { lte: dateTo } : {}) };
   if (search) {
     where.OR = [
@@ -174,7 +180,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "生产退料明细必须填写有效物料和大于 0 的数量" }, { status: 400 });
   }
 
-  const batchNo = generateBatchNo("IN");
+  let batchNo: string;
+  try { batchNo = normalizeManualDocumentNo(body.batchNo, "入库单号"); } catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "入库单号为必填项" }, { status: 400 }); }
   const inputStockInItems = purchaseItems || body.items.map((item: any) => ({
     materialId: item.materialId,
     purchaseOrderItemId: null,
@@ -372,6 +379,7 @@ export async function POST(request: NextRequest) {
             afterData: { stockInId: header.id, items: header.items },
           });
         }
+        await writeOperationLog(tx, { userId: user.id, action: "CREATE_STOCK_IN", entityType: "StockIn", entityId: header.id, afterData: { batchNo: header.batchNo, warehouseId: header.warehouseId, type: header.type, items: header.items } });
         await enqueueKitRechecks(tx, { warehouseId: body.warehouseId, materialIds: snapshotItems.map((item) => item.materialId), reason: `入库单 ${header.batchNo} 变更库存`, requestedById: user.id });
 
         return header;
@@ -388,6 +396,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: error.message }, { status: 400 });
     }
     const prismaError = error as { code?: string; message?: string };
+    if (prismaError?.code === "P2002") return NextResponse.json({ error: "入库单号已存在，请更换后重试" }, { status: 409 });
     if (prismaError?.code === "P2034" || /deadlock|serialization/i.test(String(prismaError?.message))) {
       return NextResponse.json({ error: "操作太频繁，请重试" }, { status: 409 });
     }

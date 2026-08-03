@@ -9,8 +9,8 @@ import { ArrowLeft, ClipboardCheck, PackageMinus, PackagePlus, Save, ShoppingCar
 const statusLabel: Record<string, string> = { DRAFT: "草稿", ISSUED: "待齐套检查", CHANGE_PENDING: "变更待审批", CANCELLED: "已作废" };
 const day = (value?: string | null) => value ? new Date(value).toISOString().slice(0, 10) : "";
 
-type Form = { contractId: string; contractItemId: string; productId: string; quantity: string; bomId: string; warehouseId: string; plannedDate: string; responsibleId: string; specialRequirements: string; remark: string };
-const emptyForm: Form = { contractId: "", contractItemId: "", productId: "", quantity: "1", bomId: "", warehouseId: "", plannedDate: "", responsibleId: "", specialRequirements: "", remark: "" };
+type Form = { orderNo: string; contractId: string; contractItemId: string; productId: string; quantity: string; bomId: string; warehouseId: string; plannedDate: string; responsibleId: string; specialRequirements: string; remark: string };
+const emptyForm: Form = { orderNo: "", contractId: "", contractItemId: "", productId: "", quantity: "1", bomId: "", warehouseId: "", plannedDate: "", responsibleId: "", specialRequirements: "", remark: "" };
 
 export default function ProductionOrderDetailPage() {
   const params = useParams<{ id: string }>();
@@ -43,7 +43,7 @@ export default function ProductionOrderDetailPage() {
   const loadReferences = async () => {
     const requestedContractId = isNew ? new URLSearchParams(window.location.search).get("contractId") || "" : "";
     const contractSourceUrl = isNew ? "/api/erp/production-contracts" : `/api/erp/production-contracts?excludeOrderId=${encodeURIComponent(id)}`;
-    const [p, b, w, c, u, requestedContracts] = await Promise.all([json("/api/erp/products?productType=MAIN"), json("/api/erp/boms?pageSize=200"), json("/api/erp/warehouses?pageSize=200"), json(contractSourceUrl), json("/api/erp/production-users"), requestedContractId ? json(`/api/erp/production-contracts?contractId=${encodeURIComponent(requestedContractId)}`) : Promise.resolve([])]);
+    const [p, b, w, c, u, requestedContracts] = await Promise.all([json("/api/erp/products?productType=MAIN&pageSize=50"), json("/api/erp/boms?pageSize=200"), json("/api/erp/warehouses?pageSize=200"), json(contractSourceUrl), json("/api/erp/production-users"), requestedContractId ? json(`/api/erp/production-contracts?contractId=${encodeURIComponent(requestedContractId)}`) : Promise.resolve([])]);
     const recentContracts = Array.isArray(c) ? c : c.items || c.data || [];
     const selectedContracts = Array.isArray(requestedContracts) ? requestedContracts : requestedContracts.items || requestedContracts.data || [];
     const contractList = [...new Map([...selectedContracts, ...recentContracts].map((contract: any) => [contract.id, contract])).values()];
@@ -56,7 +56,7 @@ export default function ProductionOrderDetailPage() {
   const load = async () => {
     if (!isNew) {
       const data = await json(`/api/erp/production-orders/${id}`); setDetail(data);
-      setForm({ contractId: data.contractId || "", contractItemId: data.contractItemId || "", productId: data.productId || "", quantity: String(data.quantity || 1), bomId: data.bomId || "", warehouseId: data.warehouseId || "", plannedDate: day(data.plannedDate), responsibleId: data.responsibleId || "", specialRequirements: data.configuration?.specialRequirements || "", remark: data.remark || "" });
+      setForm({ orderNo: data.orderNo || "", contractId: data.contractId || "", contractItemId: data.contractItemId || "", productId: data.productId || "", quantity: String(data.quantity || 1), bomId: data.bomId || "", warehouseId: data.warehouseId || "", plannedDate: day(data.plannedDate), responsibleId: data.responsibleId || "", specialRequirements: data.configuration?.specialRequirements || "", remark: data.remark || "" });
     }
   };
   useEffect(() => {
@@ -115,7 +115,7 @@ export default function ProductionOrderDetailPage() {
     } catch (error) { alert(error instanceof Error ? error.message : "生成采购需求失败"); }
   };
 
-  const activeBoms = boms.filter((bom) => !form.productId || bom.productId === form.productId).filter((bom) => bom.isActive !== false);
+  const activeBoms = form.productId ? boms.filter((bom) => bom.productId === form.productId && bom.isActive !== false) : [];
   const batchCreate = async (lines: any[], requestKey: string) => {
     try {
       setSaving(true);
@@ -152,14 +152,36 @@ export default function ProductionOrderDetailPage() {
 
 function DraftForm({ form, setForm, products, boms, warehouses, contracts, users, saving, isNew, onSave, onPublish, onBatchCreate, onDelete }: any) {
   const [batchRequestKey] = useState(() => crypto.randomUUID());
-  const [selectedLines, setSelectedLines] = useState<Record<string, { quantity: string; bomId: string }>>(() =>
-    form.contractItemId ? { [form.contractItemId]: { quantity: form.quantity, bomId: form.bomId } } : {}
+  const [contractQuery, setContractQuery] = useState("");
+  const [contractOptions, setContractOptions] = useState<any[]>(contracts);
+  const [productQuery, setProductQuery] = useState("");
+  const [productOptions, setProductOptions] = useState<any[]>(products);
+  const [selectedLines, setSelectedLines] = useState<Record<string, { orderNo: string; quantity: string; bomId: string }>>(() =>
+    form.contractItemId ? { [form.contractItemId]: { orderNo: form.orderNo, quantity: form.quantity, bomId: form.bomId } } : {}
   );
-  const selectedContract = contracts.find((contract: any) => contract.id === form.contractId);
+  useEffect(() => { setContractOptions(contracts); }, [contracts]);
+  useEffect(() => { setProductOptions(products); }, [products]);
+  useEffect(() => {
+    const timer = window.setTimeout(async () => {
+      const response = await fetch(`/api/erp/production-contracts?search=${encodeURIComponent(contractQuery.trim())}`);
+      const data = await response.json();
+      if (response.ok) setContractOptions(Array.isArray(data) ? data : data.items || []);
+    }, 180);
+    return () => window.clearTimeout(timer);
+  }, [contractQuery]);
+  useEffect(() => {
+    const timer = window.setTimeout(async () => {
+      const response = await fetch(`/api/erp/products?productType=MAIN&pageSize=50&search=${encodeURIComponent(productQuery.trim())}`);
+      const data = await response.json();
+      if (response.ok) setProductOptions(Array.isArray(data) ? data : data.items || []);
+    }, 180);
+    return () => window.clearTimeout(timer);
+  }, [productQuery]);
+  const selectedContract = [...contracts, ...contractOptions].find((contract: any) => contract.id === form.contractId);
   const contractItems = selectedContract?.items || [];
   const field = (key: keyof Form, value: string) => setForm((current: Form) => ({ ...current, [key]: value }));
   const chooseContract = (contractId: string) => {
-    const contract = contracts.find((item: any) => item.id === contractId);
+    const contract = [...contracts, ...contractOptions].find((item: any) => item.id === contractId);
     setSelectedLines({});
     setForm((current: Form) => ({
       ...current,
@@ -178,21 +200,21 @@ function DraftForm({ form, setForm, products, boms, warehouses, contracts, users
         delete next[item.id];
         return next;
       }
-      return { ...current, [item.id]: { quantity: String(item.remainingQuantity), bomId: item.boms?.[0]?.id || "" } };
+      return { ...current, [item.id]: { orderNo: "", quantity: String(item.remainingQuantity), bomId: item.boms?.[0]?.id || "" } };
     });
     if (checked) {
       setForm((current: Form) => ({
         ...current,
         contractItemId: item.id,
         productId: item.productId,
-        quantity: String(item.remainingQuantity),
+        orderNo: "", quantity: String(item.remainingQuantity),
         bomId: item.boms?.[0]?.id || "",
       }));
     }
   };
   const batchLines = Object.entries(selectedLines).map(([contractItemId, value]: any) => {
     const item = contractItems.find((candidate: any) => candidate.id === contractItemId);
-    return { contractItemId, productId: item?.productId, quantity: value.quantity, bomId: value.bomId };
+    return { contractItemId, productId: item?.productId, orderNo: value.orderNo, quantity: value.quantity, bomId: value.bomId };
   });
   const selectedCount = batchLines.length;
 
@@ -202,21 +224,23 @@ function DraftForm({ form, setForm, products, boms, warehouses, contracts, users
       <h1 className="text-xl font-semibold">{isNew ? "新建生产工单" : "编辑草稿工单"}</h1>
       <p className="mt-1 text-sm text-gray-500">合同明细只带入生产信息，不显示任何客户资料。未选仓库时优先使用启用的 Dachuan 仓库。</p>
       <div className="mt-5 grid gap-4 sm:grid-cols-2">
+        <label className="text-sm">工单编号 *<input value={form.orderNo} onChange={(event) => field("orderNo", event.target.value)} placeholder="请输入工单编号" className="mt-1 w-full rounded border p-2" /></label>
         <label className="text-sm">关联合同
+          <input value={contractQuery} onChange={(event) => setContractQuery(event.target.value)} placeholder="按合同编号、客户或产品搜索" className="mt-1 w-full rounded border p-2" />
           <select value={form.contractId} onChange={(event) => chooseContract(event.target.value)} className="mt-1 w-full rounded border p-2">
-            <option value="">备货生产</option>{contracts.map((item: any) => <option key={item.id} value={item.id}>{item.contractNo}</option>)}
+            <option value="">备货生产</option>{contractOptions.map((item: any) => <option key={item.id} value={item.id}>{item.contractNo}</option>)}
           </select>
         </label>
         {selectedContract && <label className="text-sm">合同负责人（只读）<input readOnly value={selectedContract.salesUser?.name || selectedContract.salesUser?.email || "—"} className="mt-1 w-full rounded border bg-gray-50 p-2" /></label>}
       </div>
 
       {selectedContract && <div className="mt-4 overflow-x-auto rounded-lg border">
-        <table className="w-full min-w-[900px] text-sm"><thead className="bg-gray-50"><tr><th className="p-3 text-left">选择</th><th className="text-left">合同明细</th><th className="text-left">设备型号</th><th className="text-right">合同数量</th><th className="text-right">已生成</th><th className="text-right">本次数量</th><th className="p-3 text-left">整机用料清单</th></tr></thead>
+        <table className="w-full min-w-[1040px] text-sm"><thead className="bg-gray-50"><tr><th className="p-3 text-left">选择</th><th className="text-left">合同明细</th><th className="text-left">设备型号</th><th className="text-left">工单编号</th><th className="text-right">合同数量</th><th className="text-right">已生成</th><th className="text-right">本次数量</th><th className="p-3 text-left">整机用料清单</th></tr></thead>
           <tbody>{contractItems.map((item: any) => {
             const selected = selectedLines[item.id];
             return <tr key={item.id} className="border-t">
               <td className="p-3"><input type="checkbox" checked={Boolean(selected)} disabled={!item.canGenerate && !selected} onChange={(event) => toggleItem(item, event.target.checked)} /></td>
-              <td>{item.productNameSnapshot}</td><td>{item.productModelSnapshot}</td><td className="text-right">{item.quantity}</td><td className="text-right">{item.generatedQuantity}</td>
+              <td>{item.productNameSnapshot}</td><td>{item.productModelSnapshot}</td><td>{selected ? <input value={selected.orderNo} onChange={(event) => { const orderNo = event.target.value; setSelectedLines({ ...selectedLines, [item.id]: { ...selected, orderNo } }); if (form.contractItemId === item.id) field("orderNo", orderNo); }} className="w-36 rounded border p-1" placeholder="必填" /> : "—"}</td><td className="text-right">{item.quantity}</td><td className="text-right">{item.generatedQuantity}</td>
               <td className="text-right">{selected ? <input type="number" min="0.01" max={item.remainingQuantity} step="0.01" value={selected.quantity} onChange={(event) => { const quantity = event.target.value; setSelectedLines({ ...selectedLines, [item.id]: { ...selected, quantity } }); if (form.contractItemId === item.id) field("quantity", quantity); }} className="w-24 rounded border p-1 text-right" /> : item.remainingQuantity}</td>
               <td className="p-3">{selected ? <select value={selected.bomId} onChange={(event) => { const bomId = event.target.value; setSelectedLines({ ...selectedLines, [item.id]: { ...selected, bomId } }); if (form.contractItemId === item.id) field("bomId", bomId); }} className="rounded border p-1"><option value="">请选择</option>{(item.boms || []).map((bom: any) => <option key={bom.id} value={bom.id}>{bom.version}</option>)}</select> : item.disabledReason || `${item.boms?.length || 0} 个生效版本`}</td>
             </tr>;
@@ -225,9 +249,9 @@ function DraftForm({ form, setForm, products, boms, warehouses, contracts, users
       </div>}
 
       {!selectedContract && <div className="mt-5 grid gap-4 sm:grid-cols-2">
-        <label className="text-sm">设备型号<select value={form.productId} onChange={(event) => field("productId", event.target.value)} className="mt-1 w-full rounded border p-2"><option value="">请选择</option>{products.map((item: any) => <option key={item.id} value={item.id}>{item.model}</option>)}</select></label>
+        <label className="text-sm">设备型号<input value={productQuery} onChange={(event) => setProductQuery(event.target.value)} placeholder="按型号或名称搜索" className="mt-1 w-full rounded border p-2" /><select value={form.productId} onChange={(event) => { field("productId", event.target.value); field("bomId", ""); }} className="mt-1 w-full rounded border p-2"><option value="">请选择</option>{productOptions.map((item: any) => <option key={item.id} value={item.id}>{item.model}{item.translations?.[0]?.name ? ` · ${item.translations[0].name}` : ""}</option>)}</select></label>
         <label className="text-sm">生产数量<input type="number" min="0.01" step="0.01" value={form.quantity} onChange={(event) => field("quantity", event.target.value)} className="mt-1 w-full rounded border p-2" /></label>
-        <label className="text-sm">整机用料清单<select value={form.bomId} onChange={(event) => field("bomId", event.target.value)} className="mt-1 w-full rounded border p-2"><option value="">请选择</option>{boms.map((item: any) => <option key={item.id} value={item.id}>{item.version}</option>)}</select></label>
+        <label className="text-sm">整机用料清单<select value={form.bomId} disabled={!form.productId} onChange={(event) => field("bomId", event.target.value)} className="mt-1 w-full rounded border p-2 disabled:bg-gray-50"><option value="">{form.productId ? "请选择" : "请先选择设备型号"}</option>{boms.map((item: any) => <option key={item.id} value={item.id}>{item.version}</option>)}</select></label>
       </div>}
 
       <div className="mt-5 grid gap-4 sm:grid-cols-2">
@@ -241,9 +265,9 @@ function DraftForm({ form, setForm, products, boms, warehouses, contracts, users
       <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
         <div>{onDelete && <button onClick={onDelete} className="inline-flex items-center gap-1 rounded border border-red-200 px-3 py-2 text-sm text-red-700"><Trash2 className="h-4 w-4" />删除草稿</button>}</div>
         <div className="flex flex-wrap gap-2">
-          {isNew && selectedContract && <button onClick={() => onBatchCreate(batchLines, batchRequestKey)} disabled={saving || selectedCount === 0 || batchLines.some((line: any) => !line.bomId || Number(line.quantity) <= 0)} className="rounded border px-4 py-2 text-sm disabled:opacity-40">批量生成草稿（{selectedCount}）</button>}
-          <button onClick={onSave} disabled={saving || (selectedContract && selectedCount !== 1)} className="inline-flex items-center gap-1 rounded border px-4 py-2 text-sm disabled:opacity-40"><Save className="h-4 w-4" />保存草稿</button>
-          <button onClick={onPublish} disabled={saving || (selectedContract && selectedCount !== 1)} className="rounded bg-gray-900 px-4 py-2 text-sm text-white disabled:opacity-40">发布工单</button>
+          {isNew && selectedContract && <button onClick={() => onBatchCreate(batchLines, batchRequestKey)} disabled={saving || selectedCount === 0 || batchLines.some((line: any) => !line.orderNo || !line.bomId || Number(line.quantity) <= 0)} className="rounded border px-4 py-2 text-sm disabled:opacity-40">批量生成草稿（{selectedCount}）</button>}
+          <button onClick={onSave} disabled={saving || !form.orderNo.trim() || (selectedContract && selectedCount !== 1)} className="inline-flex items-center gap-1 rounded border px-4 py-2 text-sm disabled:opacity-40"><Save className="h-4 w-4" />保存草稿</button>
+          <button onClick={onPublish} disabled={saving || !form.orderNo.trim() || (selectedContract && selectedCount !== 1)} className="rounded bg-gray-900 px-4 py-2 text-sm text-white disabled:opacity-40">发布工单</button>
         </div>
       </div>
     </div>

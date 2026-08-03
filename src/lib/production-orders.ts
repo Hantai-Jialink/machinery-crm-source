@@ -1,4 +1,3 @@
-import { randomUUID } from "crypto";
 import { KitCheckStatus, Prisma, ProductionOrderStatus } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { writeOperationLog } from "@/lib/sales-items";
@@ -19,6 +18,7 @@ export function isProductionOrderConcurrencyConflict(error: unknown) {
 }
 
 export type ProductionOrderDraftInput = {
+  orderNo: string;
   contractId: string | null;
   contractItemId: string | null;
   productId: string;
@@ -64,6 +64,13 @@ export function parsePositiveQuantity(value: unknown) {
   }
 }
 
+/** 手工单据号统一去首尾空格，服务端才是必填判定的最终边界。 */
+export function normalizeManualDocumentNo(value: unknown, label = "单据编号") {
+  const normalized = String(value || "").trim();
+  if (!normalized) throw new ProductionOrderRequestError(`${label}为必填项`);
+  return normalized;
+}
+
 export function parseOptionalDate(value: unknown) {
   if (value === null || value === undefined || value === "") return null;
   const date = new Date(String(value));
@@ -79,20 +86,22 @@ export function normalizeProductionRequestKey(value: unknown) {
 }
 
 export function normalizeDraftInput(body: Record<string, unknown>): ProductionOrderDraftInput {
+  const orderNo = normalizeManualDocumentNo(body.orderNo, "工单编号");
   const quantity = parsePositiveQuantity(body.quantity);
   const plannedDate = parseOptionalDate(body.plannedDate);
   if (!quantity) throw new ProductionOrderRequestError("生产数量必须为大于 0 的有效数字");
   if (plannedDate === undefined) throw new ProductionOrderRequestError("计划完工日期格式无效");
   const productId = String(body.productId || "").trim();
   const bomId = String(body.bomId || "").trim();
-  if (!productId || !bomId) {
-    throw new ProductionOrderRequestError("请选择机型和生效的整机用料清单版本");
+  if (!orderNo || !productId || !bomId) {
+    throw new ProductionOrderRequestError("工单编号、设备型号和生效的整机用料清单版本为必填项");
   }
   const specialRequirements = String(body.specialRequirements || "").trim();
   const configuration = specialRequirements
     ? { specialRequirements } satisfies Prisma.InputJsonObject
     : Prisma.JsonNull;
   return {
+    orderNo,
     contractId: String(body.contractId || "").trim() || null,
     contractItemId: String(body.contractItemId || "").trim() || null,
     productId,
@@ -251,7 +260,7 @@ export async function buildDraftData(
   const { product, bom, warehouse, contractSource } = await loadDraftReferences(tx, input, excludeOrderId, options);
   const contract = contractSource?.contractItem.contract;
   return {
-    orderNo: `DRAFT-${randomUUID().slice(0, 8)}`,
+    orderNo: input.orderNo,
     contractId: contract?.id || null,
     contractItemId: contractSource?.contractItem.id || null,
     contractNoSnapshot: contract?.contractNo || null,

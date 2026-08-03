@@ -3,21 +3,35 @@
 import { useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
 import { Search, AlertTriangle, Package } from "lucide-react";
+import { collectPrintResults } from "@/lib/print-results";
+
+function flattenCategories(categories: any[], level = 0): Array<{ id: string; name: string; level: number }> {
+  return categories.flatMap((category) => [
+    { id: category.id, name: category.name, level },
+    ...flattenCategories(Array.isArray(category.children) ? category.children : [], level + 1),
+  ]);
+}
 
 export default function InventoryPage() {
   const { data: session } = useSession();
 
   const [inventories, setInventories] = useState<any[]>([]);
   const [warehouses, setWarehouses] = useState<any[]>([]);
+  const [categories, setCategories] = useState<any[]>([]);
   const [pagination, setPagination] = useState({ page: 1, pageSize: 20, total: 0, totalPages: 0 });
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [warehouseId, setWarehouseId] = useState("");
+  const [categoryId, setCategoryId] = useState("");
   const [alertOnly, setAlertOnly] = useState(false);
+  const [zeroStock, setZeroStock] = useState(false);
+  const [demandWithoutStock, setDemandWithoutStock] = useState(false);
   const [page, setPage] = useState(1);
   const [shortageItems, setShortageItems] = useState<any[]>([]);
   const [showShortageModal, setShowShortageModal] = useState(false);
   const [shortageAutoShown, setShortageAutoShown] = useState(false);
+  const [printItems, setPrintItems] = useState<any[] | null>(null);
+  const [printing, setPrinting] = useState(false);
 
   const effectiveThreshold = (material: any) => {
     if (material?.safetyStock !== null && material?.safetyStock !== undefined) {
@@ -29,18 +43,29 @@ export default function InventoryPage() {
     return null;
   };
 
+  const buildInventoryParams = () => {
+    const params = new URLSearchParams();
+    if (search) params.set("search", search);
+    if (warehouseId) params.set("warehouseId", warehouseId);
+    if (categoryId) params.set("categoryId", categoryId);
+    if (alertOnly) params.set("alertOnly", "1");
+    if (zeroStock) params.set("zeroStock", "1");
+    if (demandWithoutStock) params.set("demandWithoutStock", "1");
+    return params;
+  };
+
   useEffect(() => {
     fetch("/api/erp/warehouses?onlyActive=1")
       .then((r) => r.json())
       .then((data) => setWarehouses(Array.isArray(data) ? data : []));
+    fetch("/api/erp/material-categories")
+      .then((r) => r.json())
+      .then((data) => setCategories(Array.isArray(data) ? data : []));
   }, []);
 
   useEffect(() => {
     setLoading(true);
-    const params = new URLSearchParams();
-    if (search) params.set("search", search);
-    if (warehouseId) params.set("warehouseId", warehouseId);
-    if (alertOnly) params.set("alertOnly", "1");
+    const params = buildInventoryParams();
     params.set("page", String(page));
     params.set("pageSize", "20");
     fetch(`/api/erp/inventory?${params.toString()}`)
@@ -50,13 +75,14 @@ export default function InventoryPage() {
         setPagination(data.pagination || { page: 1, pageSize: 20, total: 0, totalPages: 0 });
       })
       .finally(() => setLoading(false));
-  }, [search, warehouseId, alertOnly, page]);
+  }, [search, warehouseId, categoryId, alertOnly, zeroStock, demandWithoutStock, page]);
 
   useEffect(() => {
     if (shortageAutoShown) return;
     const params = new URLSearchParams();
     if (search) params.set("search", search);
     if (warehouseId) params.set("warehouseId", warehouseId);
+    if (categoryId) params.set("categoryId", categoryId);
     params.set("alertOnly", "1");
     params.set("pageSize", "100");
     fetch(`/api/erp/inventory?${params.toString()}`)
@@ -69,12 +95,42 @@ export default function InventoryPage() {
           setShortageAutoShown(true);
         }
       });
-  }, [search, warehouseId, shortageAutoShown]);
+  }, [search, warehouseId, categoryId, shortageAutoShown]);
+
+  const handlePrint = async () => {
+    setPrinting(true);
+    try {
+      const filters = buildInventoryParams();
+      const result = await collectPrintResults(async (printPage, printPageSize) => {
+        const params = new URLSearchParams(filters);
+        params.set("page", String(printPage));
+        params.set("pageSize", String(printPageSize));
+        const response = await fetch(`/api/erp/inventory?${params.toString()}`);
+        if (!response.ok) throw new Error("加载库存台账打印数据失败");
+        const data = await response.json();
+        return { items: data.items || [], total: data.pagination?.total || 0 };
+      });
+      setPrintItems(result.items);
+      if (result.truncated) alert("结果超过1000条，仅打印前1000条，请收窄筛选条件");
+      const restore = () => {
+        setPrintItems(null);
+        setPrinting(false);
+      };
+      window.addEventListener("afterprint", restore, { once: true });
+      window.requestAnimationFrame(() => window.requestAnimationFrame(() => window.print()));
+    } catch (error) {
+      setPrinting(false);
+      alert(error instanceof Error ? error.message : "加载库存台账打印数据失败");
+    }
+  };
+
+  const visibleInventories = printItems ?? inventories;
 
   return (
     <div className="space-y-4">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <h1 className="text-xl font-semibold text-gray-900">库存总览</h1>
+        <button type="button" onClick={handlePrint} disabled={printing} className="print-hidden rounded border px-3 py-2 text-sm disabled:opacity-50">{printing ? "准备打印..." : "打印当前筛选结果"}</button>
       </div>
 
       <div className="bg-white rounded-xl border border-gray-200 p-4 flex flex-wrap gap-3 items-center">
@@ -98,6 +154,16 @@ export default function InventoryPage() {
             <option key={w.id} value={w.id}>{w.name}</option>
           ))}
         </select>
+        <select
+          value={categoryId}
+          onChange={(e) => { setCategoryId(e.target.value); setPage(1); }}
+          className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
+        >
+          <option value="">全部物料分类</option>
+          {flattenCategories(categories).map((category) => (
+            <option key={category.id} value={category.id}>{"　".repeat(category.level)}{category.name}</option>
+          ))}
+        </select>
         <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer">
           <input
             type="checkbox"
@@ -108,11 +174,13 @@ export default function InventoryPage() {
           <AlertTriangle className="w-4 h-4 text-amber-500" />
           仅显示预警
         </label>
+        <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer"><input type="checkbox" checked={zeroStock} onChange={(e) => { setZeroStock(e.target.checked); setPage(1); }} className="rounded border-gray-300" />零库存</label>
+        <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer"><input type="checkbox" checked={demandWithoutStock} onChange={(e) => { setDemandWithoutStock(e.target.checked); setPage(1); }} className="rounded border-gray-300" />有需求无库存</label>
       </div>
 
       {loading ? (
         <p className="text-center py-8 text-sm text-gray-500">加载中...</p>
-      ) : inventories.length === 0 ? (
+      ) : visibleInventories.length === 0 ? (
         <p className="text-center py-8 text-sm text-gray-500">暂无库存数据</p>
       ) : (
         <>
@@ -131,7 +199,7 @@ export default function InventoryPage() {
                 </tr>
               </thead>
               <tbody>
-                {inventories.map((inv) => {
+                {visibleInventories.map((inv) => {
                   const qty = Number(inv.quantity);
                   const threshold = effectiveThreshold(inv.material);
                   const isAlert = threshold !== null && qty <= threshold;
@@ -222,6 +290,7 @@ export default function InventoryPage() {
           </div>
         </div>
       )}
+      <style jsx global>{`@media print { aside, button, input, select, textarea, .print-hidden, [role="dialog"] { display: none !important; } main { margin: 0 !important; } }`}</style>
     </div>
   );
 }

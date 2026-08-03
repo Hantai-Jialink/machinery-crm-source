@@ -3,6 +3,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { getSessionUser, canAccessERP, canManagePurchaseOrders } from "@/lib/permissions";
 import { writeOperationLog } from "@/lib/sales-items";
+import { autoDocumentPrefix, DOCUMENT_NUMBER_RULES_KEY, formatAutoDocumentNo, normalizeAutoDocumentRules } from "@/lib/document-number";
 
 type PurchaseOrderItemInput = {
   materialId?: string;
@@ -53,10 +54,11 @@ function parseDate(value: unknown) {
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
-function generateOrderNo() {
-  const date = new Date().toISOString().slice(0, 10).replace(/-/g, "");
-  const suffix = Math.random().toString(36).slice(2, 7).toUpperCase();
-  return `PO${date}${suffix}`;
+async function generateOrderNo(tx: Prisma.TransactionClient) {
+  const rules = normalizeAutoDocumentRules((await tx.systemSetting.findUnique({ where: { key: DOCUMENT_NUMBER_RULES_KEY } }))?.value);
+  const rule = rules.PURCHASE_ORDER;
+  const count = await tx.purchaseOrder.count({ where: { orderNo: { startsWith: autoDocumentPrefix(rule) } } });
+  return formatAutoDocumentNo(rule, count);
 }
 
 async function buildItemData(tx: Prisma.TransactionClient, items: NormalizedItem[]) {
@@ -176,7 +178,7 @@ export async function POST(request: NextRequest) {
         const itemData = await buildItemData(tx, items);
         const created = await tx.purchaseOrder.create({
           data: {
-            orderNo: generateOrderNo(),
+            orderNo: await generateOrderNo(tx),
             supplierId: supplier.id,
             supplierNameSnapshot: supplier.name,
             orderDate,

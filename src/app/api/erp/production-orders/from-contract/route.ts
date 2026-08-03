@@ -46,6 +46,7 @@ export async function POST(request: NextRequest) {
       for (const [index, line] of lines.entries()) {
         const input = normalizeDraftInput({
           ...line,
+          orderNo: line.orderNo,
           contractId,
           contractItemId: line.contractItemId,
           specialRequirements: body.specialRequirements,
@@ -86,6 +87,7 @@ export async function POST(request: NextRequest) {
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
     return NextResponse.json({ items: transactionResult.orders }, { status: transactionResult.replayed ? 200 : 201 });
   } catch (error: any) {
+    if (error?.code === "P2002") return NextResponse.json({ error: "工单编号已存在，请更换后重试" }, { status: 409 });
     if (error instanceof ProductionOrderRequestError) {
       return NextResponse.json({ error: error.message }, { status: error.status });
     }

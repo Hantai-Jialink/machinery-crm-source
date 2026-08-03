@@ -1,13 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { getSessionUser, canAccessERP, canManageInventory } from "@/lib/permissions";
-
-function generateBatchNo(type: string): string {
-  const now = new Date();
-  const date = now.toISOString().slice(0, 10).replace(/-/g, "");
-  const random = Math.random().toString(36).substring(2, 6).toUpperCase();
-  return `${type}${date}${random}`;
-}
+import { autoDocumentPrefix, DOCUMENT_NUMBER_RULES_KEY, formatAutoDocumentNo, normalizeAutoDocumentRules } from "@/lib/document-number";
 
 export async function GET(request: NextRequest) {
   const user = await getSessionUser();
@@ -70,9 +64,11 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "仓库和盘点项目为必填项" }, { status: 400 });
   }
 
-  const batchNo = generateBatchNo("CK");
-
-  const stockCheck = await prisma.stockCheck.create({
+  for (let attempt = 0; attempt < 3; attempt += 1) try {
+  const stockCheck = await prisma.$transaction(async (tx) => {
+    const rule = normalizeAutoDocumentRules((await tx.systemSetting.findUnique({ where: { key: DOCUMENT_NUMBER_RULES_KEY } }))?.value).STOCK_CHECK;
+    const batchNo = formatAutoDocumentNo(rule, await tx.stockCheck.count({ where: { batchNo: { startsWith: autoDocumentPrefix(rule) } } }));
+    return tx.stockCheck.create({
     data: {
       batchNo,
       warehouseId: body.warehouseId,
@@ -103,7 +99,13 @@ export async function POST(request: NextRequest) {
         orderBy: { sortOrder: "asc" },
       },
     },
+    });
   });
 
   return NextResponse.json(stockCheck, { status: 201 });
+  } catch (error: any) {
+    if ((error?.code === "P2002" || error?.code === "P2034") && attempt < 2) continue;
+    return NextResponse.json({ error: error?.code === "P2002" || error?.code === "P2034" ? "盘点单编号冲突，请重试" : "创建盘点单失败" }, { status: error?.code === "P2002" || error?.code === "P2034" ? 409 : 500 });
+  }
+  return NextResponse.json({ error: "盘点单编号冲突，请重试" }, { status: 409 });
 }

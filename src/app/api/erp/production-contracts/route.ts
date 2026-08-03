@@ -3,6 +3,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { canPublishProductionOrder, getSessionUser } from "@/lib/permissions";
 import { calculateRemainingContractQuantity } from "@/lib/production-orders";
+import { findProductionContractIds } from "@/lib/production-contract-search";
 
 // This selector deliberately returns production fields only. Customer, contact,
 // address, invoicing, amount and payment data must never cross this interface.
@@ -15,12 +16,13 @@ export async function GET(request: NextRequest) {
   const search = searchParams.get("search")?.trim() || "";
   const contractId = searchParams.get("contractId")?.trim() || "";
   const excludeOrderId = searchParams.get("excludeOrderId")?.trim() || "";
+  const matchingIds = await findProductionContractIds(search);
   const contracts = await prisma.contract.findMany({
     where: {
       deletedAt: null,
       contractStatus: "SIGNED",
       ...(contractId ? { id: contractId } : {}),
-      ...(search ? { contractNo: { contains: search } } : {}),
+      ...(matchingIds ? { id: { in: matchingIds } } : {}),
     },
     select: {
       id: true,
@@ -41,7 +43,7 @@ export async function GET(request: NextRequest) {
       },
     },
     orderBy: { createdAt: "desc" },
-    take: contractId ? 1 : 100,
+    take: contractId ? 1 : 50,
   });
 
   const itemIds = contracts.flatMap((contract) => contract.items.map((item) => item.id));

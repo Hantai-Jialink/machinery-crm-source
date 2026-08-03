@@ -6,6 +6,7 @@ import { useSession } from "next-auth/react";
 import { AlertTriangle, Eye, Link2Off, Plus, Trash2 } from "lucide-react";
 import { MaterialCombobox } from "@/components/erp/material-combobox";
 import { ErpAttachments, PendingErpAttachments, uploadErpAttachments } from "@/components/erp/erp-attachments";
+import { collectPrintResults } from "@/lib/print-results";
 
 function StockInContent() {
   const router = useRouter();
@@ -27,15 +28,21 @@ function StockInContent() {
   const [filterDateFrom, setFilterDateFrom] = useState("");
   const [filterDateTo, setFilterDateTo] = useState("");
   const [filterSearch, setFilterSearch] = useState("");
+  const [filterCreatorId, setFilterCreatorId] = useState("");
+  const [filterStatus, setFilterStatus] = useState("");
+  const [creators, setCreators] = useState<any[]>([]);
   const [detailId, setDetailId] = useState<string | null>(null);
   const [detail, setDetail] = useState<any>(null);
   const [correctionTarget, setCorrectionTarget] = useState<any>(null);
   const [purchaseSource, setPurchaseSource] = useState<any>(null);
   const [formError, setFormError] = useState("");
   const [refreshKey, setRefreshKey] = useState(0);
+  const [printItems, setPrintItems] = useState<any[] | null>(null);
+  const [printing, setPrinting] = useState(false);
 
   // Form state
   const [warehouseId, setWarehouseId] = useState("");
+  const [batchNo, setBatchNo] = useState("");
   const [stockInType, setStockInType] = useState("PURCHASE");
   const [remark, setRemark] = useState("");
   const [items, setItems] = useState<any[]>([{ materialId: "", quantity: "", unitPrice: "" }]);
@@ -45,17 +52,25 @@ function StockInContent() {
   useEffect(() => {
     fetch("/api/erp/warehouses?onlyActive=1").then((r) => r.json()).then((d) => setWarehouses(Array.isArray(d) ? d : []));
     fetch("/api/erp/materials").then((r) => r.json()).then((d) => setMaterials(Array.isArray(d) ? d : []));
+    fetch("/api/erp/document-creators").then((r) => r.json()).then((d) => setCreators(Array.isArray(d) ? d : []));
   }, []);
 
-  useEffect(() => {
-    if (tab !== "history") return;
-    setLoading(true);
+  const buildHistoryParams = () => {
     const params = new URLSearchParams();
     if (filterWarehouse) params.set("warehouseId", filterWarehouse);
     if (filterType) params.set("type", filterType);
     if (filterDateFrom) params.set("dateFrom", filterDateFrom);
     if (filterDateTo) params.set("dateTo", filterDateTo);
     if (filterSearch.trim()) params.set("search", filterSearch.trim());
+    if (filterCreatorId) params.set("createdById", filterCreatorId);
+    if (filterStatus) params.set("status", filterStatus);
+    return params;
+  };
+
+  useEffect(() => {
+    if (tab !== "history") return;
+    setLoading(true);
+    const params = buildHistoryParams();
     params.set("page", String(page));
     params.set("pageSize", "20");
     fetch(`/api/erp/stock-in?${params.toString()}`)
@@ -65,7 +80,7 @@ function StockInContent() {
         setPagination(data.pagination || { page: 1, pageSize: 20, total: 0, totalPages: 0 });
       })
       .finally(() => setLoading(false));
-  }, [tab, filterWarehouse, filterType, filterDateFrom, filterDateTo, filterSearch, page, refreshKey]);
+  }, [tab, filterWarehouse, filterType, filterDateFrom, filterDateTo, filterSearch, filterCreatorId, filterStatus, page, refreshKey]);
 
   useEffect(() => {
     if (!purchaseOrderId) {
@@ -122,7 +137,7 @@ function StockInContent() {
   };
 
   const handleSubmit = async () => {
-    if (!warehouseId || items.length === 0) return;
+    if (!batchNo.trim() || !warehouseId || items.length === 0) return;
     const validItems = items.filter((i) => i.materialId && i.quantity && i.unitPrice && (!purchaseSource || i.purchaseOrderItemId));
     if (validItems.length === 0) return;
     if (purchaseSource && validItems.some((item) => Number(item.quantity) > Number(item.maxQuantity))) {
@@ -134,7 +149,7 @@ function StockInContent() {
     const res = await fetch("/api/erp/stock-in", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ warehouseId, type: stockInType, remark, purchaseOrderId: purchaseSource?.id, items: validItems }),
+      body: JSON.stringify({ batchNo, warehouseId, type: stockInType, remark, purchaseOrderId: purchaseSource?.id, items: validItems }),
     });
     const data = await res.json();
     if (!res.ok) {
@@ -154,6 +169,7 @@ function StockInContent() {
       router.replace(`/erp/purchase-orders/${purchaseSource.id}`);
       return;
     }
+    setBatchNo("");
     setWarehouseId("");
     setRemark("");
     setItems([{ materialId: "", quantity: "", unitPrice: "" }]);
@@ -163,6 +179,7 @@ function StockInContent() {
 
   const cancelForm = () => {
     setFormError("");
+    setBatchNo("");
     setWarehouseId("");
     setRemark("");
     setItems([{ materialId: "", quantity: "", unitPrice: "" }]);
@@ -188,12 +205,42 @@ function StockInContent() {
     if (detailId === stockIn.id) setDetail(null);
   };
 
+  const handlePrint = async () => {
+    setPrinting(true);
+    try {
+      const filters = buildHistoryParams();
+      const result = await collectPrintResults(async (printPage, printPageSize) => {
+        const params = new URLSearchParams(filters);
+        params.set("page", String(printPage));
+        params.set("pageSize", String(printPageSize));
+        const response = await fetch(`/api/erp/stock-in?${params.toString()}`);
+        if (!response.ok) throw new Error("加载入库打印数据失败");
+        const data = await response.json();
+        return { items: data.items || [], total: data.pagination?.total || 0 };
+      });
+      setPrintItems(result.items);
+      setTab("history");
+      if (result.truncated) alert("结果超过1000条，仅打印前1000条，请收窄筛选条件");
+      const restore = () => {
+        setPrintItems(null);
+        setPrinting(false);
+      };
+      window.addEventListener("afterprint", restore, { once: true });
+      window.requestAnimationFrame(() => window.requestAnimationFrame(() => window.print()));
+    } catch (error) {
+      setPrinting(false);
+      alert(error instanceof Error ? error.message : "加载入库打印数据失败");
+    }
+  };
+
   const totalAmount = items.reduce((sum, i) => sum + (parseFloat(i.quantity || "0") * parseFloat(i.unitPrice || "0")), 0);
+  const visibleStockIns = printItems ?? stockIns;
 
   return (
     <div className="space-y-4">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <h1 className="text-xl font-semibold text-gray-900">入库单</h1>
+        <button type="button" onClick={handlePrint} disabled={printing} className="print-hidden rounded border px-3 py-2 text-sm disabled:opacity-50">{printing ? "准备打印..." : "打印当前筛选结果"}</button>
         {canEdit && (
           <button
             onClick={() => {
@@ -219,6 +266,7 @@ function StockInContent() {
         <div className="bg-white rounded-xl border border-gray-200 p-6 space-y-4">
           {purchaseSource && <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-900">来源采购订单：<span className="font-medium">{purchaseSource.orderNo}</span>。物料明细已锁定，可按实际到货数量调整。</div>}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div><label className="block text-xs font-medium text-gray-600 mb-1">入库单号 *</label><input value={batchNo} onChange={(e) => setBatchNo(e.target.value)} placeholder="请输入入库单号" className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" /></div>
             <div>
               <label className="block text-xs font-medium text-gray-600 mb-1">仓库 *</label>
               <select value={warehouseId} onChange={(e) => setWarehouseId(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm">
@@ -272,7 +320,7 @@ function StockInContent() {
 
           <div className="flex justify-end gap-2">
             <button onClick={cancelForm} className="px-4 py-2 text-sm text-gray-600 border border-gray-300 rounded-lg">取消</button>
-            <button onClick={handleSubmit} disabled={saving || !warehouseId || items.filter(i => i.materialId && i.quantity && i.unitPrice && (!purchaseSource || i.purchaseOrderItemId)).length === 0}
+            <button onClick={handleSubmit} disabled={saving || !batchNo.trim() || !warehouseId || items.filter(i => i.materialId && i.quantity && i.unitPrice && (!purchaseSource || i.purchaseOrderItemId)).length === 0}
               className="px-4 py-2 text-sm bg-gray-900 text-white rounded-lg hover:bg-gray-800 disabled:opacity-50">
               {saving ? "保存中..." : "确认入库"}
             </button>
@@ -290,13 +338,15 @@ function StockInContent() {
               <input type="date" aria-label="开始日期" value={filterDateFrom} onChange={(e) => { setFilterDateFrom(e.target.value); setPage(1); }} className="px-3 py-2 border border-gray-300 rounded-lg text-sm" />
               <input type="date" aria-label="结束日期" value={filterDateTo} onChange={(e) => { setFilterDateTo(e.target.value); setPage(1); }} className="px-3 py-2 border border-gray-300 rounded-lg text-sm" />
               <input value={filterSearch} onChange={(e) => { setFilterSearch(e.target.value); setPage(1); }} placeholder="物料名称、编码或入库单号" className="px-3 py-2 border border-gray-300 rounded-lg text-sm" />
-              <button type="button" onClick={() => { setFilterWarehouse(""); setFilterType(""); setFilterDateFrom(""); setFilterDateTo(""); setFilterSearch(""); setPage(1); }} className="rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-600 hover:bg-gray-50">清空</button>
+              <select value={filterCreatorId} onChange={(e) => { setFilterCreatorId(e.target.value); setPage(1); }} className="px-3 py-2 border border-gray-300 rounded-lg text-sm"><option value="">全部创建人</option>{creators.map((creator) => <option key={creator.id} value={creator.id}>{creator.name || "未命名用户"}</option>)}</select>
+              <select value={filterStatus} onChange={(e) => { setFilterStatus(e.target.value); setPage(1); }} className="px-3 py-2 border border-gray-300 rounded-lg text-sm"><option value="">全部状态</option><option value="CONFIRMED">已确认</option></select>
+              <button type="button" onClick={() => { setFilterWarehouse(""); setFilterType(""); setFilterDateFrom(""); setFilterDateTo(""); setFilterSearch(""); setFilterCreatorId(""); setFilterStatus(""); setPage(1); }} className="rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-600 hover:bg-gray-50">清空</button>
             </div>
           </div>
 
           {loading ? (
             <p className="text-center py-8 text-sm text-gray-500">加载中...</p>
-          ) : stockIns.length === 0 ? (
+          ) : visibleStockIns.length === 0 ? (
             <p className="text-center py-8 text-sm text-gray-500">暂无入库记录</p>
           ) : (
             <div className="bg-white rounded-xl border border-gray-200 overflow-x-auto">
@@ -313,7 +363,7 @@ function StockInContent() {
                   </tr>
                 </thead>
                 <tbody>
-                  {stockIns.map((si) => (
+                  {visibleStockIns.map((si) => (
                     <tr key={si.id} className="border-b border-gray-100 hover:bg-gray-50">
                       <td className="px-4 py-3 font-mono text-xs">{si.batchNo}</td>
                       <td className="px-4 py-3 text-gray-500">{si.warehouse?.name}</td>
@@ -399,6 +449,7 @@ function StockInContent() {
           </div>
         </div>
       )}
+      <style jsx global>{`@media print { aside, button, input, select, textarea, .print-hidden, [role="dialog"] { display: none !important; } main { margin: 0 !important; } }`}</style>
 
       {correctionTarget && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setCorrectionTarget(null)}>
