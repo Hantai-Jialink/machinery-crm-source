@@ -133,7 +133,7 @@ export async function POST(request: NextRequest) {
           const [requiredMaterials, issuedDocuments, returnedDocuments] = await Promise.all([
             tx.productionOrderMaterial.findMany({ where: { productionOrderId }, select: { materialId: true, requiredQuantity: true } }),
             tx.stockOut.findMany({ where: { productionOrderId }, include: { items: true } }),
-            tx.stockIn.findMany({ where: { productionOrderId }, include: { items: true } }),
+            tx.stockIn.findMany({ where: { productionOrderId, status: "CONFIRMED" }, include: { items: true } }),
           ]);
           const requiredByMaterial = new Map(requiredMaterials.map((item) => [item.materialId, Number(item.requiredQuantity)]));
           const issuedByMaterial = new Map<string, number>();

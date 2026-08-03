@@ -417,7 +417,7 @@ export async function createKitCheckResult(tx: Prisma.TransactionClient, input: 
     tx.inventory.findMany({ where: { warehouseId: order.warehouseId, materialId: { in: materialIds } }, select: { materialId: true, quantity: true } }),
     tx.purchaseOrder.findMany({ where: { deletedAt: null, status: { in: ["ORDERED", "PARTIAL_RECEIVED"] } }, select: { id: true } }),
     tx.stockOut.findMany({ where: { productionOrderId: order.id }, include: { items: true } }),
-    tx.stockIn.findMany({ where: { productionOrderId: order.id }, include: { items: true } }),
+    tx.stockIn.findMany({ where: { productionOrderId: order.id, status: "CONFIRMED" }, include: { items: true } }),
   ]);
   const purchaseItems = openPurchaseOrders.length
     ? await tx.purchaseOrderItem.findMany({ where: { purchaseOrderId: { in: openPurchaseOrders.map((item) => item.id) }, materialId: { in: materialIds } }, select: { materialId: true, quantity: true, receivedQuantity: true } })
@@ -513,7 +513,7 @@ export async function getProductionOrderDetail(id: string) {
     prisma.bomHeader.findUnique({ where: { id: order.bomId }, select: { id: true, version: true, isActive: true } }),
     prisma.warehouse.findUnique({ where: { id: order.warehouseId }, select: { id: true, name: true, code: true, isActive: true } }),
     prisma.stockOut.findMany({ where: { productionOrderId: order.id }, include: { items: true }, orderBy: { createdAt: "desc" } }),
-    prisma.stockIn.findMany({ where: { productionOrderId: order.id }, include: { items: true }, orderBy: { createdAt: "desc" } }),
+    prisma.stockIn.findMany({ where: { productionOrderId: order.id, status: "CONFIRMED" }, include: { items: true }, orderBy: { createdAt: "desc" } }),
     prisma.inventory.findMany({ where: { warehouseId: order.warehouseId, materialId: { in: order.materials.map((item) => item.materialId) } }, select: { materialId: true, quantity: true } }),
     order.responsibleId ? prisma.user.findUnique({ where: { id: order.responsibleId }, select: { id: true, name: true, email: true } }) : null,
   ]);

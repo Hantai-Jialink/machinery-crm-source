@@ -94,8 +94,8 @@ export async function GET(request: NextRequest) {
   if (warehouseId) where.warehouseId = warehouseId;
   if (type) where.type = type;
   if (createdById) where.createdById = createdById;
-  if (status === "CONFIRMED") where.confirmedAt = { not: null };
-  if (status && status !== "CONFIRMED") return NextResponse.json({ error: "入库状态筛选参数无效" }, { status: 400 });
+  if (status === "CONFIRMED" || status === "VOIDED") where.status = status;
+  if (status && status !== "CONFIRMED" && status !== "VOIDED") return NextResponse.json({ error: "入库状态筛选参数无效" }, { status: 400 });
   if (dateFrom || dateTo) where.createdAt = { ...(dateFrom ? { gte: dateFrom } : {}), ...(dateTo ? { lte: dateTo } : {}) };
   if (search) {
     where.OR = [
@@ -201,7 +201,7 @@ export async function POST(request: NextRequest) {
           const [required, issuedDocuments, returnedDocuments] = await Promise.all([
             tx.productionOrderMaterial.findMany({ where: { productionOrderId }, select: { materialId: true } }),
             tx.stockOut.findMany({ where: { productionOrderId }, include: { items: true } }),
-            tx.stockIn.findMany({ where: { productionOrderId }, include: { items: true } }),
+            tx.stockIn.findMany({ where: { productionOrderId, status: "CONFIRMED" }, include: { items: true } }),
           ]);
           const requiredIds = new Set(required.map((item) => item.materialId));
           if (body.items.some((item: any) => !requiredIds.has(item.materialId))) throw new Error("退料物料不在该生产工单的物料快照中");
@@ -255,6 +255,7 @@ export async function POST(request: NextRequest) {
             createdById: user.id,
             confirmedById: user.id,
             confirmedAt: new Date(),
+            status: "CONFIRMED",
             sourceDocumentSnapshot: { purchaseOrderId: purchaseOrderId || null, productionOrderId: productionOrderId || null, reason: body.remark || null },
             items: {
               create: snapshotItems.map((item: any, index: number) => ({

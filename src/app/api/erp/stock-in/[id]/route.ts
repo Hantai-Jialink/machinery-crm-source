@@ -26,6 +26,14 @@ export async function GET(
         },
         orderBy: { sortOrder: "asc" },
       },
+      voidRecord: {
+        include: {
+          items: {
+            include: { material: { select: { id: true, code: true, name: true, spec: true, unit: true } } },
+            orderBy: { createdAt: "asc" },
+          },
+        },
+      },
     },
   });
 
@@ -33,11 +41,28 @@ export async function GET(
     return NextResponse.json({ error: "入库单不存在" }, { status: 404 });
   }
 
-  const purchaseOrder = stockIn.purchaseOrderId
-    ? await prisma.purchaseOrder.findFirst({
-      where: { id: stockIn.purchaseOrderId, deletedAt: null },
-      select: { id: true, orderNo: true, status: true },
-    })
-    : null;
-  return NextResponse.json({ ...stockIn, purchaseOrder });
+  const [purchaseOrder, voidedBy, stockMovements, operationLogs] = await Promise.all([
+    stockIn.purchaseOrderId
+      ? prisma.purchaseOrder.findFirst({
+        where: { id: stockIn.purchaseOrderId, deletedAt: null },
+        select: { id: true, orderNo: true, status: true },
+      })
+      : null,
+    stockIn.voidedById
+      ? prisma.user.findUnique({ where: { id: stockIn.voidedById }, select: { id: true, name: true } })
+      : null,
+    prisma.stockMovement.findMany({
+      where: stockIn.voidRecord
+        ? { OR: [{ refType: "StockIn", refId: stockIn.id }, { refType: "StockInVoid", refId: stockIn.voidRecord.id }] }
+        : { refType: "StockIn", refId: stockIn.id },
+      include: { material: { select: { id: true, code: true, name: true, spec: true, unit: true } } },
+      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+    }),
+    prisma.operationLog.findMany({
+      where: { entityType: "StockIn", entityId: stockIn.id },
+      select: { id: true, userId: true, action: true, beforeData: true, afterData: true, createdAt: true },
+      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+    }),
+  ]);
+  return NextResponse.json({ ...stockIn, purchaseOrder, voidedBy, stockMovements, operationLogs });
 }
