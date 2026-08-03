@@ -546,6 +546,13 @@ enum StockMovementType {
   TRANSFER_OUT
 }
 
+// 入库创建即确认；DRAFT 仅为未来流程预留，当前公开状态转换只有 CONFIRMED -> VOIDED。
+enum StockInStatus {
+  DRAFT
+  CONFIRMED
+  VOIDED
+}
+
 enum PurchaseOrderStatus {
   DRAFT
   ORDERED
@@ -693,6 +700,7 @@ model Material {
 
   inventories                  Inventory[]
   stockInItems                 StockInItem[]
+  stockInVoidItems             StockInVoidItem[]
   stockOutItems                StockOutItem[]
   stockCheckItems              StockCheckItem[]
   movements                    StockMovement[]
@@ -858,9 +866,14 @@ model StockIn {
   confirmedById          String?
   confirmedAt            DateTime?
   sourceDocumentSnapshot Json?
+  status                 StockInStatus @default(CONFIRMED)
+  voidedAt               DateTime?
+  voidedById             String?
+  voidReason             String?     @db.Text
   createdAt              DateTime    @default(now())
 
-  items StockInItem[]
+  items      StockInItem[]
+  voidRecord StockInVoid?
 
   @@index([warehouseId])
   @@index([purchaseOrderId])
@@ -868,6 +881,7 @@ model StockIn {
   @@index([type])
   @@index([createdById])
   @@index([createdAt])
+  @@index([status])
   @@map("erp_stock_ins")
 }
 
@@ -891,11 +905,47 @@ model StockInItem {
   sortOrder                  Int                                 @default(0)
   createdAt                  DateTime                            @default(now())
   deliveryReceiptAllocations PurchaseDeliveryReceiptAllocation[]
+  voidItems                  StockInVoidItem[]
 
   @@index([stockInId])
   @@index([materialId])
   @@index([purchaseOrderItemId])
   @@map("erp_stock_in_items")
+}
+
+// 入库作废审计头。原入库及其原始库存流水始终保留，作废仅追加反向事实。
+model StockInVoid {
+  id         String    @id @default(uuid())
+  stockInId  String    @unique
+  stockIn    StockIn   @relation(fields: [stockInId], references: [id], onDelete: Restrict)
+  voidedById String
+  reason     String    @db.Text
+  createdAt  DateTime  @default(now())
+
+  items StockInVoidItem[]
+
+  @@index([createdAt])
+  @@map("erp_stock_in_voids")
+}
+
+// 作废明细记录冲减时库存快照和金额，不修改原入库明细。
+model StockInVoidItem {
+  id            String      @id @default(uuid())
+  stockInVoidId String
+  stockInVoid   StockInVoid @relation(fields: [stockInVoidId], references: [id], onDelete: Restrict)
+  stockInItemId String
+  stockInItem   StockInItem @relation(fields: [stockInItemId], references: [id], onDelete: Restrict)
+  materialId    String
+  material      Material    @relation(fields: [materialId], references: [id], onDelete: Restrict)
+  quantity      Decimal     @db.Decimal(10, 2)
+  reversalAmount Decimal    @db.Decimal(12, 2)
+  beforeQty     Decimal     @db.Decimal(10, 2)
+  afterQty      Decimal     @db.Decimal(10, 2)
+  createdAt     DateTime    @default(now())
+
+  @@unique([stockInVoidId, stockInItemId])
+  @@index([materialId])
+  @@map("erp_stock_in_void_items")
 }
 
 // ==================== ERP：出库单（头 + 明细） ====================
