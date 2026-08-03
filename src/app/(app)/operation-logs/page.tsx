@@ -49,9 +49,9 @@ export default function OperationLogsPage() {
     const params = new URLSearchParams();
     if (action) params.set("action", action);
     if (entityType) params.set("entityType", entityType);
-    fetch(`/api/operation-logs?${params.toString()}`)
+    fetch(`/api/system/audit/search?${params.toString()}`)
       .then((res) => res.json())
-      .then((data) => Array.isArray(data) ? setLogs(data) : setError(data.error || "读取日志失败"))
+      .then((data) => Array.isArray(data.items) ? setLogs(data.items) : setError(data.error || "读取日志失败"))
       .catch(() => setError("读取日志失败"));
   };
 

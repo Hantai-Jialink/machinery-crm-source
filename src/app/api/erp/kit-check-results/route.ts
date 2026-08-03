@@ -18,6 +18,7 @@ export async function GET(request: NextRequest) {
   if (toExclusive) toExclusive.setDate(toExclusive.getDate() + 1);
   if (status && !Object.values(KitCheckStatus).includes(status as KitCheckStatus)) return NextResponse.json({ error: "齐套状态参数无效" }, { status: 400 });
   const where: Prisma.KitCheckResultWhereInput = {
+    deletedAt: null,
     ...(status ? { status: status as KitCheckStatus } : {}),
     ...(warehouseId ? { warehouseId } : {}),
     ...(from || to ? { createdAt: { ...(from ? { gte: new Date(`${from}T00:00:00`) } : {}), ...(toExclusive ? { lt: toExclusive } : {}) } } : {}),

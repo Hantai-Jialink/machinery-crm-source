@@ -2,7 +2,7 @@ import { randomUUID } from "crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { Prisma, ProcurementSourceType } from "@prisma/client";
 import { prisma } from "@/lib/db";
-import { getSessionUser, canManagePurchaseOrders } from "@/lib/permissions";
+import { getSessionUser, canManagePurchaseDemands } from "@/lib/permissions";
 import { upsertPurchaseDemandForSource } from "@/lib/procurement-planning";
 import { writeOperationLog } from "@/lib/sales-items";
 
@@ -10,7 +10,7 @@ const SOURCE_TYPES = new Set(Object.values(ProcurementSourceType));
 export async function GET(request: NextRequest) {
   const user = await getSessionUser();
   if (!user) return NextResponse.json({ error: "未登录" }, { status: 401 });
-  if (!canManagePurchaseOrders(user)) return NextResponse.json({ error: "无权限查看采购需求" }, { status: 403 });
+  if (!canManagePurchaseDemands(user)) return NextResponse.json({ error: "无权限查看采购需求" }, { status: 403 });
   const sourceType = new URL(request.url).searchParams.get("sourceType") || "";
   const scope = new URL(request.url).searchParams.get("scope") || "";
   return NextResponse.json(await prisma.purchaseDemand.findMany({ where: { ...(SOURCE_TYPES.has(sourceType as ProcurementSourceType) ? { sourceType: sourceType as ProcurementSourceType } : {}), ...(scope === "spareForecast" ? { sourceRecordId: { startsWith: "SPARE-FORECAST-" } } : {}), activeSlot: true }, include: { material: true, allocations: true }, orderBy: { createdAt: "desc" } }));
@@ -19,7 +19,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   const user = await getSessionUser();
   if (!user) return NextResponse.json({ error: "未登录" }, { status: 401 });
-  if (!canManagePurchaseOrders(user)) return NextResponse.json({ error: "无权限创建采购需求" }, { status: 403 });
+  if (!canManagePurchaseDemands(user)) return NextResponse.json({ error: "无权限创建采购需求" }, { status: 403 });
   const body = await request.json();
   const sourceType = String(body.sourceType || "") as ProcurementSourceType;
   if (!["STOCK_REPLENISHMENT", "MANUAL"].includes(sourceType)) return NextResponse.json({ error: "手工创建仅支持备货或手工采购来源" }, { status: 400 });

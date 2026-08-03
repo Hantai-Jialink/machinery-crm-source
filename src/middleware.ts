@@ -41,8 +41,8 @@ export default auth((req) => {
 
   const matchesPage = (prefix: string) => pathname === prefix || pathname.startsWith(`${prefix}/`);
   const rolePages: Record<string, string[]> = {
-    PURCHASE: ["/erp/inventory", "/erp/materials", "/erp/suppliers", "/erp/purchase-orders", "/erp/production-orders", "/erp/kit-check-results"],
-    WAREHOUSE: ["/erp/inventory", "/erp/materials", "/erp/purchase-orders", "/erp/production-orders", "/erp/kit-check-results", "/erp/warehouse", "/erp/stock-in", "/erp/stock-out", "/erp/stock-check"],
+    PURCHASE: ["/erp/inventory", "/erp/materials", "/erp/bom", "/erp/suppliers", "/erp/purchase-orders", "/erp/production-orders", "/erp/kit-check-results"],
+    WAREHOUSE: ["/erp/inventory", "/erp/materials", "/erp/bom", "/erp/purchase-demands", "/erp/purchase-orders", "/erp/production-orders", "/erp/kit-check-results", "/erp/warehouse", "/erp/stock-in", "/erp/stock-out", "/erp/stock-check"],
   };
 
   // 内部 ERP 岗位硬隔离：只允许 ERP + 系统设置；具体写权限由 API 再校验。
@@ -50,6 +50,8 @@ export default auth((req) => {
   if (role === "WAREHOUSE" || role === "PURCHASE") {
     const warehouseAllowed =
       pathname.startsWith("/api/erp") ||
+      pathname === "/tasks" ||
+      pathname.startsWith("/api/system/tasks") ||
       rolePages[role].some(matchesPage) ||
       pathname.startsWith("/settings") ||
       pathname.startsWith("/api/settings");
@@ -58,6 +60,13 @@ export default auth((req) => {
         return NextResponse.json({ error: "无权限访问" }, { status: 403 });
       }
       return NextResponse.redirect(new URL("/dashboard/erp", req.url));
+    }
+  }
+
+  if (pathname.startsWith("/admin") || pathname.startsWith("/api/system/settings") || pathname.startsWith("/api/system/permissions") || pathname.startsWith("/api/system/health")) {
+    if (role !== "SUPER_ADMIN") {
+      if (pathname.startsWith("/api/")) return NextResponse.json({ error: "无权限访问平台管理" }, { status: 403 });
+      return NextResponse.redirect(new URL(home || "/login", req.url));
     }
   }
 

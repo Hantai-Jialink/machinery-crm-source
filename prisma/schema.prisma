@@ -114,6 +114,12 @@ enum ContractDeleteStatus {
   REJECTED
 }
 
+enum ErpDeleteRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
 // ==================== 用户模型 ====================
 
 model User {
@@ -129,19 +135,25 @@ model User {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  customers        Customer[]
-  followRecords    FollowRecord[]
-  auditLogs        AuditLog[]
-  contracts        Contract[]              @relation("SalesUser")
-  createdContracts Contract[]              @relation("ContractCreator")
-  customerQuotes   CustomerQuote[]
-  contractPayments ContractPayment[]
-  shipments        Shipment[]
-  operationLogs    OperationLog[]
-  requestedUnlocks ContractUnlockRequest[] @relation("ContractUnlockRequester")
-  approvedUnlocks  ContractUnlockRequest[] @relation("ContractUnlockApprover")
-  requestedDeletes ContractDeleteRequest[] @relation("ContractDeleteRequester")
-  approvedDeletes  ContractDeleteRequest[] @relation("ContractDeleteApprover")
+  customers                     Customer[]
+  followRecords                 FollowRecord[]
+  auditLogs                     AuditLog[]
+  contracts                     Contract[]                   @relation("SalesUser")
+  createdContracts              Contract[]                   @relation("ContractCreator")
+  customerQuotes                CustomerQuote[]
+  contractPayments              ContractPayment[]
+  shipments                     Shipment[]
+  operationLogs                 OperationLog[]
+  requestedUnlocks              ContractUnlockRequest[]      @relation("ContractUnlockRequester")
+  approvedUnlocks               ContractUnlockRequest[]      @relation("ContractUnlockApprover")
+  requestedDeletes              ContractDeleteRequest[]      @relation("ContractDeleteRequester")
+  approvedDeletes               ContractDeleteRequest[]      @relation("ContractDeleteApprover")
+  taskStates                    SystemUserTaskState[]
+  updatedSettings               SystemSetting[]              @relation("SystemSettingUpdater")
+  requestedPurchaseOrderDeletes PurchaseOrderDeleteRequest[] @relation("PurchaseOrderDeleteRequester")
+  approvedPurchaseOrderDeletes  PurchaseOrderDeleteRequest[] @relation("PurchaseOrderDeleteApprover")
+  requestedKitCheckDeletes      KitCheckDeleteRequest[]      @relation("KitCheckDeleteRequester")
+  approvedKitCheckDeletes       KitCheckDeleteRequest[]      @relation("KitCheckDeleteApprover")
 
   @@map("users")
 }
@@ -739,6 +751,7 @@ model PurchaseOrder {
   sourceProductionOrder ProductionOrder?              @relation("PurchaseOrderSourceProductionOrder", fields: [sourceProductionOrderId], references: [id], onDelete: SetNull)
   sourceKitCheck        KitCheckResult?               @relation("PurchaseOrderSourceKitCheck", fields: [sourceKitCheckId], references: [id], onDelete: SetNull)
   shortageSources       PurchaseOrderShortageSource[]
+  deleteRequests        PurchaseOrderDeleteRequest[]
 
   @@index([supplierId])
   @@index([status])
@@ -1157,15 +1170,121 @@ model KitCheckResult {
   triggerKey         String?         @unique
   triggerType        String          @default("MANUAL")
   createdAt          DateTime        @default(now())
+  deletedAt          DateTime?
+  deletedById        String?
+  deleteReason       String?         @db.Text
 
   sourcePurchaseOrders PurchaseOrder[]               @relation("PurchaseOrderSourceKitCheck")
   shortageSources      PurchaseOrderShortageSource[]
+  deleteRequests       KitCheckDeleteRequest[]
 
   @@index([productionOrderId])
   @@index([warehouseId])
   @@index([status])
   @@index([createdAt])
   @@map("erp_kit_check_results")
+}
+
+model SystemUserTaskState {
+  id           String    @id @default(uuid())
+  userId       String
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sourceType   String
+  sourceId     String
+  readAt       DateTime?
+  pinnedAt     DateTime?
+  ignoredAt    DateTime?
+  lastViewedAt DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@unique([userId, sourceType, sourceId], map: "uq_system_task_state_source")
+  @@index([userId, ignoredAt])
+  @@map("system_user_task_states")
+}
+
+model SystemSetting {
+  id          String   @id @default(uuid())
+  key         String   @unique
+  value       Json
+  updatedById String?
+  updatedBy   User?    @relation("SystemSettingUpdater", fields: [updatedById], references: [id], onDelete: SetNull)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("system_settings")
+}
+
+model SystemPermissionDefinition {
+  id              String                 @id @default(uuid())
+  code            String                 @unique
+  module          String
+  action          String
+  description     String
+  createdAt       DateTime               @default(now())
+  updatedAt       DateTime               @updatedAt
+  rolePermissions SystemRolePermission[]
+
+  @@unique([module, action], map: "uq_system_permission_module_action")
+  @@map("system_permission_definitions")
+}
+
+model SystemRolePermission {
+  id           String                     @id @default(uuid())
+  role         Role
+  permissionId String
+  permission   SystemPermissionDefinition @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+  allowed      Boolean                    @default(true)
+  createdAt    DateTime                   @default(now())
+  updatedAt    DateTime                   @updatedAt
+
+  @@unique([role, permissionId], map: "uq_system_role_permission")
+  @@index([role])
+  @@map("system_role_permissions")
+}
+
+model PurchaseOrderDeleteRequest {
+  id              String                 @id @default(uuid())
+  purchaseOrderId String
+  purchaseOrder   PurchaseOrder          @relation(fields: [purchaseOrderId], references: [id], onDelete: Restrict)
+  requesterId     String
+  requester       User                   @relation("PurchaseOrderDeleteRequester", fields: [requesterId], references: [id])
+  approverId      String?
+  approver        User?                  @relation("PurchaseOrderDeleteApprover", fields: [approverId], references: [id])
+  status          ErpDeleteRequestStatus @default(PENDING)
+  reason          String                 @db.Text
+  approvalRemark  String?                @db.Text
+  createdAt       DateTime               @default(now())
+  approvedAt      DateTime?
+  rejectedAt      DateTime?
+  updatedAt       DateTime               @updatedAt
+
+  @@index([purchaseOrderId])
+  @@index([requesterId])
+  @@index([status])
+  @@map("erp_purchase_order_delete_requests")
+}
+
+model KitCheckDeleteRequest {
+  id               String                 @id @default(uuid())
+  kitCheckResultId String
+  kitCheckResult   KitCheckResult         @relation(fields: [kitCheckResultId], references: [id], onDelete: Restrict)
+  requesterId      String
+  requester        User                   @relation("KitCheckDeleteRequester", fields: [requesterId], references: [id])
+  approverId       String?
+  approver         User?                  @relation("KitCheckDeleteApprover", fields: [approverId], references: [id])
+  status           ErpDeleteRequestStatus @default(PENDING)
+  reason           String                 @db.Text
+  approvalRemark   String?                @db.Text
+  createdAt        DateTime               @default(now())
+  approvedAt       DateTime?
+  rejectedAt       DateTime?
+  updatedAt        DateTime               @updatedAt
+
+  @@index([kitCheckResultId])
+  @@index([requesterId])
+  @@index([status])
+  @@map("erp_kit_check_delete_requests")
 }
 
 model KitRecheckQueue {

@@ -31,16 +31,21 @@ export function canManagePurchaseOrders(role: string): boolean {
   return role === "SUPER_ADMIN" || role === "PURCHASE";
 }
 
+/** 采购需求与采购订单是不同动作：仓库可处理需求，但不能下采购订单。 */
+export function canManagePurchaseDemands(role: string): boolean {
+  return role === "SUPER_ADMIN" || role === "PURCHASE" || role === "WAREHOUSE";
+}
+
 export function canManageInventory(role: string): boolean {
   return role === "SUPER_ADMIN" || role === "WAREHOUSE";
 }
 
 export function canManageBom(role: string): boolean {
-  return role === "SUPER_ADMIN";
+  return role === "SUPER_ADMIN" || role === "WAREHOUSE";
 }
 
 export function canManageMaterialMaster(role: string): boolean {
-  return role === "SUPER_ADMIN";
+  return role === "SUPER_ADMIN" || role === "WAREHOUSE";
 }
 
 export function canPublishProductionOrder(role: string): boolean {
@@ -48,7 +53,7 @@ export function canPublishProductionOrder(role: string): boolean {
 }
 
 export function canExecuteKitCheck(role: string): boolean {
-  return role === "SUPER_ADMIN";
+  return role === "SUPER_ADMIN" || role === "WAREHOUSE";
 }
 
 export function canManageProductionMaterial(role: string): boolean {

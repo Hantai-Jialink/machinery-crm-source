@@ -454,7 +454,7 @@ export async function createPurchaseDemandsForKitCheck(tx: Prisma.TransactionCli
   });
   if (!order) throw new ProductionOrderRequestError("生产工单不存在或当前状态不能生成采购需求", 409);
   if (order.latestKitCheckId !== input.kitCheckId) throw new ProductionOrderRequestError("齐套检查结果已更新，请刷新后按最新结果生成采购需求", 409);
-  const check = await tx.kitCheckResult.findFirst({ where: { id: input.kitCheckId, productionOrderId: order.id, status: "SHORTAGE" }, select: { id: true, detail: true } });
+  const check = await tx.kitCheckResult.findFirst({ where: { id: input.kitCheckId, productionOrderId: order.id, status: "SHORTAGE", deletedAt: null }, select: { id: true, detail: true } });
   if (!check) throw new ProductionOrderRequestError("未找到有效的缺料检查结果", 404);
   const candidates = shortageDemandItems(check.detail);
   if (candidates.length === 0) throw new ProductionOrderRequestError("当前齐套检查没有需要采购的缺料", 409);
@@ -481,7 +481,7 @@ export async function createPurchaseDemandsForKitCheck(tx: Prisma.TransactionCli
 }
 
 export async function getProductionOrderDetail(id: string) {
-  const order = await prisma.productionOrder.findFirst({ where: { id, deletedAt: null }, include: { materials: { orderBy: { sortOrder: "asc" } }, kitCheckResults: { orderBy: { createdAt: "desc" } }, changeRequests: { orderBy: { createdAt: "desc" } } } });
+  const order = await prisma.productionOrder.findFirst({ where: { id, deletedAt: null }, include: { materials: { orderBy: { sortOrder: "asc" } }, kitCheckResults: { where: { deletedAt: null }, orderBy: { createdAt: "desc" } }, changeRequests: { orderBy: { createdAt: "desc" } } } });
   if (!order) return null;
   const versionHistory: Array<{ id: string; orderNo: string; version: number; status: ProductionOrderStatus; isCurrent: boolean; createdAt: Date }> = [{ id: order.id, orderNo: order.orderNo, version: order.version, status: order.status, isCurrent: order.isCurrent, createdAt: order.createdAt }];
   let predecessorId = order.supersedesId;
@@ -536,7 +536,7 @@ export async function getProductionOrderProcurementView(id: string) {
       bomId: true,
       warehouseId: true,
       status: true,
-      kitCheckResults: { orderBy: { createdAt: "desc" }, take: 1, select: { id: true, status: true, shortageCount: true, detail: true, createdAt: true } },
+      kitCheckResults: { where: { deletedAt: null }, orderBy: { createdAt: "desc" }, take: 1, select: { id: true, status: true, shortageCount: true, detail: true, createdAt: true } },
     },
   });
   if (!order) return null;

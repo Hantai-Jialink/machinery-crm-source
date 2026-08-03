@@ -47,7 +47,7 @@ export async function processPendingKitRechecks(tx: Prisma.TransactionClient, ch
     if (claimed.count !== 1) continue;
     try {
       const triggerKey = `QUEUE:${job.id}:${job.requestedAt.toISOString()}`;
-      const existing = await tx.kitCheckResult.findUnique({ where: { triggerKey } });
+      const existing = await tx.kitCheckResult.findFirst({ where: { triggerKey, deletedAt: null } });
       const check = existing || await createKitCheckResult(tx, {
           productionOrderId: job.productionOrderId,
           checkedById,

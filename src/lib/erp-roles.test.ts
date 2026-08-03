@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   canManageBom,
+  canExecuteKitCheck,
   canManageInventory,
+  canManageMaterialMaster,
+  canManagePurchaseDemands,
   canManagePurchaseOrders,
   canManageSuppliers,
   canPublishProductionOrder,
@@ -24,19 +27,28 @@ describe("ERP role policy", () => {
     expect(customerBusinessLineForRole("FOREIGN_TRADE")).toBe("外贸");
   });
 
-  it("keeps purchase and warehouse write capabilities separated", () => {
+  it("implements the confirmed five-role warehouse, purchase and administrator matrix", () => {
+    const capabilities = {
+      material: canManageMaterialMaster,
+      bom: canManageBom,
+      kitCheck: canExecuteKitCheck,
+      purchaseDemand: canManagePurchaseDemands,
+      purchaseOrder: canManagePurchaseOrders,
+      supplier: canManageSuppliers,
+      inventory: canManageInventory,
+    };
+    const expected = {
+      SUPER_ADMIN: [true, true, true, true, true, true, true],
+      WAREHOUSE: [true, true, true, true, false, false, true],
+      PURCHASE: [false, false, false, true, true, true, false],
+      SALES: [false, false, false, false, false, false, false],
+      FOREIGN_TRADE: [false, false, false, false, false, false, false],
+    } as const;
+    for (const [role, results] of Object.entries(expected)) {
+      expect(Object.values(capabilities).map((capability) => capability(role))).toEqual(results);
+    }
     expect(canViewERP("PURCHASE")).toBe(true);
-    expect(canManageSuppliers("PURCHASE")).toBe(true);
-    expect(canManagePurchaseOrders("PURCHASE")).toBe(true);
-    expect(canManageInventory("PURCHASE")).toBe(false);
-    expect(canManageBom("PURCHASE")).toBe(false);
-    expect(canPublishProductionOrder("PURCHASE")).toBe(false);
-
     expect(canViewERP("WAREHOUSE")).toBe(true);
-    expect(canManageInventory("WAREHOUSE")).toBe(true);
-    expect(canManageSuppliers("WAREHOUSE")).toBe(false);
-    expect(canManagePurchaseOrders("WAREHOUSE")).toBe(false);
-    expect(canManageBom("WAREHOUSE")).toBe(false);
-    expect(canPublishProductionOrder("WAREHOUSE")).toBe(false);
+    expect(canPublishProductionOrder("PURCHASE")).toBe(false);
   });
 });

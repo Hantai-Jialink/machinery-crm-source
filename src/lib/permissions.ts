@@ -8,6 +8,7 @@ import {
   canManageMaterialMaster as roleCanManageMaterialMaster,
   canManageProductionMaterial as roleCanManageProductionMaterial,
   canManagePurchaseOrders as roleCanManagePurchaseOrders,
+  canManagePurchaseDemands as roleCanManagePurchaseDemands,
   canManageSuppliers as roleCanManageSuppliers,
   canPublishProductionOrder as roleCanPublishProductionOrder,
   canViewERP,
@@ -188,6 +189,10 @@ export function canManageSuppliers(user: SessionUser): boolean {
 
 export function canManagePurchaseOrders(user: SessionUser): boolean {
   return roleCanManagePurchaseOrders(user.role);
+}
+
+export function canManagePurchaseDemands(user: SessionUser): boolean {
+  return roleCanManagePurchaseDemands(user.role);
 }
 
 export function canManageInventory(user: SessionUser): boolean {

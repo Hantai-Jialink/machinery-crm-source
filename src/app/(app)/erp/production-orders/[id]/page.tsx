@@ -19,8 +19,8 @@ export default function ProductionOrderDetailPage() {
   const role = (session?.user as any)?.role;
   const canPublish = role === "SUPER_ADMIN";
   const canInventory = role === "SUPER_ADMIN" || role === "WAREHOUSE";
-  const canPurchase = role === "SUPER_ADMIN" || role === "PURCHASE";
-  const canKitCheck = role === "SUPER_ADMIN";
+  const canPurchase = role === "SUPER_ADMIN" || role === "PURCHASE" || role === "WAREHOUSE";
+  const canKitCheck = role === "SUPER_ADMIN" || role === "WAREHOUSE";
   const id = params.id;
   const isNew = id === "new";
   const [detail, setDetail] = useState<any>(null);

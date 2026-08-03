@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
-import { canManagePurchaseOrders, getSessionUser } from "@/lib/permissions";
+import { canManagePurchaseDemands, getSessionUser } from "@/lib/permissions";
 import { createPurchaseDemandsForKitCheck, ProductionOrderRequestError } from "@/lib/production-orders";
 
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const user = await getSessionUser();
   if (!user) return NextResponse.json({ error: "未登录" }, { status: 401 });
-  if (!canManagePurchaseOrders(user)) return NextResponse.json({ error: "无权限生成采购需求" }, { status: 403 });
+  if (!canManagePurchaseDemands(user)) return NextResponse.json({ error: "无权限生成采购需求" }, { status: 403 });
   const { id } = await params;
   const body = await request.json();
   try {
