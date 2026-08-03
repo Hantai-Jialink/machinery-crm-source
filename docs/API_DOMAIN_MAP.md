@@ -29,6 +29,14 @@
 4. 路由登记采用代码常量，不从数据库读取任意可执行 path。
 5. 所有读接口要明确数据范围：CRM 为业务线/省市/负责人；ERP 为角色和已定义的业务归属；SYSTEM 默认超级管理员。
 
+## 阶段 2 已落地的渐进迁移
+
+- `/api/customers` 与 `/api/crm/customers` 共同调用 `modules/crm/customers/service.ts`；保留分页、创建审计与 CRM 数据范围。
+- `/api/erp/inventory` 保持 URL，不批量改名，已抽到 `modules/erp/inventory/service.ts`。
+- `/api/operation-logs` 与 `/api/system/audit` 共同调用 `modules/system/audit/service.ts`；仍保持当前数组响应，完整分页与脱敏展示留给阶段 3。
+- `/api/agent/assertion` 已抽为 `modules/agent/assertion.ts`，但 URL、HS256、600 秒 TTL 和超管限制不变。
+- 静态 API 注册表位于 `modules/agent/api-registry.ts`；它不接受数据库编辑，也不会生成对外动态 Route。
+
 ## 当前权限盘点
 
 - `SUPER_ADMIN`：当前可进入 CRM、ERP、用户、日志和设置；2.0 仍是全权限基线。

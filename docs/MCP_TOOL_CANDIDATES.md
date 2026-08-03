@@ -6,6 +6,8 @@ MCP Tool 不直接连接 Prisma 或 MySQL。它只能通过受控 Agent API/领�
 
 每个登记项必须包含 `toolName`、`domain`、`serviceAction`、`inputSchema`、`outputSchema`、`requiredPermission`、`allowedRoles`、`dataScope`、`readOnly`、`riskLevel` 与 `auditAction`。
 
+阶段 2 已在 `src/modules/agent/mcp-tool-candidates.ts` 以静态 TypeScript 常量落地候选字段校验；这不是已开放的 MCP Tool，也没有新增 Gateway 或数据库直连能力。
+
 ## 第一批候选（只读、可审计）
 
 | Tool 候选 | 服务动作 | 允许角色与数据范围 | 风险 |
