@@ -21,5 +21,6 @@ describe("StockIn 作废查询与流水展示契约", () => {
     expect(detailRoute).toContain("stockMovements");
     expect(detailRoute).toContain("operationLogs");
     expect(detailRoute).toContain("select: { id: true, name: true }");
+    expect(detailRoute).toContain("select: { id: true, action: true, createdAt: true }");
   });
 });

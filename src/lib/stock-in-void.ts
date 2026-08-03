@@ -55,11 +55,14 @@ export function calculateInventoryAfterStockInVoid(input: {
   }
 
   const afterQty = beforeQty.sub(voidQuantity).toDecimalPlaces(2);
-  // 全程传递 Prisma.Decimal 实例。整笔清零时使用原金额，避免金额四舍五入残差。
-  const proportionalAmount = beforeAmount.div(beforeQty).mul(voidQuantity).toDecimalPlaces(2);
-  const reversalAmount = (afterQty.isZero() ? beforeAmount : Prisma.Decimal.min(proportionalAmount, beforeAmount)).toDecimalPlaces(2);
-  const afterAmount = Prisma.Decimal.max(beforeAmount.sub(reversalAmount), new Prisma.Decimal(0)).toDecimalPlaces(2);
-  const avgPrice = afterQty.gt(0) ? afterAmount.div(afterQty).toDecimalPlaces(2) : null;
+  // 库存结果与既有出库一致：先以未提前舍入的移动平均成本计算，再交给 DECIMAL 列落库。
+  // 仅审计列 reversalAmount 按其 DECIMAL(12,2) 精度保存，避免其舍入值反向影响库存平均价。
+  const rawReversalAmount = afterQty.isZero()
+    ? beforeAmount
+    : Prisma.Decimal.min(beforeAmount.div(beforeQty).mul(voidQuantity), beforeAmount);
+  const reversalAmount = rawReversalAmount.toDecimalPlaces(2);
+  const afterAmount = Prisma.Decimal.max(beforeAmount.sub(rawReversalAmount), new Prisma.Decimal(0));
+  const avgPrice = afterQty.gt(0) ? afterAmount.div(afterQty) : null;
 
   return { beforeQty, beforeAmount, voidQuantity, reversalAmount, afterQty, afterAmount, avgPrice };
 }

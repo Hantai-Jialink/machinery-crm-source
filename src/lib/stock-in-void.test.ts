@@ -48,6 +48,16 @@ describe("StockIn 作废领域保护", () => {
     expect(result.reversalAmount).toBeInstanceOf(Prisma.Decimal);
     expect(result.afterAmount).toBeInstanceOf(Prisma.Decimal);
     expect(result.avgPrice).toBeInstanceOf(Prisma.Decimal);
-    expect(result.avgPrice?.toString()).toBe(equivalentStockOutAvgPrice.toString());
+    expect(result.avgPrice?.toDecimalPlaces(2).toString()).toBe(equivalentStockOutAvgPrice.toString());
+  });
+
+  it("不让审计金额的两位舍入改变等价出库后的平均价", () => {
+    const result = calculateInventoryAfterStockInVoid({
+      quantity: new Prisma.Decimal("3.00"), totalAmount: new Prisma.Decimal("1.00"), voidQuantity: new Prisma.Decimal("1.00"),
+    });
+    const existingStockOutAverage = (1 - (1 / 3) * 1) / (3 - 1);
+    expect(result.reversalAmount.toString()).toBe("0.33");
+    expect(result.afterAmount.toDecimalPlaces(2).toString()).toBe("0.67");
+    expect(result.avgPrice?.toDecimalPlaces(2).toString()).toBe(new Prisma.Decimal(existingStockOutAverage).toDecimalPlaces(2).toString());
   });
 });

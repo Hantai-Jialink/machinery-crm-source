@@ -60,7 +60,7 @@ export async function GET(
     }),
     prisma.operationLog.findMany({
       where: { entityType: "StockIn", entityId: stockIn.id },
-      select: { id: true, userId: true, action: true, beforeData: true, afterData: true, createdAt: true },
+      select: { id: true, action: true, createdAt: true },
       orderBy: [{ createdAt: "asc" }, { id: "asc" }],
     }),
   ]);
