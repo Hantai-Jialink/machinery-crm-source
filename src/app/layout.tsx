@@ -3,6 +3,25 @@ import { Geist } from "next/font/google";
 import "./globals.css";
 import Script from "next/script";
 
+const themeInitScript = `
+  (function () {
+    var mode = "system";
+    try {
+      var stored = window.localStorage.getItem("dachuan.theme");
+      if (stored === "light" || stored === "dark" || stored === "system") {
+        mode = stored;
+      }
+    } catch (e) {}
+
+    var prefersDark = typeof window.matchMedia === "function" &&
+      window.matchMedia("(prefers-color-scheme: dark)").matches;
+    var resolved = mode === "system" ? (prefersDark ? "dark" : "light") : mode;
+    var root = document.documentElement;
+    root.setAttribute("data-theme", resolved);
+    root.classList.toggle("dark", resolved === "dark");
+  })();
+`;
+
 const geistSans = Geist({
   variable: "--font-geist-sans",
   subsets: ["latin"],
@@ -40,7 +59,12 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="zh-CN" className={`${geistSans.variable} h-full`}>
+    <html
+      lang="zh-CN"
+      className={`${geistSans.variable} h-full`}
+      suppressHydrationWarning
+    >
+      <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
       <body className="min-h-full antialiased bg-gray-50 text-gray-900">
 
       <Script id="crypto-randomuuid-polyfill" strategy="beforeInteractive">
