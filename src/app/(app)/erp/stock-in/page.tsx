@@ -34,6 +34,8 @@ function StockInContent() {
   const [detailId, setDetailId] = useState<string | null>(null);
   const [detail, setDetail] = useState<any>(null);
   const [correctionTarget, setCorrectionTarget] = useState<any>(null);
+  const [voidReason, setVoidReason] = useState("");
+  const [voiding, setVoiding] = useState(false);
   const [purchaseSource, setPurchaseSource] = useState<any>(null);
   const [formError, setFormError] = useState("");
   const [refreshKey, setRefreshKey] = useState(0);
@@ -205,6 +207,33 @@ function StockInContent() {
     if (detailId === stockIn.id) setDetail(null);
   };
 
+  const openVoidDialog = (stockIn: any) => {
+    setFormError("");
+    setVoidReason("");
+    setCorrectionTarget(stockIn);
+  };
+
+  const voidStockIn = async () => {
+    if (!correctionTarget || voidReason.trim().length < 5) return;
+    setVoiding(true);
+    const res = await fetch(`/api/erp/stock-in/${correctionTarget.id}/void`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ reason: voidReason }),
+    });
+    const data = await res.json();
+    setVoiding(false);
+    if (!res.ok) {
+      setFormError(data.error || "入库单作废失败");
+      return;
+    }
+    setFormError("");
+    setCorrectionTarget(null);
+    setVoidReason("");
+    setRefreshKey((value) => value + 1);
+    if (detailId === data.id) await viewDetail(data.id);
+  };
+
   const handlePrint = async () => {
     setPrinting(true);
     try {
@@ -339,7 +368,7 @@ function StockInContent() {
               <input type="date" aria-label="结束日期" value={filterDateTo} onChange={(e) => { setFilterDateTo(e.target.value); setPage(1); }} className="px-3 py-2 border border-gray-300 rounded-lg text-sm" />
               <input value={filterSearch} onChange={(e) => { setFilterSearch(e.target.value); setPage(1); }} placeholder="物料名称、编码或入库单号" className="px-3 py-2 border border-gray-300 rounded-lg text-sm" />
               <select value={filterCreatorId} onChange={(e) => { setFilterCreatorId(e.target.value); setPage(1); }} className="px-3 py-2 border border-gray-300 rounded-lg text-sm"><option value="">全部创建人</option>{creators.map((creator) => <option key={creator.id} value={creator.id}>{creator.name || "未命名用户"}</option>)}</select>
-              <select value={filterStatus} onChange={(e) => { setFilterStatus(e.target.value); setPage(1); }} className="px-3 py-2 border border-gray-300 rounded-lg text-sm"><option value="">全部状态</option><option value="CONFIRMED">已确认</option></select>
+              <select value={filterStatus} onChange={(e) => { setFilterStatus(e.target.value); setPage(1); }} className="px-3 py-2 border border-gray-300 rounded-lg text-sm"><option value="">全部状态</option><option value="CONFIRMED">已确认</option><option value="VOIDED">已作废</option></select>
               <button type="button" onClick={() => { setFilterWarehouse(""); setFilterType(""); setFilterDateFrom(""); setFilterDateTo(""); setFilterSearch(""); setFilterCreatorId(""); setFilterStatus(""); setPage(1); }} className="rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-600 hover:bg-gray-50">清空</button>
             </div>
           </div>
@@ -356,6 +385,7 @@ function StockInContent() {
                     <th className="text-left px-4 py-3 font-medium text-gray-600">单号</th>
                     <th className="text-left px-4 py-3 font-medium text-gray-600">仓库</th>
                     <th className="text-left px-4 py-3 font-medium text-gray-600">类型</th>
+                    <th className="text-left px-4 py-3 font-medium text-gray-600">状态</th>
                     <th className="text-left px-4 py-3 font-medium text-gray-600">来源采购单</th>
                     <th className="text-right px-4 py-3 font-medium text-gray-600">明细数</th>
                     <th className="text-left px-4 py-3 font-medium text-gray-600">日期</th>
@@ -372,6 +402,12 @@ function StockInContent() {
                           {si.type === "PURCHASE" ? "采购" : si.type === "RETURN" ? "退货" : si.type === "INITIAL" ? "期初" : si.type === "CHECK_IN" ? "盘盈" : "其他"}
                         </span>
                       </td>
+                      <td className="px-4 py-3">
+                        <span className={`text-xs px-2 py-0.5 rounded-full ${si.status === "VOIDED" ? "bg-red-100 text-red-700" : "bg-emerald-100 text-emerald-700"}`}>
+                          {si.status === "VOIDED" ? "已作废" : "已确认"}
+                        </span>
+                        {si.status === "VOIDED" && <div className="mt-1 max-w-56 text-xs text-red-600"><div>时间：{si.voidedAt ? new Date(si.voidedAt).toLocaleString("zh-CN") : "-"}</div><div>作废人：{si.voidedBy?.name || si.voidedById || "-"}</div>{si.voidReason && <div className="print-void-reason">原因：{si.voidReason}</div>}{si.voidRecord?.id && <div>反向审计号：{si.voidRecord.id}</div>}</div>}
+                      </td>
                       <td className="px-4 py-3 text-gray-500">{si.purchaseOrder?.orderNo || "-"}</td>
                       <td className="px-4 py-3 text-right">{si.items?.length || 0} 项</td>
                       <td className="px-4 py-3 text-gray-500">{new Date(si.createdAt).toLocaleDateString("zh-CN")}</td>
@@ -380,8 +416,8 @@ function StockInContent() {
                           <button onClick={() => viewDetail(si.id)} className="inline-flex items-center gap-1 text-gray-500 hover:text-gray-900">
                             <Eye className="w-4 h-4" />查看
                           </button>
-                          {canEdit && (
-                            <button onClick={() => setCorrectionTarget(si)} className="inline-flex items-center gap-1 text-amber-600 hover:text-amber-800">
+                          {canEdit && si.status === "CONFIRMED" && (
+                            <button onClick={() => openVoidDialog(si)} className="inline-flex items-center gap-1 text-amber-600 hover:text-amber-800">
                               <AlertTriangle className="w-4 h-4" />纠错/作废
                             </button>
                           )}
@@ -420,8 +456,16 @@ function StockInContent() {
               <p><span className="text-gray-500">日期：</span>{new Date(detail.createdAt).toLocaleDateString("zh-CN")}</p>
               <p><span className="text-gray-500">备注：</span>{detail.remark || "-"}</p>
               <p><span className="text-gray-500">来源采购单：</span>{detail.purchaseOrder?.orderNo || detail.purchaseOrderId || "-"}</p>
-              <p><span className="text-gray-500">状态：</span>已提交</p>
+              <p><span className="text-gray-500">状态：</span><span className={detail.status === "VOIDED" ? "font-medium text-red-700" : "font-medium text-emerald-700"}>{detail.status === "VOIDED" ? "已作废" : "已确认"}</span></p>
             </div>
+            {detail.status === "VOIDED" && (
+              <div className="mb-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-900">
+                <p className="font-medium">该入库单已作废，原始入库与库存流水均保留。</p>
+                <p className="mt-1">作废时间：{detail.voidedAt ? new Date(detail.voidedAt).toLocaleString("zh-CN") : "-"}</p>
+                <p>作废人：{detail.voidedBy?.name || detail.voidedById || "-"}</p>
+                <p>作废原因：{detail.voidReason || "-"}</p>
+              </div>
+            )}
             <table className="w-full text-sm border">
               <thead className="bg-gray-50">
                 <tr>
@@ -442,6 +486,24 @@ function StockInContent() {
                 ))}
               </tbody>
             </table>
+            {detail.voidRecord?.items?.length > 0 && (
+              <div className="mt-4 rounded-lg border border-red-200 p-3 text-sm">
+                <h3 className="font-medium text-red-800">作废反向冲减明细</h3>
+                {detail.voidRecord.items.map((item: any) => <p key={item.id} className="mt-1 text-gray-700">{item.material?.code || item.materialId} {item.material?.name || ""}：冲减 {Number(item.quantity).toLocaleString()}，库存 {Number(item.beforeQty).toLocaleString()} → {Number(item.afterQty).toLocaleString()}，冲减金额 ¥{Number(item.reversalAmount).toLocaleString()}</p>)}
+              </div>
+            )}
+            {detail.stockMovements?.length > 0 && (
+              <div className="mt-4 rounded-lg border border-gray-200 p-3 text-sm">
+                <h3 className="font-medium text-gray-800">库存流水</h3>
+                {detail.stockMovements.map((movement: any) => <p key={movement.id} className="mt-1 text-gray-600">{new Date(movement.createdAt).toLocaleString("zh-CN")} · {movement.type === "STOCK_OUT" ? "作废冲减" : "原入库"} · {movement.material?.code || movement.materialId} · {Number(movement.beforeQty).toLocaleString()} → {Number(movement.afterQty).toLocaleString()}</p>)}
+              </div>
+            )}
+            {detail.operationLogs?.length > 0 && (
+              <div className="mt-4 rounded-lg border border-gray-200 p-3 text-sm">
+                <h3 className="font-medium text-gray-800">操作日志</h3>
+                {detail.operationLogs.map((log: any) => <p key={log.id} className="mt-1 text-gray-600">{new Date(log.createdAt).toLocaleString("zh-CN")} · {log.action === "VOID_STOCK_IN" ? "作废入库单" : log.action === "CREATE_STOCK_IN" ? "创建入库单" : log.action}</p>)}
+              </div>
+            )}
             <ErpAttachments entityType="STOCK_IN" entityId={detail.id} />
             <div className="text-right mt-2">
               <button onClick={() => setDetailId(null)} className="px-4 py-2 text-sm border border-gray-300 rounded-lg">关闭</button>
@@ -449,7 +511,7 @@ function StockInContent() {
           </div>
         </div>
       )}
-      <style jsx global>{`@media print { aside, button, input, select, textarea, .print-hidden, [role="dialog"] { display: none !important; } main { margin: 0 !important; } }`}</style>
+      <style jsx global>{`@media print { aside, button, input, select, textarea, .print-hidden, [role="dialog"] { display: none !important; } main { margin: 0 !important; } .print-void-reason { white-space: normal !important; overflow: visible !important; text-overflow: clip !important; } }`}</style>
 
       {correctionTarget && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setCorrectionTarget(null)}>
@@ -461,10 +523,15 @@ function StockInContent() {
                 <p className="mt-1 text-sm text-gray-600">单号 {correctionTarget.batchNo} 已提交并影响库存，不能直接编辑明细或删除。</p>
               </div>
             </div>
-            <div className="space-y-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
-              <p>当前数据表暂未提供 status、voidedAt、voidReason 等作废字段。</p>
-              <p>安全纠错需要后续增加作废状态、作废原因和反向库存流水，原入库单保留为已作废记录。</p>
-            </div>
+            {correctionTarget.purchaseOrderId ? (
+              <div className="space-y-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900"><p>该单来自采购入库，不能直接作废。</p><p>请先使用“撤销采购关联”纠正采购收货（unlink-purchase），再按库存纠正流程处理。</p></div>
+            ) : correctionTarget.productionOrderId ? (
+              <div className="space-y-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900"><p>该单为生产退料，不能直接作废。</p><p>请通过生产工单变更审批纠正退料，避免已退料汇总与工单版本脱节。</p></div>
+            ) : correctionTarget.status !== "CONFIRMED" ? (
+              <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm text-gray-700">该入库单不是可作废的已确认状态。</div>
+            ) : (
+              <div className="space-y-2"><p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">作废会追加反向库存流水，原入库单、明细和历史流水均不会删除或改写。</p><label className="block text-sm font-medium text-gray-700">作废原因（5–500 字）</label><textarea value={voidReason} onChange={(event) => setVoidReason(event.target.value)} maxLength={500} rows={4} placeholder="请说明作废原因" className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm" /></div>
+            )}
             <div className="mt-4 flex justify-end gap-2">
               <button
                 onClick={() => {
@@ -475,7 +542,8 @@ function StockInContent() {
               >
                 查看原单
               </button>
-              <button onClick={() => setCorrectionTarget(null)} className="rounded-lg bg-gray-900 px-4 py-2 text-sm text-white hover:bg-gray-800">知道了</button>
+              {correctionTarget.status === "CONFIRMED" && !correctionTarget.purchaseOrderId && !correctionTarget.productionOrderId && <button onClick={voidStockIn} disabled={voiding || voidReason.trim().length < 5} className="rounded-lg bg-red-700 px-4 py-2 text-sm text-white hover:bg-red-800 disabled:opacity-50">{voiding ? "作废中..." : "确认作废"}</button>}
+              <button onClick={() => { setCorrectionTarget(null); setVoidReason(""); }} className="rounded-lg bg-gray-900 px-4 py-2 text-sm text-white hover:bg-gray-800">关闭</button>
             </div>
           </div>
         </div>

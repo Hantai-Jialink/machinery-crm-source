@@ -6,12 +6,17 @@ const read = (path: string) => readFileSync(resolve(process.cwd(), path), "utf8"
 
 describe("stock document creator and derived-status filters", () => {
   for (const documentType of ["stock-in", "stock-out"]) {
-    it(`${documentType} keeps the existing filters and adds creator plus confirmed filters`, () => {
+    it(`${documentType} keeps the existing filters and uses the current status authority`, () => {
       const route = read(`src/app/api/erp/${documentType}/route.ts`);
       expect(route).toContain('searchParams.get("createdById")');
       expect(route).toContain("where.createdById = createdById");
       expect(route).toContain('status === "CONFIRMED"');
-      expect(route).toContain("where.confirmedAt = { not: null }");
+      if (documentType === "stock-in") {
+        expect(route).toContain('status === "VOIDED"');
+        expect(route).toContain("where.status = status");
+      } else {
+        expect(route).toContain("where.confirmedAt = { not: null }");
+      }
       expect(route).toContain('searchParams.get("dateFrom")');
       expect(route).toContain('searchParams.get("dateTo")');
       expect(route).toContain('searchParams.get("search")');

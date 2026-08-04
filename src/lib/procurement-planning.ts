@@ -75,7 +75,7 @@ export async function buildMaterialProcurementSnapshot(
   const orderIds = [...new Set(productionMaterials.map((row) => row.productionOrderId))];
   const [issues, returns] = orderIds.length ? await Promise.all([
     tx.stockOutItem.findMany({ where: { materialId: input.materialId, stockOut: { productionOrderId: { in: orderIds } } }, select: { quantity: true } }),
-    tx.stockInItem.findMany({ where: { materialId: input.materialId, stockIn: { productionOrderId: { in: orderIds } } }, select: { quantity: true } }),
+    tx.stockInItem.findMany({ where: { materialId: input.materialId, stockIn: { productionOrderId: { in: orderIds }, status: "CONFIRMED" } }, select: { quantity: true } }),
   ]) : [[], []];
   const sum = (values: Prisma.Decimal.Value[]) => values.reduce<Prisma.Decimal>((total, value) => total.add(value), new Prisma.Decimal(0));
   const maxZero = (value: Prisma.Decimal.Value) => { const decimal = new Prisma.Decimal(value); return decimal.gt(0) ? decimal : new Prisma.Decimal(0); };

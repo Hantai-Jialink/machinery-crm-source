@@ -20,7 +20,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       if (existing.status !== "ISSUED") throw new ProductionOrderRequestError("仅已发布工单可以作废", 409);
       const [stockOuts, stockIns] = await Promise.all([
         tx.stockOut.findMany({ where: { productionOrderId: id }, include: { items: true } }),
-        tx.stockIn.findMany({ where: { productionOrderId: id }, include: { items: true } }),
+        tx.stockIn.findMany({ where: { productionOrderId: id, status: "CONFIRMED" }, include: { items: true } }),
       ]);
       const issued = stockOuts.reduce((sum, document) => sum + document.items.reduce((itemSum, item) => itemSum + Number(item.quantity), 0), 0);
       const returned = stockIns.reduce((sum, document) => sum + document.items.reduce((itemSum, item) => itemSum + Number(item.quantity), 0), 0);

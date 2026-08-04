@@ -23,7 +23,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       if (current.status !== "CHANGE_PENDING" || !current.isCurrent || current.deletedAt) throw new ProductionOrderRequestError("当前工单状态不允许批准该变更申请", 409);
       const [issuedDocuments, returnedDocuments] = await Promise.all([
         tx.stockOut.findMany({ where: { productionOrderId: current.id }, include: { items: true } }),
-        tx.stockIn.findMany({ where: { productionOrderId: current.id }, include: { items: true } }),
+        tx.stockIn.findMany({ where: { productionOrderId: current.id, status: "CONFIRMED" }, include: { items: true } }),
       ]);
       const netIssuedByMaterial = new Map<string, Prisma.Decimal>();
       for (const document of issuedDocuments) for (const item of document.items) netIssuedByMaterial.set(item.materialId, (netIssuedByMaterial.get(item.materialId) || new Prisma.Decimal(0)).add(item.quantity));
