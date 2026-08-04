@@ -25,10 +25,10 @@ type DragState = {
 };
 
 const DRAG_THRESHOLD = 6;
-const SCREEN_GUTTER = 12;
+const SCREEN_GUTTER = 20;
 const BUBBLE_SAFE_MARGIN = 12;
 const BUBBLE_WIDTH = 214;
-const DESKTOP_SIDEBAR_WIDTH = 256;
+const DESKTOP_SIDEBAR_WIDTH = 312;
 const PET_MOBILE_WIDTH = 136;
 const PET_DESKTOP_WIDTH = 152;
 const BUBBLE_LEFT_OVERHANG = 164;
@@ -40,7 +40,7 @@ export function FloatingPet() {
   const { data: session, status } = useSession();
   const [mode, setMode] = useState<PetMode>("standing");
   const [isGreeting, setIsGreeting] = useState(false);
-  const [position, setPosition] = useState<PetPosition>({ bottom: 16, right: 24 });
+  const [position, setPosition] = useState<PetPosition>({ bottom: 24, right: 24 });
   const [expression, setExpression] = useState<AgentExpression>("smile");
   const [presence] = useState<AgentPresence>("connecting");
   const [hasUnreadReply, setHasUnreadReply] = useState(false);
@@ -177,7 +177,7 @@ export function FloatingPet() {
 
   if (mode === "bubble") {
     return (
-      <div ref={petRef} style={fixedPosition} className="fixed z-[60]">
+      <div ref={petRef} style={fixedPosition} className="fixed z-40 print:hidden">
         <div className="absolute inset-0 rounded-full bg-orange-300/40 blur-md motion-safe:animate-[pulse_3s_ease-in-out_infinite]" />
         <button
           type="button"
@@ -214,7 +214,7 @@ export function FloatingPet() {
     <div
       ref={petRef}
       style={fixedPosition}
-      className={`group fixed z-[60] ${styles.petFloat}`}
+      className={`group fixed z-40 print:hidden ${styles.petFloat}`}
     >
       <div className={styles.petShadow} aria-hidden="true" />
       <div
