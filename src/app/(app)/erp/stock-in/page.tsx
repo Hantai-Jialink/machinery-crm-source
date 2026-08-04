@@ -29,7 +29,7 @@ function StockInContent() {
   const [filterDateTo, setFilterDateTo] = useState("");
   const [filterSearch, setFilterSearch] = useState("");
   const [filterCreatorId, setFilterCreatorId] = useState("");
-  const [filterStatus, setFilterStatus] = useState("");
+  const [filterStatus, setFilterStatus] = useState("CONFIRMED");
   const [creators, setCreators] = useState<any[]>([]);
   const [detailId, setDetailId] = useState<string | null>(null);
   const [detail, setDetail] = useState<any>(null);
@@ -406,7 +406,7 @@ function StockInContent() {
                         <span className={`text-xs px-2 py-0.5 rounded-full ${si.status === "VOIDED" ? "bg-red-100 text-red-700" : "bg-emerald-100 text-emerald-700"}`}>
                           {si.status === "VOIDED" ? "已作废" : "已确认"}
                         </span>
-                        {si.status === "VOIDED" && <div className="mt-1 max-w-56 text-xs text-red-600"><div>时间：{si.voidedAt ? new Date(si.voidedAt).toLocaleString("zh-CN") : "-"}</div><div>作废人：{si.voidedBy?.name || si.voidedById || "-"}</div>{si.voidReason && <div className="print-void-reason">原因：{si.voidReason}</div>}{si.voidRecord?.id && <div>反向审计号：{si.voidRecord.id}</div>}</div>}
+                        {si.status === "VOIDED" && <div className="mt-1 max-w-56 text-xs text-red-600"><div>时间：{si.voidedAt ? new Date(si.voidedAt).toLocaleString("zh-CN") : "-"}</div><div>作废人：{si.voidedBy?.name || si.voidedById || "-"}</div>{si.voidReason && <div className="print-void-reason">原因：{si.voidReason}</div>}</div>}
                       </td>
                       <td className="px-4 py-3 text-gray-500">{si.purchaseOrder?.orderNo || "-"}</td>
                       <td className="px-4 py-3 text-right">{si.items?.length || 0} 项</td>
