@@ -18,7 +18,7 @@ describe("StockIn 作废页面与打印口径", () => {
     expect(page).toContain("作废反向冲减明细");
     expect(page).toContain("库存流水");
     expect(page).toContain("操作日志");
-    expect(page).toContain("反向审计号：");
+    expect(page).not.toContain("反向审计号：");
     expect(page).toContain("print-void-reason");
     expect(page).toContain("collectPrintResults");
     expect(page).toContain("window.print()");
