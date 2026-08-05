@@ -1,17 +1,14 @@
 import { Providers } from "@/components/providers";
 import { FloatingPet } from "@/components/dachuan-pet/FloatingPet";
-import { Sidebar } from "@/components/layout/sidebar";
+import { AppShell } from "@/components/layout/app-shell";
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   return (
     <Providers>
-      <div className="min-h-screen">
-        <Sidebar />
-        <main className="lg:pl-60 pt-14 lg:pt-0">
-          <div className="p-4 lg:p-8 max-w-7xl mx-auto">{children}</div>
-        </main>
-        <FloatingPet />
-      </div>
+      <AppShell>
+        {children}
+      </AppShell>
+      <FloatingPet />
     </Providers>
   );
 }

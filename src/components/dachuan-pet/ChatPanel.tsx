@@ -154,7 +154,7 @@ export function ChatPanel({
       ref={panelRef}
       aria-label="小川 Ai 助手聊天面板"
       style={panelSize ?? undefined}
-      className="fixed inset-x-4 bottom-4 z-[60] flex h-[min(34rem,calc(100dvh-2rem))] max-h-[calc(100dvh-2rem)] min-h-[22rem] flex-col overflow-hidden rounded-3xl border border-orange-100 bg-white shadow-[0_24px_60px_rgba(17,24,39,0.22)] sm:left-auto sm:right-4 sm:w-[380px] sm:min-w-[320px] sm:max-w-[calc(100vw-2rem)] lg:right-6"
+      className="fixed inset-x-5 bottom-5 z-40 flex h-[min(34rem,calc(100dvh-2.5rem))] max-h-[calc(100dvh-2.5rem)] min-h-[22rem] flex-col overflow-hidden rounded-3xl border border-orange-100 bg-white shadow-[0_24px_60px_rgba(17,24,39,0.22)] print:hidden sm:left-auto sm:right-5 sm:w-[380px] sm:min-w-[320px] sm:max-w-[calc(100vw-2.5rem)] lg:right-6"
     >
       <button
         type="button"
