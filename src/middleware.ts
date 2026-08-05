@@ -52,6 +52,7 @@ export default auth((req) => {
       erpDashboard ||
       pathname.startsWith("/api/erp") ||
       pathname === "/tasks" ||
+      pathname === "/tasks/monthly" ||
       pathname.startsWith("/api/system/tasks") ||
       rolePages[role].some(matchesPage) ||
       pathname.startsWith("/settings") ||

@@ -26,6 +26,7 @@ const ROUTE_LABELS: Record<string, string> = {
   materials: "物料管理",
   "master-data": "基础资料中心",
   "monthly-production-plans": "月度生产计划",
+  monthly: "月任务",
   "operation-logs": "操作日志",
   "production-orders": "生产工单",
   products: "产品库",
