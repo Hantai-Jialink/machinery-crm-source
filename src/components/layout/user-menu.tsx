@@ -9,6 +9,8 @@ import { ROLE_LABELS } from "@/lib/erp-roles";
 import { ThemeControl } from "./theme-control";
 import { UserAvatar } from "./user-avatar";
 
+const AVATAR_UPDATED_EVENT = "dachuan:avatar-updated";
+
 type ShellUser = {
   email?: string | null;
   id?: string;
@@ -28,9 +30,38 @@ export function UserMenu() {
   const pathname = usePathname();
   const [menuState, setMenuState] = useState({ open: false, pathname });
   const menuRef = useRef<HTMLDivElement>(null);
+  const [avatarPath, setAvatarPath] = useState("");
   const rootRef = useRef<HTMLDivElement>(null);
   const user = session?.user as ShellUser | undefined;
   const open = menuState.open && menuState.pathname === pathname;
+
+  useEffect(() => {
+    if (!user?.id) return;
+
+    const controller = new AbortController();
+    function handleAvatarUpdated(event: Event) {
+      const nextAvatarPath = (
+        event as CustomEvent<{ avatarPath?: string }>
+      ).detail?.avatarPath;
+      if (nextAvatarPath) setAvatarPath(nextAvatarPath);
+    }
+
+    fetch("/api/upload/avatar", {
+      cache: "no-store",
+      signal: controller.signal,
+    })
+      .then((response) => (response.ok ? response.json() : Promise.reject()))
+      .then((data: { avatarPath?: string }) =>
+        setAvatarPath(data.avatarPath || ""),
+      )
+      .catch(() => undefined);
+
+    window.addEventListener(AVATAR_UPDATED_EVENT, handleAvatarUpdated);
+    return () => {
+      controller.abort();
+      window.removeEventListener(AVATAR_UPDATED_EVENT, handleAvatarUpdated);
+    };
+  }, [user?.id]);
 
   useEffect(() => {
     if (!open) return;
@@ -95,6 +126,7 @@ export function UserMenu() {
         type="button"
       >
         <UserAvatar
+          avatarPath={avatarPath}
           email={user?.email}
           name={user?.name}
           size="md"
@@ -116,6 +148,7 @@ export function UserMenu() {
         >
           <div className="flex items-center gap-3 px-3 py-3">
             <UserAvatar
+              avatarPath={avatarPath}
               email={user?.email}
               name={user?.name}
               size="lg"

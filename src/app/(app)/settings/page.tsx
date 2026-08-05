@@ -1,15 +1,93 @@
 "use client";
 
-import { useState } from "react";
+import { Camera } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import { useSession } from "next-auth/react";
 import { ROLE_LABELS } from "@/lib/constants";
 import { APP_NAME, APP_VERSION, CURRENT_RELEASE, CHANGELOG } from "@/lib/changelog";
 import { PageContainer } from "@/components/layout/page-container";
+import { UserAvatar } from "@/components/layout/user-avatar";
+
+const AVATAR_UPDATED_EVENT = "dachuan:avatar-updated";
+
+type AvatarResponse = {
+  avatarPath?: string;
+  error?: string;
+};
 
 export default function SettingsPage() {
   const { data: session } = useSession();
   const [showHistory, setShowHistory] = useState(false);
+  const [avatarPath, setAvatarPath] = useState("");
+  const [avatarError, setAvatarError] = useState("");
+  const [avatarSuccess, setAvatarSuccess] = useState("");
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const avatarInputRef = useRef<HTMLInputElement>(null);
   const history = CHANGELOG.slice(1);
+  const shellUser = session?.user as
+    | {
+        email?: string | null;
+        id?: string;
+        name?: string | null;
+        role?: string;
+        viewScope?: string;
+      }
+    | undefined;
+
+  useEffect(() => {
+    if (!shellUser?.id) return;
+
+    const controller = new AbortController();
+    fetch("/api/upload/avatar", {
+      cache: "no-store",
+      signal: controller.signal,
+    })
+      .then(async (response) => {
+        const data = (await response.json()) as AvatarResponse;
+        if (response.ok) setAvatarPath(data.avatarPath || "");
+      })
+      .catch(() => undefined);
+    return () => controller.abort();
+  }, [shellUser?.id]);
+
+  async function uploadAvatar(file: File) {
+    if (!shellUser?.id) {
+      setAvatarError("当前登录状态无效，请重新登录后再试");
+      return;
+    }
+
+    setAvatarError("");
+    setAvatarSuccess("");
+    setUploadingAvatar(true);
+    try {
+      const formData = new FormData();
+      formData.set("userId", shellUser.id);
+      formData.set("file", file);
+      const response = await fetch("/api/upload/avatar", {
+        body: formData,
+        method: "POST",
+      });
+      const data = (await response.json()) as AvatarResponse;
+      if (!response.ok || !data.avatarPath) {
+        throw new Error(data.error || "头像上传失败，请重试");
+      }
+
+      setAvatarPath(data.avatarPath);
+      setAvatarSuccess("头像已更新");
+      window.dispatchEvent(
+        new CustomEvent(AVATAR_UPDATED_EVENT, {
+          detail: { avatarPath: data.avatarPath },
+        }),
+      );
+    } catch (error) {
+      setAvatarError(
+        error instanceof Error ? error.message : "头像上传失败，请重试",
+      );
+    } finally {
+      setUploadingAvatar(false);
+      if (avatarInputRef.current) avatarInputRef.current.value = "";
+    }
+  }
 
   return (
     <PageContainer variant="data" className="space-y-5">
@@ -17,22 +95,75 @@ export default function SettingsPage() {
 
       <div className="space-y-4 rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--surface-solid)] p-6 shadow-[var(--shadow-card)]">
         <h2 className="text-sm font-semibold text-gray-700">当前账号信息</h2>
+        <div className="flex flex-wrap items-center gap-4 rounded-[var(--radius-md)] bg-[var(--surface-muted)] p-4">
+          <UserAvatar
+            avatarPath={avatarPath}
+            email={shellUser?.email}
+            name={shellUser?.name}
+            size="lg"
+            userId={shellUser?.id}
+          />
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-medium text-[var(--text-primary)]">个人头像</p>
+            <p className="mt-1 text-xs text-[var(--text-tertiary)]">
+              支持 JPG、JPEG、PNG、WEBP，最大 2MB
+            </p>
+          </div>
+          <button
+            className="inline-flex items-center gap-2 rounded-[var(--radius-md)] border border-[var(--border-strong)] bg-[var(--surface-solid)] px-3 py-2 text-sm font-medium text-[var(--text-primary)] hover:bg-[var(--surface-hover)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--brand-orange)] disabled:cursor-not-allowed disabled:opacity-50"
+            disabled={uploadingAvatar || !shellUser?.id}
+            onClick={() => avatarInputRef.current?.click()}
+            type="button"
+          >
+            <Camera aria-hidden="true" className="size-4" />
+            {uploadingAvatar ? "上传中…" : "更换头像"}
+          </button>
+          <input
+            accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp"
+            aria-label="选择个人头像"
+            className="hidden"
+            onChange={(event) => {
+              const file = event.target.files?.[0];
+              if (file) void uploadAvatar(file);
+            }}
+            ref={avatarInputRef}
+            type="file"
+          />
+        </div>
+        {avatarError && (
+          <p className="text-sm text-[var(--danger)]" role="alert">
+            {avatarError}
+          </p>
+        )}
+        {avatarSuccess && (
+          <p className="text-sm text-[var(--success)]" role="status">
+            {avatarSuccess}
+          </p>
+        )}
         <dl className="space-y-3">
           <div className="flex items-center gap-4">
             <dt className="text-sm text-gray-500 w-20">姓名</dt>
-            <dd className="text-sm text-gray-900">{session?.user?.name}</dd>
+            <dd className="text-sm text-gray-900">{shellUser?.name}</dd>
           </div>
           <div className="flex items-center gap-4">
             <dt className="text-sm text-gray-500 w-20">账号</dt>
-            <dd className="text-sm text-gray-900">{session?.user?.email}</dd>
+            <dd className="text-sm text-gray-900">{shellUser?.email}</dd>
           </div>
           <div className="flex items-center gap-4">
             <dt className="text-sm text-gray-500 w-20">角色</dt>
-            <dd className="text-sm text-gray-900">{ROLE_LABELS[(session?.user as any)?.role] || "-"}</dd>
+            <dd className="text-sm text-gray-900">
+              {ROLE_LABELS[shellUser?.role || ""] || "-"}
+            </dd>
           </div>
           <div className="flex items-center gap-4">
             <dt className="text-sm text-gray-500 w-20">数据范围</dt>
-            <dd className="text-sm text-gray-900">{["PURCHASE", "WAREHOUSE"].includes((session?.user as any)?.role) ? "不适用" : (session?.user as any)?.role === "SUPER_ADMIN" || (session?.user as any)?.viewScope === "ALL" ? "全区域" : "按负责省市"}</dd>
+            <dd className="text-sm text-gray-900">
+              {["PURCHASE", "WAREHOUSE"].includes(shellUser?.role || "")
+                ? "不适用"
+                : shellUser?.role === "SUPER_ADMIN" || shellUser?.viewScope === "ALL"
+                  ? "全区域"
+                  : "按负责省市"}
+            </dd>
           </div>
         </dl>
       </div>

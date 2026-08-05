@@ -1,3 +1,7 @@
+"use client";
+
+import { useState } from "react";
+import { toProtectedUploadUrl } from "@/lib/upload-urls";
 import { cn } from "@/lib/utils";
 
 const AVATAR_COLORS = [
@@ -23,6 +27,7 @@ export function getUserAvatarColor(userId?: string | null) {
 }
 
 type UserAvatarProps = {
+  avatarPath?: string | null;
   email?: string | null;
   name?: string | null;
   size?: "sm" | "md" | "lg";
@@ -30,24 +35,44 @@ type UserAvatarProps = {
 };
 
 export function UserAvatar({
+  avatarPath,
   email,
   name,
   size = "md",
   userId,
 }: UserAvatarProps) {
+  const protectedAvatarPath = toProtectedUploadUrl(avatarPath);
+  const [failedAvatarPath, setFailedAvatarPath] = useState<string | null>(null);
+  const showImage = Boolean(
+    protectedAvatarPath && protectedAvatarPath !== failedAvatarPath,
+  );
+  const avatarLabel = `${name || email || "用户"}的头像`;
+
   return (
     <span
-      aria-label={`${name || email || "用户"}的头像`}
+      aria-label={showImage ? undefined : avatarLabel}
       className={cn(
-        "inline-flex shrink-0 items-center justify-center rounded-full font-semibold text-white shadow-sm ring-2 ring-white/80 dark:ring-white/10",
+        "inline-flex shrink-0 items-center justify-center overflow-hidden rounded-full font-semibold text-white shadow-sm ring-2 ring-white/80 dark:ring-white/10",
         getUserAvatarColor(userId),
         size === "sm" && "size-8 text-xs",
         size === "md" && "size-9 text-sm",
         size === "lg" && "size-11 text-base",
       )}
-      role="img"
+      role={showImage ? undefined : "img"}
     >
-      {getUserInitial(name, email)}
+      {showImage ? (
+        // The protected upload route requires the signed-in session cookie.
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          alt={avatarLabel}
+          className="h-full w-full object-cover"
+          loading="lazy"
+          onError={() => setFailedAvatarPath(protectedAvatarPath)}
+          src={protectedAvatarPath}
+        />
+      ) : (
+        getUserInitial(name, email)
+      )}
     </span>
   );
 }
