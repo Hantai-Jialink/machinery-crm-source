@@ -142,7 +142,7 @@ export default function InventoryPage() {
         <button type="button" onClick={handlePrint} disabled={printing} className="print-hidden rounded border px-3 py-2 text-sm disabled:opacity-50">{printing ? "准备打印..." : "打印当前筛选结果"}</button>
       </div>
 
-      <div className="bg-white rounded-xl border border-gray-200 p-4 flex flex-wrap gap-3 items-center">
+      <div className="flex flex-wrap items-center gap-3 rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--surface-solid)] p-4 shadow-[var(--shadow-card)]">
         <div className="relative flex-1 min-w-[200px]">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
           <input
@@ -193,9 +193,9 @@ export default function InventoryPage() {
         <p className="text-center py-8 text-sm text-gray-500">暂无库存数据</p>
       ) : (
         <>
-          <div className="bg-white rounded-xl border border-gray-200 overflow-x-auto">
+          <div className="overflow-x-auto rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--surface-solid)] shadow-[var(--shadow-card)]">
             <table className="w-full text-sm">
-              <thead className="bg-gray-50 border-b border-gray-200">
+              <thead className="sticky top-0 border-b border-[var(--border)] bg-[var(--surface-muted)]">
                 <tr>
                   <th className="text-left px-4 py-3 font-medium text-gray-600">物料编码</th>
                   <th className="text-left px-4 py-3 font-medium text-gray-600">物料名称</th>
