@@ -105,7 +105,7 @@ export function Topbar({ onOpenMobileNavigation }: TopbarProps) {
         <div className="flex min-w-0 flex-1 items-center gap-3">
           <button
             aria-label="打开导航菜单"
-            className="inline-flex size-10 shrink-0 items-center justify-center rounded-xl border border-[var(--border)] bg-[var(--surface-solid)] text-[var(--text-secondary)] md:hidden"
+            className="inline-flex size-10 shrink-0 items-center justify-center rounded-xl border border-[var(--border)] bg-[var(--surface-solid)] text-[var(--text-secondary)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--brand-orange)] md:hidden"
             onClick={onOpenMobileNavigation}
             type="button"
           >
@@ -147,7 +147,7 @@ export function Topbar({ onOpenMobileNavigation }: TopbarProps) {
         <div className="flex items-center gap-1.5 sm:gap-2">
           <Link
             aria-label={`我的待办，${unreadCount} 条未读`}
-            className="relative inline-flex size-10 items-center justify-center rounded-xl border border-[var(--border)] bg-[var(--surface-solid)] text-[var(--text-secondary)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--text-primary)]"
+            className="relative inline-flex size-10 items-center justify-center rounded-xl border border-[var(--border)] bg-[var(--surface-solid)] text-[var(--text-secondary)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--text-primary)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--brand-orange)]"
             href="/tasks"
           >
             <Bell aria-hidden="true" className="size-[18px]" />

@@ -27,6 +27,7 @@ export function UserMenu() {
   const { data: session } = useSession();
   const pathname = usePathname();
   const [menuState, setMenuState] = useState({ open: false, pathname });
+  const menuRef = useRef<HTMLDivElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const user = session?.user as ShellUser | undefined;
   const open = menuState.open && menuState.pathname === pathname;
@@ -34,20 +35,52 @@ export function UserMenu() {
   useEffect(() => {
     if (!open) return;
 
+    const previouslyFocused = document.activeElement as HTMLElement | null;
+    const animationFrame = window.requestAnimationFrame(() => {
+      menuRef.current
+        ?.querySelector<HTMLElement>('a[href], button:not([disabled])')
+        ?.focus();
+    });
+
     function handlePointerDown(event: MouseEvent) {
       if (!rootRef.current?.contains(event.target as Node)) {
         setMenuState({ open: false, pathname });
       }
     }
     function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") setMenuState({ open: false, pathname });
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setMenuState({ open: false, pathname });
+        return;
+      }
+      if (event.key !== "Tab") return;
+
+      const focusable = menuRef.current?.querySelectorAll<HTMLElement>(
+        'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      );
+      if (!focusable?.length) return;
+
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (!menuRef.current?.contains(document.activeElement)) {
+        event.preventDefault();
+        (event.shiftKey ? last : first).focus();
+      } else if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
     }
 
     document.addEventListener("mousedown", handlePointerDown);
     document.addEventListener("keydown", handleKeyDown);
     return () => {
+      window.cancelAnimationFrame(animationFrame);
       document.removeEventListener("mousedown", handlePointerDown);
       document.removeEventListener("keydown", handleKeyDown);
+      previouslyFocused?.focus();
     };
   }, [open, pathname]);
 
@@ -79,6 +112,7 @@ export function UserMenu() {
       {open && (
         <div
           className="absolute right-0 top-[calc(100%+12px)] z-[45] w-[min(320px,calc(100vw-24px))] overflow-hidden rounded-[var(--radius-2xl)] border border-[var(--border)] bg-[var(--surface-solid)] p-2 text-[var(--text-primary)] shadow-[var(--shadow-overlay)]"
+          ref={menuRef}
         >
           <div className="flex items-center gap-3 px-3 py-3">
             <UserAvatar
@@ -114,7 +148,7 @@ export function UserMenu() {
 
           <div className="my-2 border-t border-[var(--border)]" />
           <Link
-            className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm hover:bg-[var(--surface-hover)]"
+            className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm hover:bg-[var(--surface-hover)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--brand-orange)]"
             href="/settings"
             onClick={() => setMenuState({ open: false, pathname })}
           >
@@ -129,7 +163,7 @@ export function UserMenu() {
 
           {user?.role === "SUPER_ADMIN" && (
             <Link
-              className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm hover:bg-[var(--surface-hover)]"
+              className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm hover:bg-[var(--surface-hover)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--brand-orange)]"
               href="/settings"
               onClick={() => setMenuState({ open: false, pathname })}
             >
@@ -140,7 +174,7 @@ export function UserMenu() {
 
           <div className="my-2 border-t border-[var(--border)]" />
           <button
-            className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm text-[var(--danger)] hover:bg-[var(--danger-soft)]"
+            className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm text-[var(--danger)] hover:bg-[var(--danger-soft)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--danger)]"
             onClick={() => signOut({ callbackUrl: "/login" })}
             type="button"
           >
