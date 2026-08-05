@@ -6,6 +6,7 @@ import { Plus, Search, Trash2, Eye, ArrowUpFromLine } from "lucide-react";
 import { MaterialCombobox } from "@/components/erp/material-combobox";
 import { ErpAttachments, PendingErpAttachments, uploadErpAttachments } from "@/components/erp/erp-attachments";
 import { collectPrintResults } from "@/lib/print-results";
+import { PageContainer } from "@/components/layout/page-container";
 
 export default function StockOutPage() {
   const { data: session } = useSession();
@@ -172,7 +173,7 @@ export default function StockOutPage() {
   const visibleStockOuts = printItems ?? stockOuts;
 
   return (
-    <div className="space-y-4">
+    <PageContainer variant="data" className="space-y-5">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <h1 className="text-xl font-semibold text-gray-900">出库单</h1>
         <button type="button" onClick={handlePrint} disabled={printing} className="print-hidden rounded border px-3 py-2 text-sm disabled:opacity-50">{printing ? "准备打印..." : "打印当前筛选结果"}</button>
@@ -359,6 +360,6 @@ export default function StockOutPage() {
         </div>
       )}
       <style jsx global>{`@media print { aside, button, input, select, textarea, .print-hidden, [role="dialog"] { display: none !important; } main { margin: 0 !important; } }`}</style>
-    </div>
+    </PageContainer>
   );
 }

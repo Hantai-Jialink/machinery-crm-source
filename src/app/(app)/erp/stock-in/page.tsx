@@ -7,6 +7,7 @@ import { AlertTriangle, Eye, Link2Off, Plus, Trash2 } from "lucide-react";
 import { MaterialCombobox } from "@/components/erp/material-combobox";
 import { ErpAttachments, PendingErpAttachments, uploadErpAttachments } from "@/components/erp/erp-attachments";
 import { collectPrintResults } from "@/lib/print-results";
+import { PageContainer } from "@/components/layout/page-container";
 
 function StockInContent() {
   const router = useRouter();
@@ -266,7 +267,7 @@ function StockInContent() {
   const visibleStockIns = printItems ?? stockIns;
 
   return (
-    <div className="space-y-4">
+    <PageContainer variant="data" className="space-y-5">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <h1 className="text-xl font-semibold text-gray-900">入库单</h1>
         <button type="button" onClick={handlePrint} disabled={printing} className="print-hidden rounded border px-3 py-2 text-sm disabled:opacity-50">{printing ? "准备打印..." : "打印当前筛选结果"}</button>
@@ -394,7 +395,7 @@ function StockInContent() {
                 </thead>
                 <tbody>
                   {visibleStockIns.map((si) => (
-                    <tr key={si.id} className="border-b border-gray-100 hover:bg-gray-50">
+                    <tr key={si.id} className={`h-12 border-b border-[var(--border)] hover:bg-[var(--surface-hover)] ${si.status === "VOIDED" ? "bg-red-50" : ""}`}>
                       <td className="px-4 py-3 font-mono text-xs">{si.batchNo}</td>
                       <td className="px-4 py-3 text-gray-500">{si.warehouse?.name}</td>
                       <td className="px-4 py-3">
@@ -548,7 +549,7 @@ function StockInContent() {
           </div>
         </div>
       )}
-    </div>
+    </PageContainer>
   );
 }
 

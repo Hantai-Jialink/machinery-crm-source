@@ -7,6 +7,7 @@ import { Edit2, FileText, Image, Plus, Search, Trash2, Truck, X } from "lucide-r
 import { PROVINCE_OPTIONS, BUSINESS_LINES } from "@/lib/region-data";
 import { toProtectedUploadUrl } from "@/lib/upload-urls";
 import { ContractCombobox } from "@/components/contracts/contract-combobox";
+import { PageContainer } from "@/components/layout/page-container";
 
 const SHIPMENT_STATUS_LABELS: Record<string, { label: string; color: string }> = {
   NOT_SHIPPED: { label: "未发货", color: "bg-gray-100 text-gray-700" },
@@ -251,7 +252,7 @@ export default function ShipmentsPage() {
   };
 
   return (
-    <div className="space-y-4">
+    <PageContainer variant="data" className="space-y-5">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <h1 className="text-xl font-semibold text-gray-900">发货管理</h1>
         <button
@@ -356,7 +357,7 @@ export default function ShipmentsPage() {
         <button onClick={clearFilters} className="text-xs text-gray-500 hover:text-gray-900">清空筛选</button>
       </div>
 
-      <div className="bg-white rounded-xl border border-gray-200 overflow-x-auto">
+      <div className="overflow-x-auto rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--surface-solid)] shadow-[var(--shadow-card)]">
         <table className="w-full min-w-[1240px]">
           <thead className="bg-gray-50 border-b border-gray-200">
             <tr>
@@ -378,7 +379,7 @@ export default function ShipmentsPage() {
             ) : shipments.length === 0 ? (
               <tr><td colSpan={10} className="text-center py-8 text-sm text-gray-500">暂无发货记录</td></tr>
             ) : shipments.map((shipment) => (
-              <tr key={shipment.id} className="hover:bg-gray-50">
+              <tr key={shipment.id} className="h-12 hover:bg-[var(--surface-hover)]">
                 <td className="px-4 py-3"><Link href={`/contracts/${shipment.contract?.id}`} className="text-sm font-medium text-gray-900 hover:underline">{shipment.contract?.contractNo}</Link></td>
                 <td className="px-4 py-3"><Link href={`/customers/${shipment.contract?.customer?.id}`} className="text-sm text-gray-600 hover:underline">{shipment.contract?.customer?.companyName}</Link></td>
                 <td className="px-4 py-3 text-sm text-gray-600 whitespace-nowrap">{shipment.contract?.customer?.province}</td>
@@ -409,7 +410,7 @@ export default function ShipmentsPage() {
           </tbody>
         </table>
       </div>
-    </div>
+    </PageContainer>
   );
 }
 

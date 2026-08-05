@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useSession } from "next-auth/react";
 import { Plus, Search } from "lucide-react";
 import { PROVINCE_OPTIONS, BUSINESS_LINES } from "@/lib/region-data";
+import { PageContainer } from "@/components/layout/page-container";
 
 const PAYMENT_STATUS_LABELS: Record<string, { label: string; color: string }> = {
   UNPAID: { label: "未回款", color: "bg-red-50 text-red-700" },
@@ -164,7 +165,7 @@ export default function ContractsPage() {
   };
 
   return (
-    <div className="space-y-4">
+    <PageContainer variant="data" className="space-y-5">
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-semibold text-gray-900">合同管理</h1>
         <Link href="/contracts/new" className="inline-flex items-center gap-1.5 px-4 py-2 bg-gray-900 text-white text-sm font-medium rounded-lg hover:bg-gray-800">
@@ -224,7 +225,7 @@ export default function ContractsPage() {
         <button onClick={clearFilters} className="text-xs text-gray-500 hover:text-gray-900">清空筛选</button>
       </div>
 
-      <div className="hidden lg:block bg-white rounded-xl border border-gray-200 overflow-hidden">
+      <div className="hidden overflow-x-auto rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--surface-solid)] shadow-[var(--shadow-card)] lg:block">
         <div className="overflow-x-auto">
           <table className="w-full min-w-[1320px]">
             <thead className="bg-gray-50 border-b border-gray-200">
@@ -251,7 +252,7 @@ export default function ContractsPage() {
                 contracts.map((contract) => {
                   const status = contractStatusBadge(contract);
                   return (
-                    <tr key={contract.id} className="hover:bg-gray-50">
+                    <tr key={contract.id} className="h-12 hover:bg-[var(--surface-hover)]">
                       <td className="px-4 py-3">
                         <Link href={`/contracts/${contract.id}`} className="text-sm font-medium text-gray-900 hover:underline">{contract.contractNo}</Link>
                       </td>
@@ -331,7 +332,7 @@ export default function ContractsPage() {
           })
         )}
       </div>
-    </div>
+    </PageContainer>
   );
 }
 
