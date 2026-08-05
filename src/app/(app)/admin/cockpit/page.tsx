@@ -144,10 +144,8 @@ export default function AdminCockpitPage() {
           title="平台状态"
         />
         <MetricCard
-          error={healthError}
           hint="当前应用发布版本"
           icon={<BookOpenCheck className="size-6" />}
-          loading={healthLoading}
           number={DISPLAY_VERSION}
           title="平台版本"
         />
