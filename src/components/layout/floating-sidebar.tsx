@@ -165,7 +165,7 @@ export function FloatingSidebar({
       <Link
         aria-current={active ? "page" : undefined}
         className={cn(
-          "flex size-11 items-center justify-center rounded-xl transition-colors",
+          "flex size-11 items-center justify-center rounded-xl transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--brand-orange)]",
           active
             ? "bg-[var(--brand-orange-soft)] text-[var(--brand-orange-hover)]"
             : "text-[var(--text-secondary)] hover:bg-[var(--surface-hover)] hover:text-[var(--text-primary)]",
@@ -191,7 +191,7 @@ export function FloatingSidebar({
         <Link
           aria-current={active ? "page" : undefined}
           className={cn(
-            "flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors",
+            "flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--brand-orange)]",
             active
               ? "bg-[var(--brand-orange-soft)] text-[var(--brand-orange-hover)]"
               : "text-[var(--text-secondary)] hover:bg-[var(--surface-hover)] hover:text-[var(--text-primary)]",
@@ -217,7 +217,7 @@ export function FloatingSidebar({
         <button
           aria-expanded={groupOpen}
           className={cn(
-            "flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors",
+            "flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--brand-orange)]",
             active
               ? "bg-[var(--brand-orange-soft)] text-[var(--brand-orange-hover)]"
               : "text-[var(--text-secondary)] hover:bg-[var(--surface-hover)] hover:text-[var(--text-primary)]",
@@ -244,7 +244,7 @@ export function FloatingSidebar({
                 <Link
                   aria-current={childActive ? "page" : undefined}
                   className={cn(
-                    "relative flex min-h-9 items-center rounded-lg px-3 py-2 text-xs font-medium transition-colors",
+                    "relative flex min-h-9 items-center rounded-lg px-3 py-2 text-xs font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--brand-orange)]",
                     childActive
                       ? "bg-[var(--brand-orange-soft)] text-[var(--brand-orange-hover)]"
                       : "text-[var(--text-tertiary)] hover:bg-[var(--surface-hover)] hover:text-[var(--text-primary)]",
@@ -360,7 +360,7 @@ export function FloatingSidebar({
         {!isDrawer && (
           <button
             aria-label={collapsed ? "展开侧栏" : "折叠侧栏"}
-            className="mt-2 flex w-full items-center justify-center gap-2 rounded-xl px-3 py-2 text-xs font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--text-primary)]"
+            className="mt-2 flex w-full items-center justify-center gap-2 rounded-xl px-3 py-2 text-xs font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--text-primary)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--brand-orange)]"
             onClick={() => onCollapsedChange?.(!collapsed)}
             type="button"
           >

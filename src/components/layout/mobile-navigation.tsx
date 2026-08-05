@@ -68,7 +68,7 @@ export function MobileNavigation({ onClose, open }: MobileNavigationProps) {
         <FloatingSidebar onNavigate={onClose} variant="drawer" />
         <button
           aria-label="关闭导航菜单"
-          className="absolute right-3 top-3 inline-flex size-10 items-center justify-center rounded-xl text-[var(--text-secondary)] hover:bg-[var(--surface-hover)] hover:text-[var(--text-primary)]"
+          className="absolute right-3 top-3 inline-flex size-10 items-center justify-center rounded-xl text-[var(--text-secondary)] hover:bg-[var(--surface-hover)] hover:text-[var(--text-primary)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--brand-orange)]"
           onClick={onClose}
           ref={closeButtonRef}
           type="button"

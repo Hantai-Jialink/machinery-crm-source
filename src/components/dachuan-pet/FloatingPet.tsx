@@ -29,7 +29,7 @@ const SCREEN_GUTTER = 20;
 const BUBBLE_SAFE_MARGIN = 12;
 const BUBBLE_WIDTH = 214;
 const DESKTOP_SIDEBAR_WIDTH = 312;
-const PET_MOBILE_WIDTH = 136;
+const PET_MOBILE_WIDTH = 112;
 const PET_DESKTOP_WIDTH = 152;
 const BUBBLE_LEFT_OVERHANG = 164;
 const BUBBLE_RIGHT_OVERHANG = 160;
@@ -243,7 +243,7 @@ export function FloatingPet() {
         onFocus={() => setIsGreeting(true)}
         onBlur={() => setIsGreeting(false)}
         aria-label="打开小川 Ai 助手聊天面板"
-        className={`group relative z-10 block w-[136px] touch-none select-none sm:w-[152px] ${styles.petCard} ${styles.draggablePet} focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 focus-visible:ring-offset-2`}
+        className={`group relative z-10 block w-[112px] touch-none select-none sm:w-[152px] ${styles.petCard} ${styles.draggablePet} focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 focus-visible:ring-offset-2`}
       >
         <Image
           src={petStandingHighResolution}
