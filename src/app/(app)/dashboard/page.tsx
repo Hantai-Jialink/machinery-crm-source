@@ -289,17 +289,17 @@ export default function DashboardPage() {
             {kpiCards.map((card) => <MetricCard key={card.title} {...card} />)}
           </div>
 
-          <div className="grid items-start gap-6 xl:grid-cols-3">
-            <div className="min-w-0 xl:col-span-2">
-              <DashboardMapErrorBoundary resetKey={query}>
-                <AmapShipmentMap shipments={data.shipmentPaths || []} />
-              </DashboardMapErrorBoundary>
-            </div>
-            <div className="space-y-4">
-              <ShipmentReminder title="今日应发货" items={data.shipmentReminders.today} tone="warning" />
-              <ShipmentReminder title="7天内待发货" items={data.shipmentReminders.sevenDays} tone="info" />
-              <ShipmentReminder title="已逾期未发货" items={data.shipmentReminders.overdue} tone="danger" />
-            </div>
+          <div className="min-w-0">
+            <DashboardMapErrorBoundary resetKey={query}>
+              <AmapShipmentMap shipments={data.shipmentPaths || []} />
+            </DashboardMapErrorBoundary>
+          </div>
+
+          <div className="grid gap-6 sm:grid-cols-2 xl:grid-cols-4">
+            <SalesTargetPlaceholder />
+            <ShipmentReminder title="今日应发货" items={data.shipmentReminders.today} tone="warning" />
+            <ShipmentReminder title="7天内待发货" items={data.shipmentReminders.sevenDays} tone="info" />
+            <ShipmentReminder title="已逾期未发货" items={data.shipmentReminders.overdue} tone="danger" />
           </div>
 
           <div className="grid gap-6 lg:grid-cols-3">
@@ -372,6 +372,15 @@ function SectionHeading({ title, description }: { title: string; description?: s
       <h2 className="font-semibold text-[var(--text-primary)]">{title}</h2>
       {description && <p className="mt-1 text-sm text-[var(--text-tertiary)]">{description}</p>}
     </div>
+  );
+}
+
+function SalesTargetPlaceholder() {
+  return (
+    <SurfaceCard className="p-5">
+      <SectionHeading title="销售目标" description="即将上线" />
+      <EmptyState title="该功能将在后续版本上线" />
+    </SurfaceCard>
   );
 }
 
