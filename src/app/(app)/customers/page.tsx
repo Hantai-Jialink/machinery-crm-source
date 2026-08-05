@@ -6,6 +6,7 @@ import { useSession } from "next-auth/react";
 import { ChevronLeft, ChevronRight, Edit2, Phone, Plus, Search, Trash2 } from "lucide-react";
 import { CUSTOMER_LEVELS, CUSTOMER_STATUS_LABELS, INTEREST_TAGS } from "@/lib/constants";
 import { PROVINCE_OPTIONS, BUSINESS_LINES } from "@/lib/region-data";
+import { PageContainer } from "@/components/layout/page-container";
 
 function formatMoney(value: number) {
   return value > 0 ? `¥${value.toLocaleString("zh-CN")}` : "-";
@@ -116,7 +117,7 @@ export default function CustomersPage() {
   };
 
   return (
-    <div className="space-y-4">
+    <PageContainer variant="data" className="space-y-5">
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-semibold text-gray-900">客户管理</h1>
         <Link href="/customers/new" className="inline-flex items-center gap-1.5 px-4 py-2 bg-gray-900 text-white text-sm font-medium rounded-lg hover:bg-gray-800 transition-colors">
@@ -128,7 +129,7 @@ export default function CustomersPage() {
       {error && <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
       {notice && <div className="rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">{notice}</div>}
 
-      <div className="bg-white rounded-xl border border-gray-200 p-4">
+      <div className="rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--surface-solid)] p-4 shadow-[var(--shadow-card)]">
         <form onSubmit={handleSearch} className="flex flex-wrap gap-3">
           <div className="flex-1 min-w-[220px]">
             <div className="relative">
@@ -177,7 +178,7 @@ export default function CustomersPage() {
         </form>
       </div>
 
-      <div className="hidden lg:block bg-white rounded-xl border border-gray-200 overflow-hidden">
+      <div className="hidden overflow-x-auto rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--surface-solid)] shadow-[var(--shadow-card)] lg:block">
         <table className="w-full">
           <thead className="bg-gray-50 border-b border-gray-200">
             <tr>
@@ -205,7 +206,7 @@ export default function CustomersPage() {
                 const payStatus = totalPaid >= totalAmount && totalAmount > 0 ? "已回款" : totalPaid > 0 ? "部分回款" : totalAmount > 0 ? "未回款" : "-";
                 const payColor = payStatus === "已回款" ? "bg-green-50 text-green-700" : payStatus === "部分回款" ? "bg-yellow-50 text-yellow-700" : payStatus === "未回款" ? "bg-red-50 text-red-700" : "bg-gray-50 text-gray-500";
                 return (
-                  <tr key={customer.id} className="hover:bg-gray-50 transition-colors">
+                  <tr key={customer.id} className="h-12 hover:bg-[var(--surface-hover)] transition-colors">
                     <td className="px-4 py-3"><Link href={`/customers/${customer.id}`} className="text-sm font-medium text-gray-900 hover:underline">{customer.companyName}</Link></td>
                     <td className="px-4 py-3 text-sm text-gray-600">{customer.contactName}</td>
                     <td className="px-4 py-3"><span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-700">{customer.province || customer.businessLine}</span></td>
@@ -280,6 +281,6 @@ export default function CustomersPage() {
           </div>
         </div>
       )}
-    </div>
+    </PageContainer>
   );
 }

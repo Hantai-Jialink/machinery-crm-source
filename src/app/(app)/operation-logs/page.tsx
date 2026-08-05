@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
+import { PageContainer } from "@/components/layout/page-container";
 
 const ACTION_LABELS: Record<string, string> = {
   CREATE_PAYMENT: "新增回款",
@@ -64,7 +65,7 @@ export default function OperationLogsPage() {
   }
 
   return (
-    <div className="space-y-4">
+    <PageContainer variant="data" className="space-y-5">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <h1 className="text-xl font-semibold text-gray-900">操作日志</h1>
         <div className="flex flex-wrap gap-2">
@@ -111,6 +112,6 @@ export default function OperationLogsPage() {
           </details>
         ))}
       </div>
-    </div>
+    </PageContainer>
   );
 }

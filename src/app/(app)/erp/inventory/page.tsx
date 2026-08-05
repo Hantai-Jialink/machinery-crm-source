@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
 import { Search, AlertTriangle, Package } from "lucide-react";
 import { collectPrintResults } from "@/lib/print-results";
+import { PageContainer } from "@/components/layout/page-container";
 
 function flattenCategories(categories: any[], level = 0): Array<{ id: string; name: string; level: number }> {
   return categories.flatMap((category) => [
@@ -135,13 +136,13 @@ export default function InventoryPage() {
   const visibleInventories = printItems ?? inventories;
 
   return (
-    <div className="space-y-4">
+    <PageContainer variant="data" className="space-y-5">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <h1 className="text-xl font-semibold text-gray-900">库存总览</h1>
         <button type="button" onClick={handlePrint} disabled={printing} className="print-hidden rounded border px-3 py-2 text-sm disabled:opacity-50">{printing ? "准备打印..." : "打印当前筛选结果"}</button>
       </div>
 
-      <div className="bg-white rounded-xl border border-gray-200 p-4 flex flex-wrap gap-3 items-center">
+      <div className="flex flex-wrap items-center gap-3 rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--surface-solid)] p-4 shadow-[var(--shadow-card)]">
         <div className="relative flex-1 min-w-[200px]">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
           <input
@@ -192,9 +193,9 @@ export default function InventoryPage() {
         <p className="text-center py-8 text-sm text-gray-500">暂无库存数据</p>
       ) : (
         <>
-          <div className="bg-white rounded-xl border border-gray-200 overflow-x-auto">
+          <div className="overflow-x-auto rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--surface-solid)] shadow-[var(--shadow-card)]">
             <table className="w-full text-sm">
-              <thead className="bg-gray-50 border-b border-gray-200">
+              <thead className="sticky top-0 border-b border-[var(--border)] bg-[var(--surface-muted)]">
                 <tr>
                   <th className="text-left px-4 py-3 font-medium text-gray-600">物料编码</th>
                   <th className="text-left px-4 py-3 font-medium text-gray-600">物料名称</th>
@@ -212,7 +213,7 @@ export default function InventoryPage() {
                   const threshold = effectiveThreshold(inv.material);
                   const isAlert = threshold !== null && qty <= threshold;
                   return (
-                    <tr key={inv.id} className={`border-b border-gray-100 hover:bg-gray-50 ${isAlert ? "bg-red-50" : ""}`}>
+                    <tr key={inv.id} className={`h-12 border-b border-[var(--border)] hover:bg-[var(--surface-hover)] ${isAlert ? "bg-red-50" : ""}`}>
                       <td className="px-4 py-3 font-mono text-xs">{inv.material?.code}</td>
                       <td className="px-4 py-3 font-medium text-gray-900">{inv.material?.name}</td>
                       <td className="px-4 py-3 text-gray-500">{inv.material?.spec || "-"}</td>
@@ -299,6 +300,6 @@ export default function InventoryPage() {
         </div>
       )}
       <style jsx global>{`@media print { aside, button, input, select, textarea, .print-hidden, [role="dialog"] { display: none !important; } main { margin: 0 !important; } }`}</style>
-    </div>
+    </PageContainer>
   );
 }

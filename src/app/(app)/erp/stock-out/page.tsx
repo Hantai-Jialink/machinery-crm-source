@@ -6,6 +6,7 @@ import { Plus, Search, Trash2, Eye, ArrowUpFromLine } from "lucide-react";
 import { MaterialCombobox } from "@/components/erp/material-combobox";
 import { ErpAttachments, PendingErpAttachments, uploadErpAttachments } from "@/components/erp/erp-attachments";
 import { collectPrintResults } from "@/lib/print-results";
+import { PageContainer } from "@/components/layout/page-container";
 
 export default function StockOutPage() {
   const { data: session } = useSession();
@@ -172,7 +173,7 @@ export default function StockOutPage() {
   const visibleStockOuts = printItems ?? stockOuts;
 
   return (
-    <div className="space-y-4">
+    <PageContainer variant="data" className="space-y-5">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <h1 className="text-xl font-semibold text-gray-900">出库单</h1>
         <button type="button" onClick={handlePrint} disabled={printing} className="print-hidden rounded border px-3 py-2 text-sm disabled:opacity-50">{printing ? "准备打印..." : "打印当前筛选结果"}</button>
@@ -261,7 +262,7 @@ export default function StockOutPage() {
 
       {tab === "history" && (
         <>
-          <div className="rounded-xl border border-gray-200 bg-white p-4">
+          <div className="rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--surface-solid)] p-4 shadow-[var(--shadow-card)]">
             <div className="mb-3 text-sm font-medium text-gray-700">筛选出库记录</div>
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-[minmax(180px,1fr)_150px_150px_150px_minmax(220px,1.4fr)_auto]">
               <select value={filterWarehouse} onChange={(e) => { setFilterWarehouse(e.target.value); setPage(1); }} className="px-3 py-2 border border-gray-300 rounded-lg text-sm"><option value="">全部仓库</option>{warehouses.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}</select>
@@ -280,9 +281,9 @@ export default function StockOutPage() {
           ) : visibleStockOuts.length === 0 ? (
             <p className="text-center py-8 text-sm text-gray-500">暂无出库记录</p>
           ) : (
-            <div className="bg-white rounded-xl border border-gray-200 overflow-x-auto">
+            <div className="overflow-x-auto rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--surface-solid)] shadow-[var(--shadow-card)]">
               <table className="w-full text-sm">
-                <thead className="bg-gray-50 border-b border-gray-200">
+                <thead className="sticky top-0 border-b border-[var(--border)] bg-[var(--surface-muted)]">
                   <tr>
                     <th className="text-left px-4 py-3 font-medium text-gray-600">单号</th>
                     <th className="text-left px-4 py-3 font-medium text-gray-600">仓库</th>
@@ -294,7 +295,7 @@ export default function StockOutPage() {
                 </thead>
                 <tbody>
                   {visibleStockOuts.map((so) => (
-                    <tr key={so.id} className="border-b border-gray-100 hover:bg-gray-50">
+                    <tr key={so.id} className="h-12 border-b border-[var(--border)] hover:bg-[var(--surface-hover)]">
                       <td className="px-4 py-3 font-mono text-xs">{so.batchNo}</td>
                       <td className="px-4 py-3 text-gray-500">{so.warehouse?.name}</td>
                       <td className="px-4 py-3">
@@ -359,6 +360,6 @@ export default function StockOutPage() {
         </div>
       )}
       <style jsx global>{`@media print { aside, button, input, select, textarea, .print-hidden, [role="dialog"] { display: none !important; } main { margin: 0 !important; } }`}</style>
-    </div>
+    </PageContainer>
   );
 }
