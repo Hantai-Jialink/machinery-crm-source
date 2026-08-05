@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
 import { FileDown, Plus, Search, Pencil, Trash2, SlidersHorizontal, Upload } from "lucide-react";
 import { MaterialImportDialog, downloadMaterialImportTemplate } from "@/components/erp/material-import-dialog";
+import { PageContainer } from "@/components/layout/page-container";
 
 const UNIT_OPTIONS = ["件", "个", "套", "kg", "米", "升", "箱", "包", "桶"];
 
@@ -150,7 +151,7 @@ export default function MaterialsPage() {
   };
 
   return (
-    <div className="space-y-4">
+    <PageContainer variant="data" className="space-y-5">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <h1 className="text-xl font-semibold text-gray-900">物料管理</h1>
         {canEdit && (
@@ -175,7 +176,7 @@ export default function MaterialsPage() {
             </button>
             <button
               onClick={openCreate}
-              className="inline-flex items-center gap-1.5 px-4 py-2 bg-gray-900 text-white text-sm font-medium rounded-lg hover:bg-gray-800"
+              className="inline-flex items-center gap-1.5 rounded-[var(--radius-md)] bg-[var(--brand-orange)] px-4 py-2 text-sm font-medium text-white hover:bg-[var(--brand-orange-hover)]"
             >
               <Plus className="w-4 h-4" />新增物料
             </button>
@@ -183,7 +184,7 @@ export default function MaterialsPage() {
         )}
       </div>
 
-      <div className="bg-white rounded-xl border border-gray-200 p-4 flex flex-wrap gap-3">
+      <div className="flex flex-wrap gap-3 rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--surface-solid)] p-4 shadow-[var(--shadow-card)]">
         <div className="relative flex-1 min-w-[200px]">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
           <input
@@ -211,9 +212,9 @@ export default function MaterialsPage() {
       ) : materials.length === 0 ? (
         <p className="text-center py-8 text-sm text-gray-500">暂无物料</p>
       ) : (
-        <div className="bg-white rounded-xl border border-gray-200 overflow-x-auto">
+        <div className="overflow-x-auto rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--surface-solid)] shadow-[var(--shadow-card)]">
           <table className="w-full text-sm">
-            <thead className="bg-gray-50 border-b border-gray-200">
+            <thead className="sticky top-0 border-b border-[var(--border)] bg-[var(--surface-muted)]">
               <tr>
                 <th className="text-left px-4 py-3 font-medium text-gray-600">编码</th>
                 <th className="text-left px-4 py-3 font-medium text-gray-600">名称</th>
@@ -228,7 +229,7 @@ export default function MaterialsPage() {
             </thead>
             <tbody>
               {materials.map((m) => (
-                <tr key={m.id} className="border-b border-gray-100 hover:bg-gray-50">
+                <tr key={m.id} className="h-12 border-b border-[var(--border)] hover:bg-[var(--surface-hover)]">
                   <td className="px-4 py-3 font-mono text-xs">{m.code}</td>
                   <td className="px-4 py-3 font-medium text-gray-900">{m.name}</td>
                   <td className="px-4 py-3 text-gray-500">{m.category?.name}</td>
@@ -377,6 +378,6 @@ export default function MaterialsPage() {
         onClose={() => setShowImportModal(false)}
         onImported={loadMaterials}
       />
-    </div>
+    </PageContainer>
   );
 }

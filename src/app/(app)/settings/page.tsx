@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useSession } from "next-auth/react";
 import { ROLE_LABELS } from "@/lib/constants";
 import { APP_NAME, APP_VERSION, CURRENT_RELEASE, CHANGELOG } from "@/lib/changelog";
+import { PageContainer } from "@/components/layout/page-container";
 
 export default function SettingsPage() {
   const { data: session } = useSession();
@@ -11,10 +12,10 @@ export default function SettingsPage() {
   const history = CHANGELOG.slice(1);
 
   return (
-    <div className="space-y-6">
+    <PageContainer variant="data" className="space-y-5">
       <h1 className="text-xl font-semibold text-gray-900">系统设置</h1>
 
-      <div className="bg-white rounded-xl border border-gray-200 p-6 space-y-4">
+      <div className="space-y-4 rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--surface-solid)] p-6 shadow-[var(--shadow-card)]">
         <h2 className="text-sm font-semibold text-gray-700">当前账号信息</h2>
         <dl className="space-y-3">
           <div className="flex items-center gap-4">
@@ -36,7 +37,7 @@ export default function SettingsPage() {
         </dl>
       </div>
 
-      <div className="bg-white rounded-xl border border-gray-200 p-6">
+      <div className="rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--surface-solid)] p-6 shadow-[var(--shadow-card)]">
         <h2 className="text-sm font-semibold text-gray-700 mb-2">系统版本</h2>
         <p className="text-sm font-medium text-gray-900">{APP_NAME} {APP_VERSION}</p>
         <div className="mt-4 space-y-2">
@@ -77,6 +78,6 @@ export default function SettingsPage() {
           </div>
         )}
       </div>
-    </div>
+    </PageContainer>
   );
 }

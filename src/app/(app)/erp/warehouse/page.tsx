@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
 import { Plus, Pencil, Trash2, Warehouse } from "lucide-react";
+import { PageContainer } from "@/components/layout/page-container";
 
 export default function WarehousePage() {
   const { data: session } = useSession();
@@ -62,13 +63,13 @@ export default function WarehousePage() {
   };
 
   return (
-    <div className="space-y-4">
+    <PageContainer variant="data" className="space-y-5">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <h1 className="text-xl font-semibold text-gray-900">仓库设置</h1>
         {canEdit && (
           <button
             onClick={openCreate}
-            className="inline-flex items-center gap-1.5 px-4 py-2 bg-gray-900 text-white text-sm font-medium rounded-lg hover:bg-gray-800"
+            className="inline-flex items-center gap-1.5 rounded-[var(--radius-md)] bg-[var(--brand-orange)] px-4 py-2 text-sm font-medium text-white hover:bg-[var(--brand-orange-hover)]"
           >
             <Plus className="w-4 h-4" />新增仓库
           </button>
@@ -82,7 +83,7 @@ export default function WarehousePage() {
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {warehouses.map((w) => (
-            <div key={w.id} className="bg-white rounded-xl border border-gray-200 p-5 hover:shadow-sm transition-shadow">
+            <div key={w.id} className="rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--surface-solid)] p-5 shadow-[var(--shadow-card)] hover:bg-[var(--surface-hover)]">
               <div className="flex items-start gap-3">
                 <div className="w-10 h-10 rounded-lg bg-gray-100 flex items-center justify-center shrink-0">
                   <Warehouse className="w-5 h-5 text-gray-500" />
@@ -143,6 +144,6 @@ export default function WarehousePage() {
           </div>
         </div>
       )}
-    </div>
+    </PageContainer>
   );
 }
