@@ -24,6 +24,7 @@ export default function InventoryPage() {
   const [warehouseId, setWarehouseId] = useState("");
   const [categoryId, setCategoryId] = useState("");
   const [alertOnly, setAlertOnly] = useState(false);
+  const [urlFiltersReady, setUrlFiltersReady] = useState(false);
   const [zeroStock, setZeroStock] = useState(false);
   const [demandWithoutStock, setDemandWithoutStock] = useState(false);
   const [page, setPage] = useState(1);
@@ -55,6 +56,12 @@ export default function InventoryPage() {
   };
 
   useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    setAlertOnly(params.get("alertOnly") === "1");
+    setUrlFiltersReady(true);
+  }, []);
+
+  useEffect(() => {
     fetch("/api/erp/warehouses?onlyActive=1")
       .then((r) => r.json())
       .then((data) => setWarehouses(Array.isArray(data) ? data : []));
@@ -64,6 +71,7 @@ export default function InventoryPage() {
   }, []);
 
   useEffect(() => {
+    if (!urlFiltersReady) return;
     setLoading(true);
     const params = buildInventoryParams();
     params.set("page", String(page));
@@ -75,7 +83,7 @@ export default function InventoryPage() {
         setPagination(data.pagination || { page: 1, pageSize: 20, total: 0, totalPages: 0 });
       })
       .finally(() => setLoading(false));
-  }, [search, warehouseId, categoryId, alertOnly, zeroStock, demandWithoutStock, page]);
+  }, [search, warehouseId, categoryId, alertOnly, zeroStock, demandWithoutStock, page, urlFiltersReady]);
 
   useEffect(() => {
     if (shortageAutoShown) return;

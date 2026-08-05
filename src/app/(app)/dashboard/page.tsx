@@ -1,22 +1,40 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Component, useEffect, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useSession } from "next-auth/react";
-import { AlertTriangle, Clock, FileText, Filter, Truck, UserPlus, Users } from "lucide-react";
+import {
+  AlertTriangle,
+  CalendarDays,
+  Clock,
+  FileText,
+  Filter,
+  MapPinned,
+  Truck,
+  UserPlus,
+  Users,
+} from "lucide-react";
+
+import { PageContainer } from "@/components/layout/page-container";
+import { AmapShipmentMap } from "@/components/maps/amap-shipment-map";
+import { EmptyState } from "@/components/ui/empty-state";
+import { ErrorState } from "@/components/ui/error-state";
+import { LoadingSkeleton } from "@/components/ui/loading-skeleton";
+import { MetricCard } from "@/components/ui/metric-card";
+import { SegmentedControl } from "@/components/ui/segmented-control";
+import { SurfaceCard } from "@/components/ui/surface-card";
 import { FOLLOW_TYPE_LABELS } from "@/lib/constants";
 import { PROVINCE_OPTIONS } from "@/lib/region-data";
-import { AmapShipmentMap } from "@/components/maps/amap-shipment-map";
 
 const PRESETS = [
-  { key: "today", label: "今天" },
-  { key: "yesterday", label: "昨天" },
-  { key: "7d", label: "近7天" },
-  { key: "month", label: "本月" },
-  { key: "lastMonth", label: "上月" },
-  { key: "quarter", label: "本季度" },
-  { key: "year", label: "本年" },
-  { key: "custom", label: "自定义" },
+  { value: "today", label: "今天" },
+  { value: "yesterday", label: "昨天" },
+  { value: "7d", label: "近7天" },
+  { value: "month", label: "本月" },
+  { value: "lastMonth", label: "上月" },
+  { value: "quarter", label: "本季度" },
+  { value: "year", label: "本年" },
+  { value: "custom", label: "自定义" },
 ];
 
 const CONTRACT_STATUS_OPTIONS = [
@@ -37,16 +55,51 @@ const SHIPMENT_STATUS_OPTIONS = [
   { value: "OVERDUE", label: "逾期未发货" },
 ];
 
-function formatMoney(value: any) {
+const fieldClassName =
+  "min-h-10 rounded-[var(--radius-sm)] border border-[var(--border-strong)] bg-[var(--surface-solid)] px-3 py-2 text-sm text-[var(--text-primary)] outline-none transition focus:border-[var(--brand-orange)] focus:ring-2 focus:ring-[var(--brand-orange-soft)]";
+
+function formatMoney(value: unknown) {
   return `¥${Number(value || 0).toLocaleString("zh-CN")}`;
 }
 
-function formatDate(value: string) {
+function formatDate(value?: string | null) {
   return value ? new Date(value).toLocaleDateString("zh-CN") : "-";
 }
 
 async function readJson(res: Response) {
   return res.json().catch(() => ({}));
+}
+
+class DashboardMapErrorBoundary extends Component<
+  { children: ReactNode; resetKey: string },
+  { failed: boolean }
+> {
+  state = { failed: false };
+
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+
+  componentDidUpdate(previousProps: { resetKey: string }) {
+    if (this.state.failed && previousProps.resetKey !== this.props.resetKey) {
+      this.setState({ failed: false });
+    }
+  }
+
+  render() {
+    if (this.state.failed) {
+      return (
+        <SurfaceCard className="min-h-[520px] p-1">
+          <ErrorState
+            title="发货地图加载失败"
+            message="地图组件暂时不可用；KPI、发货提醒和跟进数据仍可正常查看。"
+          />
+        </SurfaceCard>
+      );
+    }
+
+    return this.props.children;
+  }
 }
 
 export default function DashboardPage() {
@@ -55,6 +108,7 @@ export default function DashboardPage() {
   const [activeUsers, setActiveUsers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [reloadKey, setReloadKey] = useState(0);
   const [showFilters, setShowFilters] = useState(true);
   const [preset, setPreset] = useState("month");
   const [customStart, setCustomStart] = useState(new Date().toISOString().split("T")[0]);
@@ -65,7 +119,8 @@ export default function DashboardPage() {
   const [contractStatus, setContractStatus] = useState("");
   const [shipmentStatus, setShipmentStatus] = useState("");
 
-  const userRole = (session?.user as any)?.role;
+  const sessionUser = session?.user as { name?: string | null; role?: string } | undefined;
+  const userRole = sessionUser?.role;
 
   const query = useMemo(() => {
     const params = new URLSearchParams();
@@ -91,6 +146,7 @@ export default function DashboardPage() {
 
   useEffect(() => {
     let active = true;
+
     async function loadDashboard() {
       setLoading(true);
       setError("");
@@ -99,9 +155,9 @@ export default function DashboardPage() {
         const payload = await readJson(response);
         if (!response.ok) throw new Error(payload.error || `工作台数据加载失败（${response.status}）`);
         if (active) setData(payload);
-      } catch (err) {
+      } catch (reason) {
         if (active) {
-          setError(err instanceof Error ? err.message : "工作台数据加载失败");
+          setError(reason instanceof Error ? reason.message : "工作台数据加载失败");
           setData(null);
         }
       } finally {
@@ -109,11 +165,11 @@ export default function DashboardPage() {
       }
     }
 
-    loadDashboard();
+    void loadDashboard();
     return () => {
       active = false;
     };
-  }, [query]);
+  }, [query, reloadKey]);
 
   const clearFilters = () => {
     setProvince("");
@@ -123,61 +179,79 @@ export default function DashboardPage() {
     setShipmentStatus("");
   };
 
-  const kpiCards = data ? [
-    { label: "客户总数", value: data.stats.totalCustomers, href: "/customers", icon: Users, color: "text-blue-600 bg-blue-50" },
-    { label: "本周期新增客户", value: data.stats.periodNewCustomers, href: "/customers", icon: UserPlus, color: "text-green-600 bg-green-50" },
-    { label: "本周期合同金额", value: formatMoney(data.stats.periodContractAmount), href: "/contracts", icon: FileText, color: "text-indigo-600 bg-indigo-50" },
-    { label: "本周期发货记录", value: data.stats.periodShipments, href: "/shipments", icon: Truck, color: "text-cyan-600 bg-cyan-50" },
-    { label: "逾期发货", value: data.stats.overdueShipmentDue, href: "/contracts", icon: AlertTriangle, color: "text-red-600 bg-red-50" },
-    { label: "待跟进", value: data.stats.sevenDayFollowUp, href: "/reminders", icon: Clock, color: "text-amber-600 bg-amber-50" },
-  ] : [];
+  const kpiCards = data
+    ? [
+        { title: "客户总数", number: data.stats.totalCustomers, href: "/customers", icon: <Users className="size-6" /> },
+        { title: "本周期新增客户", number: data.stats.periodNewCustomers, href: "/customers", icon: <UserPlus className="size-6" /> },
+        { title: "本周期合同金额", number: formatMoney(data.stats.periodContractAmount), href: "/contracts", icon: <FileText className="size-6" /> },
+        { title: "本周期发货记录", number: data.stats.periodShipments, href: "/shipments", icon: <Truck className="size-6" /> },
+        { title: "逾期发货", number: data.stats.overdueShipmentDue, href: "/contracts", icon: <AlertTriangle className="size-6" /> },
+        { title: "待跟进", number: data.stats.sevenDayFollowUp, href: "/reminders", icon: <Clock className="size-6" /> },
+      ]
+    : [];
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-        <h1 className="text-xl font-semibold text-gray-900">CRM工作台</h1>
-        <button onClick={() => setShowFilters((value) => !value)} className="inline-flex items-center gap-1.5 px-3 py-2 bg-white border border-gray-200 text-sm rounded-lg hover:bg-gray-50">
-          <Filter className="w-4 h-4" />
-          筛选
-        </button>
-      </div>
+    <PageContainer className="space-y-6" variant="dashboard">
+      <SurfaceCard className="overflow-hidden p-6" variant="glass">
+        <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex items-start gap-4">
+            <div className="flex size-12 shrink-0 items-center justify-center rounded-[var(--radius-md)] bg-[var(--brand-orange-soft)] text-[var(--brand-orange)]">
+              <MapPinned className="size-6" aria-hidden="true" />
+            </div>
+            <div>
+              <p className="text-sm font-medium text-[var(--brand-orange)]">CRM · 销售经营视图</p>
+              <h1 className="mt-1 text-2xl font-semibold text-[var(--text-primary)]">
+                欢迎回来{sessionUser?.name ? `，${sessionUser.name}` : ""}
+              </h1>
+              <p className="mt-2 text-sm text-[var(--text-secondary)]">
+                聚焦客户增长、合同回款、发货履约与近期跟进。
+              </p>
+            </div>
+          </div>
+          <button
+            className="inline-flex items-center justify-center gap-2 rounded-[var(--radius-sm)] border border-[var(--border-strong)] bg-[var(--surface-solid)] px-4 py-2 text-sm font-medium text-[var(--text-primary)] transition hover:bg-[var(--surface-hover)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--brand-orange)]"
+            onClick={() => setShowFilters((value) => !value)}
+            type="button"
+          >
+            <Filter className="size-4" aria-hidden="true" />
+            {showFilters ? "收起筛选" : "展开筛选"}
+          </button>
+        </div>
+      </SurfaceCard>
 
       {showFilters && (
-        <div className="bg-white rounded-xl border border-gray-200 p-4 space-y-3">
-          <div className="flex flex-wrap items-center gap-2">
-            {PRESETS.map((item) => (
-              <button
-                key={item.key}
-                onClick={() => setPreset(item.key)}
-                className={`px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors ${
-                  preset === item.key
-                    ? "bg-gray-900 text-white border-gray-900"
-                    : "bg-white text-gray-600 border-gray-200 hover:bg-gray-50"
-                }`}
-              >
-                {item.label}
-              </button>
-            ))}
-            {preset === "custom" && (
-              <>
-                <input type="date" value={customStart} onChange={(event) => setCustomStart(event.target.value)} className="px-3 py-1.5 border border-gray-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-gray-900" />
-                <input type="date" value={customEnd} onChange={(event) => setCustomEnd(event.target.value)} className="px-3 py-1.5 border border-gray-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-gray-900" />
-              </>
-            )}
+        <SurfaceCard className="space-y-4 p-5">
+          <div className="flex items-center gap-2 text-sm font-medium text-[var(--text-primary)]">
+            <CalendarDays className="size-4 text-[var(--brand-orange)]" aria-hidden="true" />
+            统计周期与业务维度
           </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-3">
+          <div className="overflow-x-auto pb-1">
+            <SegmentedControl options={PRESETS} value={preset} onChange={setPreset} />
+          </div>
+          {preset === "custom" && (
+            <div className="flex flex-wrap items-center gap-3">
+              <label className="flex items-center gap-2 text-sm text-[var(--text-secondary)]">
+                开始日期
+                <input className={fieldClassName} type="date" value={customStart} onChange={(event) => setCustomStart(event.target.value)} />
+              </label>
+              <label className="flex items-center gap-2 text-sm text-[var(--text-secondary)]">
+                结束日期
+                <input className={fieldClassName} type="date" value={customEnd} onChange={(event) => setCustomEnd(event.target.value)} />
+              </label>
+            </div>
+          )}
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-5">
             {userRole === "SUPER_ADMIN" && (
-              <select value={province} onChange={(event) => setProvince(event.target.value)} className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-900">
+              <select aria-label="省份" className={fieldClassName} value={province} onChange={(event) => setProvince(event.target.value)}>
                 <option value="">全部省份</option>
                 {PROVINCE_OPTIONS.map((item) => <option key={item} value={item}>{item}</option>)}
               </select>
             )}
-            <select value={salesUserId} onChange={(event) => setSalesUserId(event.target.value)} className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-900">
+            <select aria-label="业务员" className={fieldClassName} value={salesUserId} onChange={(event) => setSalesUserId(event.target.value)}>
               <option value="">全部业务员</option>
               {activeUsers.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
             </select>
-            <select value={customerStatus} onChange={(event) => setCustomerStatus(event.target.value)} className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-900">
+            <select aria-label="客户状态" className={fieldClassName} value={customerStatus} onChange={(event) => setCustomerStatus(event.target.value)}>
               <option value="">全部客户</option>
               <option value="NEW_LEAD">新线索</option>
               <option value="QUOTED">已报价</option>
@@ -185,141 +259,164 @@ export default function DashboardPage() {
               <option value="INACTIVE">暂停跟进</option>
               <option value="LOST">流失客户</option>
             </select>
-            <select value={contractStatus} onChange={(event) => setContractStatus(event.target.value)} className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-900">
+            <select aria-label="合同状态" className={fieldClassName} value={contractStatus} onChange={(event) => setContractStatus(event.target.value)}>
               {CONTRACT_STATUS_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
             </select>
-            <select value={shipmentStatus} onChange={(event) => setShipmentStatus(event.target.value)} className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-900">
+            <select aria-label="发货状态" className={fieldClassName} value={shipmentStatus} onChange={(event) => setShipmentStatus(event.target.value)}>
               {SHIPMENT_STATUS_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
             </select>
           </div>
-          <button onClick={clearFilters} className="text-xs text-gray-500 hover:text-gray-900">清空维度筛选</button>
-        </div>
-      )}
-
-      {error && (
-        <div className="bg-white rounded-xl border border-red-200 p-6">
-          <h2 className="text-lg font-semibold text-red-700 mb-2">工作台暂时无法加载</h2>
-          <p className="text-sm text-gray-600">{error}</p>
-        </div>
+          <button className="text-sm text-[var(--text-tertiary)] transition hover:text-[var(--brand-orange)]" onClick={clearFilters} type="button">
+            清空维度筛选
+          </button>
+        </SurfaceCard>
       )}
 
       {loading && !data ? (
-        <div className="flex items-center justify-center h-64"><p className="text-gray-500">加载中...</p></div>
+        <>
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-6">
+            {Array.from({ length: 6 }, (_, index) => <MetricCard key={index} loading title="正在加载" />)}
+          </div>
+          <SurfaceCard className="p-6"><LoadingSkeleton lines={8} /></SurfaceCard>
+        </>
+      ) : error && !data ? (
+        <SurfaceCard className="p-1">
+          <ErrorState message={error} onRetry={() => setReloadKey((value) => value + 1)} title="CRM 工作台暂时无法加载" />
+        </SurfaceCard>
       ) : data ? (
         <>
-          <AmapShipmentMap shipments={data.shipmentPaths || []} />
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-6 gap-4">
-            {kpiCards.map((card) => (
-              <Link key={card.label} href={card.href} className="bg-white rounded-xl border border-gray-200 p-4 hover:border-gray-300 hover:shadow-sm transition">
-                <div className="flex items-center gap-3">
-                  <div className={`p-2 rounded-lg ${card.color}`}><card.icon className="w-4 h-4" /></div>
-                  <div>
-                    <p className="text-2xl font-semibold text-gray-900">{card.value}</p>
-                    <p className="text-xs text-gray-500">{card.label}</p>
-                  </div>
-                </div>
-              </Link>
-            ))}
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-6">
+            {kpiCards.map((card) => <MetricCard key={card.title} {...card} />)}
           </div>
 
-          <div className="grid xl:grid-cols-3 gap-6">
-            <ShipmentReminder title="今日应发货" items={data.shipmentReminders.today} tone="orange" />
-            <ShipmentReminder title="7天内待发货" items={data.shipmentReminders.sevenDays} tone="blue" />
-            <ShipmentReminder title="已逾期未发货" items={data.shipmentReminders.overdue} tone="red" />
-          </div>
-
-          <div className="grid lg:grid-cols-3 gap-6">
-            <div className="bg-white rounded-xl border border-gray-200 p-5">
-              <h2 className="text-sm font-semibold text-gray-900 mb-4">周期统计</h2>
-              <div className="grid grid-cols-2 gap-3">
-                <Metric label="新增合同" value={data.stats.periodNewContracts} />
-                <Metric label="周期回款" value={formatMoney(data.stats.periodPaidAmount)} />
-                <Metric label="当前未回款" value={formatMoney(data.stats.totalUnpaidAmount)} />
-                <Metric label="部分回款合同" value={data.stats.partialPaidContracts} />
-              </div>
+          <div className="grid items-start gap-6 xl:grid-cols-3">
+            <div className="min-w-0 xl:col-span-2">
+              <DashboardMapErrorBoundary resetKey={query}>
+                <AmapShipmentMap shipments={data.shipmentPaths || []} />
+              </DashboardMapErrorBoundary>
             </div>
+            <div className="space-y-4">
+              <ShipmentReminder title="今日应发货" items={data.shipmentReminders.today} tone="warning" />
+              <ShipmentReminder title="7天内待发货" items={data.shipmentReminders.sevenDays} tone="info" />
+              <ShipmentReminder title="已逾期未发货" items={data.shipmentReminders.overdue} tone="danger" />
+            </div>
+          </div>
 
-            <div className="bg-white rounded-xl border border-gray-200 p-5">
-              <h2 className="text-sm font-semibold text-gray-900 mb-4">最近跟进动态</h2>
-              {data.recentFollows.length === 0 ? <p className="text-sm text-gray-500">暂无跟进记录</p> : (
-                <div className="space-y-4">
+          <div className="grid gap-6 lg:grid-cols-3">
+            <SurfaceCard className="p-5">
+              <SectionHeading title="周期统计" description="按当前筛选周期汇总" />
+              <div className="mt-5 grid grid-cols-2 gap-3">
+                <CompactMetric label="新增合同" value={data.stats.periodNewContracts} />
+                <CompactMetric label="周期回款" value={formatMoney(data.stats.periodPaidAmount)} />
+                <CompactMetric label="当前未回款" value={formatMoney(data.stats.totalUnpaidAmount)} />
+                <CompactMetric label="部分回款合同" value={data.stats.partialPaidContracts} />
+              </div>
+            </SurfaceCard>
+
+            <SurfaceCard className="p-5">
+              <SectionHeading title="最近跟进动态" description="最近 8 条客户沟通记录" />
+              {!data.recentFollows?.length ? (
+                <EmptyState title="暂无跟进记录" description="完成客户跟进后，动态会显示在这里。" />
+              ) : (
+                <div className="mt-5 space-y-4">
                   {data.recentFollows.map((follow: any) => (
-                    <div key={follow.id} className="flex gap-3">
-                      <div className="w-2 h-2 rounded-full bg-gray-300 mt-2 shrink-0" />
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <Link href={`/customers/${follow.customer.id}`} className="text-sm font-medium text-gray-900 hover:underline">{follow.customer.companyName}</Link>
-                          <span className="text-xs px-1.5 py-0.5 rounded bg-gray-100 text-gray-600">{FOLLOW_TYPE_LABELS[follow.followType]}</span>
+                    <div className="flex gap-3" key={follow.id}>
+                      <div className="mt-2 size-2 shrink-0 rounded-full bg-[var(--brand-orange)]" />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Link className="text-sm font-medium text-[var(--text-primary)] hover:text-[var(--brand-orange)]" href={`/customers/${follow.customer.id}`}>
+                            {follow.customer.companyName}
+                          </Link>
+                          <span className="rounded-full bg-[var(--neutral-soft)] px-2 py-0.5 text-xs text-[var(--neutral)]">
+                            {FOLLOW_TYPE_LABELS[follow.followType]}
+                          </span>
                         </div>
-                        <p className="text-xs text-gray-600 mt-0.5 line-clamp-1">{follow.content}</p>
-                        <p className="text-xs text-gray-400 mt-0.5">{follow.user.name} · {formatDate(follow.createdAt)}</p>
+                        <p className="mt-1 line-clamp-2 text-sm text-[var(--text-secondary)]">{follow.content}</p>
+                        <p className="mt-1 text-xs text-[var(--text-tertiary)]">{follow.user.name} · {formatDate(follow.createdAt)}</p>
                       </div>
                     </div>
                   ))}
                 </div>
               )}
-            </div>
+            </SurfaceCard>
 
-            <div className="bg-white rounded-xl border border-gray-200 p-5">
-              <h2 className="text-sm font-semibold text-gray-900 mb-4">待跟进客户</h2>
-              {!data.followUpCustomers?.length ? <p className="text-sm text-gray-500">暂无待跟进客户</p> : (
-                <div className="space-y-3">
+            <SurfaceCard className="p-5">
+              <SectionHeading title="待跟进客户" description="按下次跟进日期优先展示" />
+              {!data.followUpCustomers?.length ? (
+                <EmptyState title="暂无待跟进客户" description="当前筛选范围内没有到期待跟进客户。" />
+              ) : (
+                <div className="mt-4 space-y-2">
                   {data.followUpCustomers.map((customer: any) => (
-                    <Link key={customer.id} href={`/customers/${customer.id}`} className="block rounded-lg p-3 hover:bg-gray-50">
-                      <p className="text-sm font-medium text-gray-900">{customer.companyName}</p>
-                      <p className="text-xs text-gray-500 mt-0.5">{customer.contactName} · {customer.assignedUser?.name || "未分配"} · {formatDate(customer.nextFollowDate)}</p>
+                    <Link className="block rounded-[var(--radius-sm)] p-3 transition hover:bg-[var(--surface-hover)]" href={`/customers/${customer.id}`} key={customer.id}>
+                      <p className="text-sm font-medium text-[var(--text-primary)]">{customer.companyName}</p>
+                      <p className="mt-1 text-xs text-[var(--text-secondary)]">
+                        {customer.contactName} · {customer.assignedUser?.name || "未分配"} · {formatDate(customer.nextFollowDate)}
+                      </p>
                     </Link>
                   ))}
                 </div>
               )}
-            </div>
+            </SurfaceCard>
           </div>
         </>
       ) : (
-        <div className="bg-white rounded-xl border border-gray-200 p-6"><p className="text-sm text-gray-500">暂无工作台数据</p></div>
+        <SurfaceCard className="p-1"><EmptyState title="暂无工作台数据" /></SurfaceCard>
       )}
+    </PageContainer>
+  );
+}
+
+function SectionHeading({ title, description }: { title: string; description?: string }) {
+  return (
+    <div>
+      <h2 className="font-semibold text-[var(--text-primary)]">{title}</h2>
+      {description && <p className="mt-1 text-sm text-[var(--text-tertiary)]">{description}</p>}
     </div>
   );
 }
 
-function ShipmentReminder({ title, items, tone }: { title: string; items: any[]; tone: "orange" | "blue" | "red" }) {
-  const toneClass = {
-    orange: "bg-orange-50 text-orange-700",
-    blue: "bg-blue-50 text-blue-700",
-    red: "bg-red-50 text-red-700",
+function ShipmentReminder({ title, items = [], tone }: { title: string; items?: any[]; tone: "warning" | "info" | "danger" }) {
+  const toneClasses = {
+    warning: "bg-[var(--warning-soft)] text-[var(--warning)]",
+    info: "bg-[var(--info-soft)] text-[var(--info)]",
+    danger: "bg-[var(--danger-soft)] text-[var(--danger)]",
   }[tone];
 
   return (
-    <div className="bg-white rounded-xl border border-gray-200 p-5">
-      <div className="flex items-center gap-2 mb-4">
-        <Clock className="w-4 h-4 text-gray-500" />
-        <h2 className="text-sm font-semibold text-gray-900">{title}</h2>
+    <SurfaceCard className="p-5">
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <Clock className="size-4 text-[var(--brand-orange)]" aria-hidden="true" />
+          <h2 className="text-sm font-semibold text-[var(--text-primary)]">{title}</h2>
+        </div>
+        <span className={`rounded-full px-2.5 py-1 text-xs font-medium tabular-nums ${toneClasses}`}>{items.length}</span>
       </div>
-      {items.length === 0 ? <p className="text-sm text-gray-500">暂无记录</p> : (
-        <div className="space-y-3">
+      {items.length === 0 ? (
+        <p className="mt-4 text-sm text-[var(--text-tertiary)]">暂无记录</p>
+      ) : (
+        <div className="mt-3 space-y-1">
           {items.map((item) => (
-            <Link key={item.id} href={`/contracts/${item.id}`} className="block rounded-lg p-3 hover:bg-gray-50">
+            <Link className="block rounded-[var(--radius-sm)] p-3 transition hover:bg-[var(--surface-hover)]" href={`/contracts/${item.id}`} key={item.id}>
               <div className="flex items-start justify-between gap-3">
-                <div>
-                  <p className="text-sm font-medium text-gray-900">{item.customer?.companyName}</p>
-                  <p className="text-xs text-gray-500 mt-0.5">{item.contractNo} · {item.equipmentName || item.equipmentModel}</p>
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-medium text-[var(--text-primary)]">{item.customer?.companyName}</p>
+                  <p className="mt-1 truncate text-xs text-[var(--text-secondary)]">{item.contractNo} · {item.equipmentName || item.equipmentModel}</p>
                 </div>
-                <span className={`text-xs px-2 py-0.5 rounded-full ${toneClass}`}>{formatDate(item.estimatedShipmentDate)}</span>
+                <span className="shrink-0 text-xs text-[var(--text-tertiary)]">{formatDate(item.estimatedShipmentDate)}</span>
               </div>
             </Link>
           ))}
         </div>
       )}
-    </div>
+    </SurfaceCard>
   );
 }
 
-function Metric({ label, value }: { label: string; value: string | number }) {
+function CompactMetric({ label, value }: { label: string; value: string | number }) {
   return (
-    <div className="rounded-lg bg-gray-50 px-4 py-3">
-      <p className="text-lg font-semibold text-gray-900">{value}</p>
-      <p className="text-xs text-gray-500">{label}</p>
+    <div className="rounded-[var(--radius-sm)] bg-[var(--surface-muted)] px-4 py-3">
+      <p className="text-lg font-semibold text-[var(--text-primary)] tabular-nums">{value}</p>
+      <p className="mt-1 text-xs text-[var(--text-secondary)]">{label}</p>
     </div>
   );
 }
