@@ -4,7 +4,7 @@ import { Camera } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useSession } from "next-auth/react";
 import { ROLE_LABELS } from "@/lib/constants";
-import { APP_NAME, APP_VERSION, CURRENT_RELEASE, CHANGELOG } from "@/lib/changelog";
+import { APP_NAME, DISPLAY_VERSION, CURRENT_RELEASE, CHANGELOG } from "@/lib/changelog";
 import { PageContainer } from "@/components/layout/page-container";
 import { UserAvatar } from "@/components/layout/user-avatar";
 
@@ -170,7 +170,7 @@ export default function SettingsPage() {
 
       <div className="rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--surface-solid)] p-6 shadow-[var(--shadow-card)]">
         <h2 className="text-sm font-semibold text-gray-700 mb-2">系统版本</h2>
-        <p className="text-sm font-medium text-gray-900">{APP_NAME} {APP_VERSION}</p>
+        <p className="text-sm font-medium text-gray-900">{DISPLAY_VERSION}</p>
         <div className="mt-4 space-y-2">
           <p className="text-xs font-medium text-gray-500">当前版本更新内容（{CURRENT_RELEASE.date}）</p>
           <ol className="space-y-1 text-sm text-gray-600 list-decimal list-inside">

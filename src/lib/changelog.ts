@@ -130,3 +130,4 @@ export const CHANGELOG: ChangelogEntry[] = [
 // 最新版本（自动取 CHANGELOG 最上面一条）
 export const CURRENT_RELEASE = CHANGELOG[0];
 export const APP_VERSION = CURRENT_RELEASE.version;
+export const DISPLAY_VERSION = "DachuanPro V2.0";
