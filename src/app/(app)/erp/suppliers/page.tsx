@@ -4,6 +4,12 @@ import { useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
 import { Ban, Pencil, Plus, Search } from "lucide-react";
 import { PageContainer } from "@/components/layout/page-container";
+import { Button } from "@/components/ui/button";
+import { EmptyState } from "@/components/ui/empty-state";
+import { ErrorState } from "@/components/ui/error-state";
+import { LoadingSkeleton } from "@/components/ui/loading-skeleton";
+import { StatusBadge } from "@/components/ui/status-badge";
+import { SurfaceCard } from "@/components/ui/surface-card";
 
 const emptyForm = {
   name: "",
@@ -103,40 +109,40 @@ export default function SuppliersPage() {
     <PageContainer variant="data" className="space-y-5">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-xl font-semibold text-gray-900">供应商管理</h1>
-          <p className="mt-1 text-sm text-gray-500">停用仅关闭使用资格，历史数据会保留。</p>
+          <h1 className="text-xl font-semibold text-[var(--text-primary)]">供应商管理</h1>
+          <p className="mt-1 text-sm text-[var(--text-secondary)]">停用仅关闭使用资格，历史数据会保留。</p>
         </div>
         {canEdit && (
-          <button onClick={openCreate} className="inline-flex items-center gap-1.5 rounded-[var(--radius-md)] bg-[var(--brand-orange)] px-4 py-2 text-sm font-medium text-white hover:bg-[var(--brand-orange-hover)]">
+          <Button onClick={openCreate}>
             <Plus className="h-4 w-4" />新增供应商
-          </button>
+          </Button>
         )}
       </div>
 
-      <div className="flex flex-wrap gap-3 rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--surface-solid)] p-4 shadow-[var(--shadow-card)]">
+      <SurfaceCard className="flex flex-wrap gap-3 p-4">
         <div className="relative min-w-[220px] flex-1">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--text-tertiary)]" />
           <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="搜索名称、联系人、电话或主营品类" className="w-full rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface-solid)] py-2 pl-9 pr-3 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--brand-orange)]" />
         </div>
-      </div>
+      </SurfaceCard>
 
-      {message && <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{message}</p>}
+      {message && <SurfaceCard className="p-1"><ErrorState message={message} /></SurfaceCard>}
 
       {loading ? (
-        <p className="py-8 text-center text-sm text-gray-500">加载中...</p>
+        <SurfaceCard className="p-5"><LoadingSkeleton lines={6} /></SurfaceCard>
       ) : suppliers.length === 0 ? (
-        <p className="py-8 text-center text-sm text-gray-500">暂无供应商</p>
+        <SurfaceCard><EmptyState title="暂无供应商" /></SurfaceCard>
       ) : (
-        <div className="overflow-x-auto rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--surface-solid)] shadow-[var(--shadow-card)]">
+        <SurfaceCard className="overflow-x-auto">
           <table className="w-full min-w-[860px] text-sm">
             <thead className="sticky top-0 border-b border-[var(--border)] bg-[var(--surface-muted)]">
               <tr>
-                <th className="px-4 py-3 text-left font-medium text-gray-600">供应商名称</th>
-                <th className="px-4 py-3 text-left font-medium text-gray-600">联系人</th>
-                <th className="px-4 py-3 text-left font-medium text-gray-600">电话 / 微信</th>
-                <th className="px-4 py-3 text-left font-medium text-gray-600">主营品类</th>
-                <th className="px-4 py-3 text-left font-medium text-gray-600">状态</th>
-                {canEdit && <th className="px-4 py-3 text-center font-medium text-gray-600">操作</th>}
+                <th className="px-4 py-3 text-left font-medium text-[var(--text-secondary)]">供应商名称</th>
+                <th className="px-4 py-3 text-left font-medium text-[var(--text-secondary)]">联系人</th>
+                <th className="px-4 py-3 text-left font-medium text-[var(--text-secondary)]">电话 / 微信</th>
+                <th className="px-4 py-3 text-left font-medium text-[var(--text-secondary)]">主营品类</th>
+                <th className="px-4 py-3 text-left font-medium text-[var(--text-secondary)]">状态</th>
+                {canEdit && <th className="px-4 py-3 text-center font-medium text-[var(--text-secondary)]">操作</th>}
               </tr>
             </thead>
             <tbody>
@@ -146,12 +152,12 @@ export default function SuppliersPage() {
                   <td className="px-4 py-3 text-[var(--text-secondary)]">{supplier.contactName || "-"}</td>
                   <td className="px-4 py-3 text-[var(--text-secondary)]">{supplier.phone || supplier.wechat || "-"}</td>
                   <td className="px-4 py-3 text-[var(--text-secondary)]">{supplier.mainCategory || "-"}</td>
-                  <td className="px-4 py-3"><span className={`rounded-full px-2 py-0.5 text-xs ${supplier.isActive ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-500"}`}>{supplier.isActive ? "启用" : "已停用"}</span></td>
+                  <td className="px-4 py-3"><StatusBadge status={supplier.isActive ? "启用" : "已停用"} /></td>
                   {canEdit && (
                     <td className="px-4 py-3 text-center">
                       <div className="flex items-center justify-center gap-2">
-                        <button title="编辑供应商" onClick={() => openEdit(supplier)} className="text-gray-400 hover:text-gray-700"><Pencil className="h-4 w-4" /></button>
-                        {supplier.isActive && <button title="停用供应商" onClick={() => disableSupplier(supplier)} className="text-gray-400 hover:text-amber-600"><Ban className="h-4 w-4" /></button>}
+                        <Button title="编辑供应商" variant="ghost" size="compact" onClick={() => openEdit(supplier)}><Pencil className="h-4 w-4" /></Button>
+                        {supplier.isActive && <Button title="停用供应商" variant="danger" size="compact" onClick={() => disableSupplier(supplier)}><Ban className="h-4 w-4" /></Button>}
                       </div>
                     </td>
                   )}
@@ -159,13 +165,13 @@ export default function SuppliersPage() {
               ))}
             </tbody>
           </table>
-        </div>
+        </SurfaceCard>
       )}
 
       {showModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setShowModal(false)}>
           <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-[var(--radius-lg)] bg-[var(--surface-solid)] p-6 shadow-[var(--shadow-float)]" onClick={(event) => event.stopPropagation()}>
-            <h2 className="mb-4 text-lg font-semibold">{editId ? "编辑供应商" : "新增供应商"}</h2>
+            <h2 className="mb-4 text-lg font-semibold text-[var(--text-primary)]">{editId ? "编辑供应商" : "新增供应商"}</h2>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <Field label="供应商名称 *" value={form.name} onChange={(value) => setForm({ ...form, name: value })} />
               <Field label={`联系人${editId ? "" : " *"}`} value={form.contactName} onChange={(value) => setForm({ ...form, contactName: value })} required={!editId} />
@@ -176,10 +182,10 @@ export default function SuppliersPage() {
               <div className="sm:col-span-2"><Field label="地址" value={form.address} onChange={(value) => setForm({ ...form, address: value })} /></div>
               <div className="sm:col-span-2"><Field label="备注" value={form.remark} onChange={(value) => setForm({ ...form, remark: value })} multiline /></div>
             </div>
-            {message && <p className="mt-3 text-sm text-red-600">{message}</p>}
+            {message && <p className="mt-3 text-sm text-[var(--danger)]">{message}</p>}
             <div className="mt-5 flex justify-end gap-2">
-              <button onClick={() => setShowModal(false)} className="rounded-lg border border-gray-300 px-4 py-2 text-sm text-gray-700">取消</button>
-              <button onClick={saveSupplier} disabled={saving || !form.name.trim() || (!editId && (!form.contactName.trim() || !form.phone.trim()))} className="rounded-[var(--radius-md)] bg-[var(--brand-orange)] px-4 py-2 text-sm text-white hover:bg-[var(--brand-orange-hover)] disabled:opacity-50">{saving ? "保存中..." : "保存"}</button>
+              <Button onClick={() => setShowModal(false)} variant="outline">取消</Button>
+              <Button onClick={saveSupplier} disabled={saving || !form.name.trim() || (!editId && (!form.contactName.trim() || !form.phone.trim()))}>{saving ? "保存中..." : "保存"}</Button>
             </div>
           </div>
         </div>
@@ -189,5 +195,5 @@ export default function SuppliersPage() {
 }
 
 function Field({ label, value, onChange, multiline = false, required = false }: { label: string; value: string; onChange: (value: string) => void; multiline?: boolean; required?: boolean }) {
-  return <label className="block text-xs font-medium text-gray-600"><span className="mb-1 block">{label}</span>{multiline ? <textarea required={required} value={value} onChange={(event) => onChange(event.target.value)} rows={3} className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm" /> : <input required={required} value={value} onChange={(event) => onChange(event.target.value)} className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm" />}</label>;
+  return <label className="block text-xs font-medium text-[var(--text-secondary)]"><span className="mb-1 block">{label}</span>{multiline ? <textarea required={required} value={value} onChange={(event) => onChange(event.target.value)} rows={3} className="w-full rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface-solid)] px-3 py-2 text-sm text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--brand-orange)]" /> : <input required={required} value={value} onChange={(event) => onChange(event.target.value)} className="w-full rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface-solid)] px-3 py-2 text-sm text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--brand-orange)]" />}</label>;
 }
