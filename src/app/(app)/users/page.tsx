@@ -5,6 +5,7 @@ import { Edit2, KeyRound, Plus, Trash2, X } from "lucide-react";
 import { ROLE_LABELS } from "@/lib/constants";
 import { TerritoryPicker, summarizeTerritories, type Territory } from "@/components/common/territory-picker";
 import { roleRequiresRegionScope } from "@/lib/erp-roles";
+import { PageContainer } from "@/components/layout/page-container";
 
 type UserRow = {
   id: string;
@@ -270,7 +271,7 @@ export default function UsersPage() {
   };
 
   return (
-    <div className="space-y-4">
+    <PageContainer variant="data" className="space-y-5">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <h1 className="text-xl font-semibold text-gray-900">用户管理</h1>
         <div className="flex flex-wrap items-center gap-2">
@@ -288,7 +289,7 @@ export default function UsersPage() {
               clearMessages();
               setShowCreateForm(!showCreateForm);
             }}
-            className="inline-flex items-center justify-center gap-1.5 px-4 py-2 bg-gray-900 text-white text-sm font-medium rounded-lg hover:bg-gray-800"
+            className="inline-flex items-center justify-center gap-1.5 rounded-[var(--radius-md)] bg-[var(--brand-orange)] px-4 py-2 text-sm font-medium text-white hover:bg-[var(--brand-orange-hover)]"
           >
             {showCreateForm ? <X className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
             {showCreateForm ? "收起" : "新增用户"}
@@ -300,7 +301,7 @@ export default function UsersPage() {
       {notice && <div className="rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">{notice}</div>}
 
       {showCreateForm && (
-        <div className="bg-white rounded-xl border border-gray-200 p-5 space-y-4">
+        <div className="space-y-4 rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--surface-solid)] p-5 shadow-[var(--shadow-card)]">
           <h2 className="text-sm font-semibold text-gray-700">新增用户</h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             <FormInput label="姓名 *" value={createForm.name} onChange={(value) => setCreateForm({ ...createForm, name: value })} />
@@ -397,9 +398,9 @@ export default function UsersPage() {
         </div>
       )}
 
-      <div className="bg-white rounded-xl border border-gray-200 overflow-x-auto">
+      <div className="overflow-x-auto rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--surface-solid)] shadow-[var(--shadow-card)]">
         <table className="w-full min-w-[980px] table-fixed">
-          <thead className="bg-gray-50 border-b border-gray-200">
+          <thead className="sticky top-0 bg-[var(--surface-muted)] border-b border-[var(--border)]">
             <tr>
               <th className="w-[120px] text-left px-4 py-3 text-xs font-medium text-gray-500">姓名</th>
               <th className="w-[220px] text-left px-4 py-3 text-xs font-medium text-gray-500">账号</th>
@@ -416,7 +417,7 @@ export default function UsersPage() {
               <tr><td colSpan={6} className="text-center py-8 text-sm text-gray-500">暂无用户</td></tr>
             ) : (
               users.map((target) => (
-                <tr key={target.id} className="hover:bg-gray-50">
+                <tr key={target.id} className="h-12 hover:bg-[var(--surface-hover)]">
                   <td className="truncate px-4 py-3 text-sm font-medium text-gray-900">{target.name}</td>
                   <td className="truncate px-4 py-3 text-sm text-gray-600">{target.email}</td>
                   <td className="whitespace-nowrap px-4 py-3"><span className="whitespace-nowrap text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-700">{ROLE_LABELS[target.role]}</span></td>
@@ -440,7 +441,7 @@ export default function UsersPage() {
           </tbody>
         </table>
       </div>
-    </div>
+    </PageContainer>
   );
 }
 

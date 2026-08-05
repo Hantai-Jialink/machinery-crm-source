@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
 import { Ban, Pencil, Plus, Search } from "lucide-react";
+import { PageContainer } from "@/components/layout/page-container";
 
 const emptyForm = {
   name: "",
@@ -99,23 +100,23 @@ export default function SuppliersPage() {
   };
 
   return (
-    <div className="space-y-4">
+    <PageContainer variant="data" className="space-y-5">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-xl font-semibold text-gray-900">供应商管理</h1>
           <p className="mt-1 text-sm text-gray-500">停用仅关闭使用资格，历史数据会保留。</p>
         </div>
         {canEdit && (
-          <button onClick={openCreate} className="inline-flex items-center gap-1.5 rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-800">
+          <button onClick={openCreate} className="inline-flex items-center gap-1.5 rounded-[var(--radius-md)] bg-[var(--brand-orange)] px-4 py-2 text-sm font-medium text-white hover:bg-[var(--brand-orange-hover)]">
             <Plus className="h-4 w-4" />新增供应商
           </button>
         )}
       </div>
 
-      <div className="flex flex-wrap gap-3 rounded-xl border border-gray-200 bg-white p-4">
+      <div className="flex flex-wrap gap-3 rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--surface-solid)] p-4 shadow-[var(--shadow-card)]">
         <div className="relative min-w-[220px] flex-1">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-          <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="搜索名称、联系人、电话或主营品类" className="w-full rounded-lg border border-gray-300 py-2 pl-9 pr-3 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900" />
+          <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="搜索名称、联系人、电话或主营品类" className="w-full rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface-solid)] py-2 pl-9 pr-3 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--brand-orange)]" />
         </div>
       </div>
 
@@ -126,9 +127,9 @@ export default function SuppliersPage() {
       ) : suppliers.length === 0 ? (
         <p className="py-8 text-center text-sm text-gray-500">暂无供应商</p>
       ) : (
-        <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white">
+        <div className="overflow-x-auto rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--surface-solid)] shadow-[var(--shadow-card)]">
           <table className="w-full min-w-[860px] text-sm">
-            <thead className="border-b border-gray-200 bg-gray-50">
+            <thead className="sticky top-0 border-b border-[var(--border)] bg-[var(--surface-muted)]">
               <tr>
                 <th className="px-4 py-3 text-left font-medium text-gray-600">供应商名称</th>
                 <th className="px-4 py-3 text-left font-medium text-gray-600">联系人</th>
@@ -140,11 +141,11 @@ export default function SuppliersPage() {
             </thead>
             <tbody>
               {suppliers.map((supplier) => (
-                <tr key={supplier.id} className="border-b border-gray-100 hover:bg-gray-50">
-                  <td className="px-4 py-3 font-medium text-gray-900">{supplier.name}</td>
-                  <td className="px-4 py-3 text-gray-600">{supplier.contactName || "-"}</td>
-                  <td className="px-4 py-3 text-gray-600">{supplier.phone || supplier.wechat || "-"}</td>
-                  <td className="px-4 py-3 text-gray-600">{supplier.mainCategory || "-"}</td>
+                <tr key={supplier.id} className="h-12 border-b border-[var(--border)] hover:bg-[var(--surface-hover)]">
+                  <td className="px-4 py-3 font-medium text-[var(--text-primary)]">{supplier.name}</td>
+                  <td className="px-4 py-3 text-[var(--text-secondary)]">{supplier.contactName || "-"}</td>
+                  <td className="px-4 py-3 text-[var(--text-secondary)]">{supplier.phone || supplier.wechat || "-"}</td>
+                  <td className="px-4 py-3 text-[var(--text-secondary)]">{supplier.mainCategory || "-"}</td>
                   <td className="px-4 py-3"><span className={`rounded-full px-2 py-0.5 text-xs ${supplier.isActive ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-500"}`}>{supplier.isActive ? "启用" : "已停用"}</span></td>
                   {canEdit && (
                     <td className="px-4 py-3 text-center">
@@ -163,7 +164,7 @@ export default function SuppliersPage() {
 
       {showModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setShowModal(false)}>
-          <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-xl bg-white p-6 shadow-xl" onClick={(event) => event.stopPropagation()}>
+          <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-[var(--radius-lg)] bg-[var(--surface-solid)] p-6 shadow-[var(--shadow-float)]" onClick={(event) => event.stopPropagation()}>
             <h2 className="mb-4 text-lg font-semibold">{editId ? "编辑供应商" : "新增供应商"}</h2>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <Field label="供应商名称 *" value={form.name} onChange={(value) => setForm({ ...form, name: value })} />
@@ -178,12 +179,12 @@ export default function SuppliersPage() {
             {message && <p className="mt-3 text-sm text-red-600">{message}</p>}
             <div className="mt-5 flex justify-end gap-2">
               <button onClick={() => setShowModal(false)} className="rounded-lg border border-gray-300 px-4 py-2 text-sm text-gray-700">取消</button>
-              <button onClick={saveSupplier} disabled={saving || !form.name.trim() || (!editId && (!form.contactName.trim() || !form.phone.trim()))} className="rounded-lg bg-gray-900 px-4 py-2 text-sm text-white hover:bg-gray-800 disabled:opacity-50">{saving ? "保存中..." : "保存"}</button>
+              <button onClick={saveSupplier} disabled={saving || !form.name.trim() || (!editId && (!form.contactName.trim() || !form.phone.trim()))} className="rounded-[var(--radius-md)] bg-[var(--brand-orange)] px-4 py-2 text-sm text-white hover:bg-[var(--brand-orange-hover)] disabled:opacity-50">{saving ? "保存中..." : "保存"}</button>
             </div>
           </div>
         </div>
       )}
-    </div>
+    </PageContainer>
   );
 }
 

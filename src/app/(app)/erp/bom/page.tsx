@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useSession } from "next-auth/react";
 import { ArrowDown, ArrowUp, Boxes, ChevronDown, ChevronRight, Eye, Pencil, Plus, Search, Trash2 } from "lucide-react";
+import { PageContainer } from "@/components/layout/page-container";
 
 type BomLine = {
   clientKey: string;
@@ -359,7 +360,7 @@ export default function BomPage() {
   };
 
   return (
-    <div className="space-y-4">
+    <PageContainer variant="data" className="space-y-5">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-xl font-semibold text-gray-900">整机用料清单</h1>
@@ -368,14 +369,14 @@ export default function BomPage() {
         {canEdit && (
           <button
             onClick={openCreate}
-            className="inline-flex items-center gap-1.5 px-4 py-2 bg-gray-900 text-white text-sm font-medium rounded-lg hover:bg-gray-800"
+            className="inline-flex items-center gap-1.5 rounded-[var(--radius-md)] bg-[var(--brand-orange)] px-4 py-2 text-sm font-medium text-white hover:bg-[var(--brand-orange-hover)]"
           >
             <Plus className="w-4 h-4" />新建整机清单
           </button>
         )}
       </div>
 
-      <div className="bg-white rounded-xl border border-gray-200 p-4 flex flex-wrap gap-3 items-center">
+      <div className="flex flex-wrap items-center gap-3 rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--surface-solid)] p-4 shadow-[var(--shadow-card)]">
         <div className="relative flex-1 min-w-[240px]">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
           <input
@@ -398,7 +399,7 @@ export default function BomPage() {
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1.05fr)_minmax(380px,0.95fr)] gap-4">
-        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+        <div className="overflow-hidden rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--surface-solid)] shadow-[var(--shadow-card)]">
           {loading ? (
             <p className="text-center py-8 text-sm text-gray-500">加载中...</p>
           ) : boms.length === 0 ? (
@@ -406,7 +407,7 @@ export default function BomPage() {
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
-                <thead className="bg-gray-50 border-b border-gray-200">
+                <thead className="sticky top-0 border-b border-[var(--border)] bg-[var(--surface-muted)]">
                   <tr>
                     <th className="text-left px-4 py-3 font-medium text-gray-600">产品</th>
                     <th className="text-left px-4 py-3 font-medium text-gray-600">版本</th>
@@ -420,7 +421,7 @@ export default function BomPage() {
                   {boms.map((bom) => (
                     <tr
                       key={bom.id}
-                      className={`border-b border-gray-100 hover:bg-gray-50 cursor-pointer ${selectedId === bom.id ? "bg-gray-50" : ""}`}
+                      className={`h-12 cursor-pointer border-b border-[var(--border)] hover:bg-[var(--surface-hover)] ${selectedId === bom.id ? "bg-[var(--surface-muted)]" : ""}`}
                       onClick={() => loadDetail(bom.id)}
                     >
                       <td className="px-4 py-3">
@@ -463,7 +464,7 @@ export default function BomPage() {
         </div>
 
         <div className="space-y-4">
-          <div className="bg-white rounded-xl border border-gray-200 p-4">
+          <div className="rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--surface-solid)] p-4 shadow-[var(--shadow-card)]">
             {!selectedId ? (
               <p className="text-sm text-gray-500 text-center py-8">选择一张清单查看明细</p>
             ) : detailLoading ? (
@@ -756,6 +757,6 @@ export default function BomPage() {
           )}
         </div>
       )}
-    </div>
+    </PageContainer>
   );
 }

@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
 import { Plus, CheckCircle, Info, Trash2 } from "lucide-react";
+import { PageContainer } from "@/components/layout/page-container";
 
 const STOCK_CHECK_STATUS_LABELS: Record<string, string> = {
   DRAFT: "草稿",
@@ -166,13 +167,13 @@ export default function StockCheckPage() {
   };
 
   return (
-    <div className="space-y-4">
+    <PageContainer variant="data" className="space-y-5">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <h1 className="text-xl font-semibold text-gray-900">盘点单</h1>
         {canEdit && (
           <button
             onClick={() => setTab("form")}
-            className="inline-flex items-center gap-1.5 px-4 py-2 bg-gray-900 text-white text-sm font-medium rounded-lg hover:bg-gray-800"
+            className="inline-flex items-center gap-1.5 rounded-[var(--radius-md)] bg-[var(--brand-orange)] px-4 py-2 text-sm font-medium text-white hover:bg-[var(--brand-orange-hover)]"
           >
             <Plus className="w-4 h-4" />新增盘点
           </button>
@@ -202,7 +203,7 @@ export default function StockCheckPage() {
       </div>
 
       {tab === "form" && canEdit && (
-        <div className="bg-white rounded-xl border border-gray-200 p-6 space-y-4">
+          <div className="space-y-4 rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--surface-solid)] p-6 shadow-[var(--shadow-card)]">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-xs font-medium text-gray-600 mb-1">仓库 *</label>
@@ -269,9 +270,9 @@ export default function StockCheckPage() {
           ) : stockChecks.length === 0 ? (
             <p className="text-center py-8 text-sm text-gray-500">暂无盘点记录</p>
           ) : (
-            <div className="bg-white rounded-xl border border-gray-200 overflow-x-auto">
+            <div className="overflow-x-auto rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--surface-solid)] shadow-[var(--shadow-card)]">
               <table className="w-full text-sm">
-                <thead className="bg-gray-50 border-b border-gray-200">
+                <thead className="sticky top-0 border-b border-[var(--border)] bg-[var(--surface-muted)]">
                   <tr>
                     <th className="text-left px-4 py-3 font-medium text-gray-600">单号</th>
                     <th className="text-left px-4 py-3 font-medium text-gray-600">仓库</th>
@@ -283,7 +284,7 @@ export default function StockCheckPage() {
                 </thead>
                 <tbody>
                   {stockChecks.map((sc) => (
-                    <tr key={sc.id} className="border-b border-gray-100 hover:bg-gray-50">
+                    <tr key={sc.id} className="h-12 border-b border-[var(--border)] hover:bg-[var(--surface-hover)]">
                       <td className="px-4 py-3 font-mono text-xs">{sc.batchNo}</td>
                       <td className="px-4 py-3 text-gray-500">{sc.warehouse?.name}</td>
                       <td className="px-4 py-3">
@@ -411,6 +412,6 @@ export default function StockCheckPage() {
           </div>
         </div>
       )}
-    </div>
+    </PageContainer>
   );
 }
