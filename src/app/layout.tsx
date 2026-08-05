@@ -65,7 +65,7 @@ export default function RootLayout({
       suppressHydrationWarning
     >
       <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
-      <body className="min-h-full antialiased bg-gray-50 text-gray-900">
+      <body className="min-h-full bg-[var(--app-bg)] [background-image:var(--app-bg-glow)] text-[var(--text-primary)] antialiased">
 
       <Script id="crypto-randomuuid-polyfill" strategy="beforeInteractive">
 

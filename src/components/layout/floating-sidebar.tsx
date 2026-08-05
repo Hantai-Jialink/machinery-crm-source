@@ -18,7 +18,7 @@ import {
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { APP_VERSION } from "@/lib/changelog";
+import { DISPLAY_VERSION } from "@/lib/changelog";
 import { canViewERP } from "@/lib/erp-roles";
 import { cn } from "@/lib/utils";
 
@@ -283,7 +283,7 @@ export function FloatingSidebar({
     <aside
       aria-label={isDrawer ? "移动端主导航" : "主导航"}
       className={cn(
-        "overflow-hidden border border-[var(--border)] bg-[rgba(255,255,255,0.92)] shadow-[var(--shadow-float)] backdrop-blur-xl dark:bg-[rgba(29,31,35,0.92)] print:hidden",
+        "overflow-hidden border border-[var(--border)] bg-[var(--surface)] shadow-[var(--shadow-float)] backdrop-blur-xl print:hidden",
         isDrawer
           ? "flex h-full w-[min(86vw,320px)] flex-col rounded-r-[var(--radius-2xl)]"
           : "fixed bottom-4 left-4 top-4 z-30 hidden flex-col rounded-[var(--radius-2xl)] transition-[width] duration-200 md:flex",
@@ -340,7 +340,7 @@ export function FloatingSidebar({
         >
           {(isDrawer || !collapsed) && (
             <div className={cn("min-w-0", !isDrawer && "hidden xl:block")}>
-              <p className="truncate text-[10px] text-[var(--text-tertiary)]">{APP_VERSION}</p>
+              <p className="truncate text-[10px] text-[var(--text-tertiary)]">{DISPLAY_VERSION}</p>
             </div>
           )}
           <span

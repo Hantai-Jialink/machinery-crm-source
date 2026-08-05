@@ -52,7 +52,7 @@ export function UserAvatar({
     <span
       aria-label={showImage ? undefined : avatarLabel}
       className={cn(
-        "inline-flex shrink-0 items-center justify-center overflow-hidden rounded-full font-semibold text-white shadow-sm ring-2 ring-white/80 dark:ring-white/10",
+        "inline-flex shrink-0 items-center justify-center overflow-hidden rounded-full font-semibold text-white shadow-sm ring-2 ring-[var(--surface-solid)]",
         getUserAvatarColor(userId),
         size === "sm" && "size-8 text-xs",
         size === "md" && "size-9 text-sm",

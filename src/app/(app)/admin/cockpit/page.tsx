@@ -29,6 +29,7 @@ import { LoadingSkeleton } from "@/components/ui/loading-skeleton";
 import { MetricCard } from "@/components/ui/metric-card";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { SurfaceCard } from "@/components/ui/surface-card";
+import { DISPLAY_VERSION } from "@/lib/changelog";
 
 type HealthItem = {
   name: string;
@@ -143,11 +144,9 @@ export default function AdminCockpitPage() {
           title="平台状态"
         />
         <MetricCard
-          error={healthError}
           hint="当前应用发布版本"
           icon={<BookOpenCheck className="size-6" />}
-          loading={healthLoading}
-          number={health?.build?.version || "无法验证"}
+          number={DISPLAY_VERSION}
           title="平台版本"
         />
         <MetricCard
