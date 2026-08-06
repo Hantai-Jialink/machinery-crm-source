@@ -289,14 +289,16 @@ export default function DashboardPage() {
             {kpiCards.map((card) => <MetricCard key={card.title} {...card} />)}
           </div>
 
-          <div className="min-w-0">
-            <DashboardMapErrorBoundary resetKey={query}>
-              <AmapShipmentMap shipments={data.shipmentPaths || []} />
-            </DashboardMapErrorBoundary>
+          <div className="grid min-w-0 items-stretch gap-6 min-[1100px]:grid-cols-2">
+            <div className="min-w-0">
+              <DashboardMapErrorBoundary resetKey={query}>
+                <AmapShipmentMap shipments={data.shipmentPaths || []} />
+              </DashboardMapErrorBoundary>
+            </div>
+            <SalesTargetPlaceholder />
           </div>
 
-          <div className="grid gap-6 sm:grid-cols-2 xl:grid-cols-4">
-            <SalesTargetPlaceholder />
+          <div className="grid gap-6 md:grid-cols-3">
             <ShipmentReminder title="今日应发货" items={data.shipmentReminders.today} tone="warning" />
             <ShipmentReminder title="7天内待发货" items={data.shipmentReminders.sevenDays} tone="info" />
             <ShipmentReminder title="已逾期未发货" items={data.shipmentReminders.overdue} tone="danger" />
@@ -377,9 +379,58 @@ function SectionHeading({ title, description }: { title: string; description?: s
 
 function SalesTargetPlaceholder() {
   return (
-    <SurfaceCard className="p-5">
-      <SectionHeading title="销售目标" description="即将上线" />
-      <EmptyState title="该功能将在后续版本上线" />
+    <SurfaceCard className="flex h-full min-h-[360px] min-w-0 flex-col overflow-hidden p-6">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <SectionHeading title="销售目标" description="本月目标完成进度" />
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <div
+            aria-label="销售目标周期（功能待开放）"
+            className="flex rounded-[var(--radius-sm)] bg-[var(--surface-muted)] p-1 text-xs"
+          >
+            <span className="rounded-lg bg-[var(--surface-solid)] px-3 py-1.5 font-medium text-[var(--text-primary)] shadow-sm">
+              月度
+            </span>
+            <span className="px-3 py-1.5 text-[var(--text-tertiary)]">年度</span>
+          </div>
+          <button
+            className="rounded-[var(--radius-sm)] border border-[var(--border-strong)] px-3 py-2 text-xs font-medium text-[var(--text-tertiary)] opacity-70"
+            disabled
+            type="button"
+          >
+            设置目标
+          </button>
+        </div>
+      </div>
+
+      <div className="flex flex-1 flex-col items-center justify-center px-4 py-8 text-center">
+        <div className="relative size-48 sm:size-52" aria-label="销售目标尚未设置">
+          <svg aria-hidden="true" className="size-full -rotate-90" viewBox="0 0 160 160">
+            <circle
+              className="stroke-[var(--border-strong)]"
+              cx="80"
+              cy="80"
+              fill="none"
+              r="64"
+              strokeWidth="12"
+            />
+            <circle
+              className="stroke-[var(--brand-orange)] opacity-20"
+              cx="80"
+              cy="80"
+              fill="none"
+              r="64"
+              strokeDasharray="4 14"
+              strokeLinecap="round"
+              strokeWidth="12"
+            />
+          </svg>
+          <div className="absolute inset-0 flex items-center justify-center">
+            <span className="text-sm font-medium text-[var(--text-secondary)]">待设置</span>
+          </div>
+        </div>
+        <p className="mt-6 text-base font-semibold text-[var(--text-primary)]">尚未设置本月销售目标</p>
+        <p className="mt-2 text-sm text-[var(--text-tertiary)]">设置目标后将在此显示完成进度</p>
+      </div>
     </SurfaceCard>
   );
 }

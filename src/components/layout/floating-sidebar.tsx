@@ -283,14 +283,14 @@ export function FloatingSidebar({
     <aside
       aria-label={isDrawer ? "移动端主导航" : "主导航"}
       className={cn(
-        "overflow-hidden border border-[var(--border)] bg-[var(--surface)] shadow-[var(--shadow-float)] backdrop-blur-xl print:hidden",
+        "sidebar-glass overflow-hidden border print:hidden",
         isDrawer
           ? "flex h-full w-[min(86vw,320px)] flex-col rounded-r-[var(--radius-2xl)]"
           : "fixed bottom-4 left-4 top-4 z-30 hidden flex-col rounded-[var(--radius-2xl)] transition-[width] duration-200 md:flex",
         !isDrawer && (collapsed ? "w-[76px]" : "w-[76px] xl:w-[264px]"),
       )}
     >
-      <div className="flex h-[72px] shrink-0 items-center justify-center border-b border-[var(--border)] px-3">
+      <div className="sidebar-glass-section flex h-[72px] shrink-0 items-center justify-center border-b border-[var(--border)] px-3">
         {(isDrawer || !collapsed) && (
           <Image
             alt="大川机械"
@@ -314,7 +314,7 @@ export function FloatingSidebar({
       </div>
 
       <nav
-        className="min-h-0 flex-1 space-y-1 overflow-y-auto overscroll-contain p-3"
+        className="min-h-0 flex-1 space-y-1 overflow-y-auto overscroll-contain bg-transparent p-3"
         onScroll={rememberScroll}
         ref={navRef}
       >
@@ -330,10 +330,10 @@ export function FloatingSidebar({
         })}
       </nav>
 
-      <div className="shrink-0 border-t border-[var(--border)] p-3">
+      <div className="sidebar-glass-section shrink-0 border-t border-[var(--border)] p-3">
         <div
           className={cn(
-            "flex items-center rounded-xl bg-[var(--surface-muted)]",
+            "sidebar-glass-panel flex items-center rounded-xl",
             isDrawer || !collapsed ? "justify-between gap-2 px-3 py-2" : "justify-center py-2",
           )}
           title={statusText}

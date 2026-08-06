@@ -53,7 +53,11 @@ export function AppShell({ children }: { children: ReactNode }) {
   );
 
   return (
-    <div className="min-h-screen bg-[var(--app-bg)] text-[var(--text-primary)] transition-colors print:bg-white print:text-black">
+    <div className="relative isolate min-h-screen bg-[var(--app-bg)] text-[var(--text-primary)] transition-colors print:bg-white print:text-black">
+      <div
+        aria-hidden="true"
+        className="sidebar-backdrop-glow pointer-events-none fixed inset-y-0 left-0 z-0 hidden w-[360px] md:block print:hidden"
+      />
       <FloatingSidebar
         collapsed={collapsed}
         onCollapsedChange={changeCollapsed}
@@ -64,7 +68,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       />
 
       <div
-        className={`min-h-screen transition-[padding] duration-200 print:pl-0 md:pl-[108px] ${
+        className={`relative z-10 min-h-screen transition-[padding] duration-200 print:pl-0 md:pl-[108px] ${
           collapsed ? "xl:pl-[108px]" : "xl:pl-[312px]"
         }`}
       >

@@ -41,4 +41,26 @@ describe("UI-M7 responsive acceptance contracts", () => {
     expect(userMenu).toContain("menuRef.current?.querySelectorAll");
     expect(userMenu).toContain("previouslyFocused?.focus()");
   });
+
+  it("keeps the sidebar glass visible against a dedicated background glow", () => {
+    const shell = source("src/components/layout/app-shell.tsx");
+    const sidebar = source("src/components/layout/floating-sidebar.tsx");
+    const globals = source("src/app/globals.css");
+
+    expect(shell).toContain("sidebar-backdrop-glow");
+    expect(shell).not.toContain("overflow-x-clip");
+    expect(sidebar).toContain("sidebar-glass");
+    expect(sidebar).toContain("sidebar-glass-panel");
+    expect(globals).toContain("backdrop-filter: blur(22px) saturate(135%)");
+  });
+
+  it("keeps the shipment map and sales target together above three reminders", () => {
+    const dashboard = source("src/app/(app)/dashboard/page.tsx");
+
+    expect(dashboard).toContain("min-[1100px]:grid-cols-2");
+    expect(dashboard).toContain("md:grid-cols-3");
+    expect(dashboard).toContain("尚未设置本月销售目标");
+    expect(dashboard).toContain("设置目标后将在此显示完成进度");
+    expect(dashboard).not.toContain("xl:grid-cols-4");
+  });
 });
