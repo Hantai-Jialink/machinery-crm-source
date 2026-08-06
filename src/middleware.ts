@@ -41,8 +41,8 @@ export default auth((req) => {
 
   const matchesPage = (prefix: string) => pathname === prefix || pathname.startsWith(`${prefix}/`);
   const rolePages: Record<string, string[]> = {
-    PURCHASE: ["/erp/inventory", "/erp/materials", "/erp/bom", "/erp/suppliers", "/erp/purchase-demands", "/erp/purchase-orders", "/erp/production-orders", "/erp/kit-check-results"],
-    WAREHOUSE: ["/erp/inventory", "/erp/materials", "/erp/bom", "/erp/purchase-demands", "/erp/purchase-orders", "/erp/production-orders", "/erp/kit-check-results", "/erp/warehouse", "/erp/stock-in", "/erp/stock-out", "/erp/stock-transfers", "/erp/stock-check"],
+    PURCHASE: ["/erp/inventory", "/erp/materials", "/erp/bom", "/erp/suppliers", "/erp/purchase-demands", "/erp/purchase-orders", "/erp/production-orders", "/erp/kit-check-results", "/erp/supplier-deliveries", "/erp/monthly-production-plans"],
+    WAREHOUSE: ["/erp/inventory", "/erp/materials", "/erp/bom", "/erp/purchase-demands", "/erp/purchase-orders", "/erp/production-orders", "/erp/kit-check-results", "/erp/warehouse", "/erp/stock-in", "/erp/stock-out", "/erp/stock-transfers", "/erp/stock-check", "/erp/supplier-deliveries", "/erp/monthly-production-plans"],
   };
 
   // 内部 ERP 岗位硬隔离：只允许 ERP + 系统设置；具体写权限由 API 再校验。
